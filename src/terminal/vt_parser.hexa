@@ -1,0 +1,110 @@
+// vt_parser.hexa — VT escape sequence parser (6-state)
+// VOID Layer 3: Terminal Core
+
+// ── 6 Parser States (n=6) ──
+
+let STATE_GROUND = 0
+let STATE_ESCAPE = 1
+let STATE_CSI = 2
+let STATE_OSC = 3
+let STATE_DCS = 4
+let STATE_VOID = 5
+
+fn new_vt_parser() -> Map {
+  return {
+    "state": STATE_GROUND,
+    "params": "",
+    "intermediate": "",
+    "osc_string": ""
+  }
+}
+
+// Parse a single byte and return action
+// Returns: {"action": String, "param": String}
+// Actions: "print", "execute", "csi_dispatch", "osc_dispatch", "none"
+fn vt_parse_byte(parser: Map, byte: Int) -> Map {
+  let ch = ""
+  if byte >= 32 && byte < 127 {
+    ch = to_string(byte)  // printable ASCII
+  }
+
+  let result = {"action": "none", "param": "", "parser": parser}
+
+  if parser["state"] == STATE_GROUND {
+    if byte == 27 {
+      // ESC
+      parser["state"] = STATE_ESCAPE
+      parser["params"] = ""
+      parser["intermediate"] = ""
+    } else if byte >= 32 {
+      // Printable
+      result["action"] = "print"
+      result["param"] = ch
+    } else {
+      // Control character (CR, LF, BS, TAB, BEL, etc.)
+      result["action"] = "execute"
+      result["param"] = str(byte)
+    }
+  } else if parser["state"] == STATE_ESCAPE {
+    if byte == 91 {
+      // [ → CSI
+      parser["state"] = STATE_CSI
+      parser["params"] = ""
+    } else if byte == 93 {
+      // ] → OSC
+      parser["state"] = STATE_OSC
+      parser["osc_string"] = ""
+    } else if byte == 80 {
+      // P → DCS
+      parser["state"] = STATE_DCS
+    } else {
+      // Simple escape sequence
+      result["action"] = "execute"
+      result["param"] = "ESC_" + ch
+      parser["state"] = STATE_GROUND
+    }
+  } else if parser["state"] == STATE_CSI {
+    if byte >= 48 && byte <= 57 {
+      // Digit: accumulate parameter
+      parser["params"] = parser["params"] + ch
+    } else if byte == 59 {
+      // ; separator
+      parser["params"] = parser["params"] + ";"
+    } else if byte >= 64 && byte <= 126 {
+      // Final byte: dispatch CSI
+      result["action"] = "csi_dispatch"
+      result["param"] = parser["params"] + ch
+      parser["state"] = STATE_GROUND
+    }
+  } else if parser["state"] == STATE_OSC {
+    if byte == 7 {
+      // BEL: end OSC
+      result["action"] = "osc_dispatch"
+      result["param"] = parser["osc_string"]
+      parser["state"] = STATE_GROUND
+    } else if byte == 27 {
+      // ESC might be followed by \ for ST
+      result["action"] = "osc_dispatch"
+      result["param"] = parser["osc_string"]
+      parser["state"] = STATE_GROUND
+    } else {
+      parser["osc_string"] = parser["osc_string"] + ch
+    }
+  } else if parser["state"] == STATE_DCS {
+    if byte == 27 {
+      parser["state"] = STATE_GROUND
+    }
+  } else if parser["state"] == STATE_VOID {
+    // VOID protocol: ESC ] 777 ; type ; payload ST
+    if byte == 7 || byte == 27 {
+      result["action"] = "void_dispatch"
+      result["param"] = parser["osc_string"]
+      parser["state"] = STATE_GROUND
+    } else {
+      parser["osc_string"] = parser["osc_string"] + ch
+    }
+  }
+
+  result["parser"] = parser
+  return result
+}

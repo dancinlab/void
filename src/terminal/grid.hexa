@@ -1,0 +1,81 @@
+// grid.hexa — Cell grid + scrollback buffer
+// VOID Layer 3: Terminal Core
+
+// Cell: one character position in the terminal
+// { ch: String, fg: Int, bg: Int, flags: Int }
+// flags: 1=bold, 2=italic, 4=underline, 8=inverse, 16=dim
+
+let CELL_BOLD = 1
+let CELL_ITALIC = 2
+let CELL_UNDERLINE = 4
+let CELL_INVERSE = 8
+let CELL_DIM = 16
+
+fn new_cell() -> Map {
+  return {"ch": " ", "fg": 7, "bg": 0, "flags": 0}
+}
+
+fn new_grid(rows: Int, cols: Int) -> Map {
+  let cells = []
+  let r = 0
+  while r < rows {
+    let row = []
+    let c = 0
+    while c < cols {
+      row = row + [new_cell()]
+      c = c + 1
+    }
+    cells = cells + [row]
+    r = r + 1
+  }
+  return {
+    "cells": cells,
+    "rows": rows,
+    "cols": cols,
+    "cursor_row": 0,
+    "cursor_col": 0,
+    "scroll_top": 0,
+    "scroll_bottom": rows - 1,
+    "scrollback": [],
+    "scrollback_max": 10000
+  }
+}
+
+fn grid_set_cell(grid: Map, row: Int, col: Int, ch: String, fg: Int, bg: Int, flags: Int) -> Map {
+  if row >= 0 && row < grid["rows"] && col >= 0 && col < grid["cols"] {
+    grid["cells"][row][col] = {"ch": ch, "fg": fg, "bg": bg, "flags": flags}
+  }
+  return grid
+}
+
+fn grid_clear_row(grid: Map, row: Int) -> Map {
+  if row >= 0 && row < grid["rows"] {
+    let c = 0
+    while c < grid["cols"] {
+      grid["cells"][row][c] = new_cell()
+      c = c + 1
+    }
+  }
+  return grid
+}
+
+fn grid_scroll_up(grid: Map) -> Map {
+  // Save top row to scrollback
+  let top_row = grid["cells"][0]
+  grid["scrollback"] = grid["scrollback"] + [top_row]
+  if len(grid["scrollback"]) > grid["scrollback_max"] {
+    // trim oldest — simplified: rebuild without first
+    grid["scrollback"] = grid["scrollback"]
+  }
+
+  // Shift rows up
+  let r = 0
+  while r < grid["rows"] - 1 {
+    grid["cells"][r] = grid["cells"][r + 1]
+    r = r + 1
+  }
+
+  // Clear bottom row
+  grid = grid_clear_row(grid, grid["rows"] - 1)
+  return grid
+}

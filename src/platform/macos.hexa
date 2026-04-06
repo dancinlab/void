@@ -1,0 +1,36 @@
+// macos.hexa — macOS platform bindings via extern FFI
+// VOID Layer 1: System (Cocoa/AppKit)
+
+// ── Objective-C Runtime ──
+
+@link("objc")
+extern fn objc_getClass(name: *Byte) -> *Void
+
+@link("objc")
+extern fn sel_registerName(name: *Byte) -> *Void
+
+@link("objc")
+extern fn objc_msgSend(obj: *Void, sel: *Void) -> *Void
+
+// ── Cocoa/AppKit ──
+
+@link("Cocoa")
+extern fn NSApplicationLoad() -> Int
+
+// ── CoreGraphics ──
+
+extern fn CGMainDisplayID() -> Int
+
+// ── Platform info ──
+
+fn platform_name() -> String {
+  return "macOS"
+}
+
+fn platform_is_macos() -> Bool {
+  return true
+}
+
+fn platform_is_linux() -> Bool {
+  return false
+}

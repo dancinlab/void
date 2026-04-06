@@ -1,0 +1,27 @@
+// protocol.hexa — VOID terminal protocol handler
+// VOID Layer 3: Terminal Core
+
+// VOID Protocol: ESC ] 777 ; type ; payload ST
+// Types:
+//   notify;title;body     — desktop notification
+//   cwd;path              — current working directory
+//   ai;query              — AI command suggestion
+//   theme;name            — switch theme
+//   plugin;name;action    — plugin message
+//   scan;target           — NEXUS-6 scan
+
+fn void_protocol_prefix() -> String {
+  // ESC ] 777 ;
+  return "\x1b]777;"
+}
+
+fn void_protocol_suffix() -> String {
+  // ST (String Terminator)
+  return "\x07"
+}
+
+fn void_send(fd: Int, msg_type: String, payload: String) {
+  let msg = void_protocol_prefix() + msg_type + ";" + payload + void_protocol_suffix()
+  extern fn write(fd: Int, buf: *Byte, count: Int) -> Int
+  write(fd, cstring(msg), len(msg))
+}

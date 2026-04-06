@@ -1,0 +1,29 @@
+// common.hexa — Platform abstraction layer
+// VOID Layer 1: System
+
+extern fn getenv(name: *Byte) -> *Byte
+extern fn getpid() -> Int
+
+fn get_shell() -> String {
+  let shell_ptr = getenv(cstring("SHELL"))
+  if ptr_addr(shell_ptr) > 0 {
+    return from_cstring(shell_ptr)
+  }
+  return "/bin/sh"
+}
+
+fn get_term() -> String {
+  let term_ptr = getenv(cstring("TERM"))
+  if ptr_addr(term_ptr) > 0 {
+    return from_cstring(term_ptr)
+  }
+  return "xterm-256color"
+}
+
+fn get_home() -> String {
+  let home_ptr = getenv(cstring("HOME"))
+  if ptr_addr(home_ptr) > 0 {
+    return from_cstring(home_ptr)
+  }
+  return "/"
+}

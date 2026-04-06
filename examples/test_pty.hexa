@@ -1,0 +1,74 @@
+// test_pty.hexa — PTY test for VOID
+println("=== VOID PTY test ===")
+
+extern fn openpty(master: *Int, slave: *Int, name: *Byte, termp: *Void, winp: *Void) -> Int
+extern fn fork() -> Int
+extern fn setsid() -> Int
+extern fn close(fd: Int) -> Int
+extern fn dup2(old: Int, new: Int) -> Int
+extern fn execvp(file: *Byte, argv: *Void) -> Int
+extern fn read(fd: Int, buf: *Byte, count: Int) -> Int
+extern fn write(fd: Int, buf: *Byte, count: Int) -> Int
+extern fn kill(pid: Int, sig: Int) -> Int
+extern fn waitpid(pid: Int, status: *Int, options: Int) -> Int
+extern fn usleep(usec: Int) -> Int
+extern fn fcntl(fd: Int, cmd: Int, arg: Int) -> Int
+extern fn malloc(size: Int) -> *Void
+extern fn free(ptr: *Void)
+
+let O_NONBLOCK = 4
+
+// Open PTY
+let master_ptr = malloc(8)
+let slave_ptr = malloc(8)
+let ret = openpty(master_ptr, slave_ptr, ptr_null(), ptr_null(), ptr_null())
+assert(ret == 0, "openpty failed: " + str(ret))
+println("[PASS] openpty")
+
+let master_fd = deref(master_ptr)
+let slave_fd = deref(slave_ptr)
+free(master_ptr)
+free(slave_ptr)
+println("[INFO] master=" + str(master_fd) + " slave=" + str(slave_fd))
+
+// Non-blocking
+fcntl(master_fd, 4, O_NONBLOCK)
+
+// Fork
+let pid = fork()
+if pid == 0 {
+  close(master_fd)
+  setsid()
+  dup2(slave_fd, 0)
+  dup2(slave_fd, 1)
+  dup2(slave_fd, 2)
+  if slave_fd > 2 { close(slave_fd) }
+  execvp(cstring("/bin/sh"), ptr_null())
+}
+
+close(slave_fd)
+println("[PASS] fork pid=" + str(pid))
+
+// Write command
+let cmd = cstring("echo VOID_OK\n")
+write(master_fd, cmd, 13)
+usleep(200000)
+
+// Read output
+let buf = malloc(4096)
+let n = read(master_fd, buf, 4096)
+if n > 0 {
+  let output = from_cstring(buf)
+  println("[INFO] output: " + output)
+}
+println("[PASS] pty read/write")
+
+// Cleanup
+write(master_fd, cstring("exit\n"), 5)
+usleep(100000)
+kill(pid, 15)
+waitpid(pid, ptr_null(), 0)
+close(master_fd)
+free(buf)
+
+println("=== All PTY tests passed ===")

@@ -1,0 +1,19 @@
+// signal.hexa — Signal handling via extern FFI
+// VOID Layer 1: System
+
+extern fn signal(signum: Int, handler: *Void) -> *Void
+
+// Signal constants (POSIX)
+let SIGHUP = 1
+let SIGINT = 2
+let SIGQUIT = 3
+let SIGTERM = 15
+let SIGCHLD = 20
+let SIGWINCH = 28
+
+// SIG_IGN = 1 (ignore signal)
+let SIG_IGN = 1
+
+fn ignore_signal(sig: Int) {
+  signal(sig, SIG_IGN)
+}

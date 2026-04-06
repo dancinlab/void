@@ -1,0 +1,62 @@
+// theme.hexa — Theme engine
+// VOID Layer 4: UI
+
+fn void_dark_theme() -> Map {
+  return {
+    "name": "void_dark",
+    "bg": 0x0D1117,
+    "fg": 0xC9D1D9,
+    "cursor": 0x58A6FF,
+    "selection": 0x264F78,
+    "black": 0x0D1117,
+    "red": 0xFF7B72,
+    "green": 0x7EE787,
+    "yellow": 0xD29922,
+    "blue": 0x58A6FF,
+    "magenta": 0xBC8CFF,
+    "cyan": 0x39D2C0,
+    "white": 0xC9D1D9,
+    "bright_black": 0x484F58,
+    "bright_red": 0xFFA198,
+    "bright_green": 0xAFECAF,
+    "bright_yellow": 0xE3B341,
+    "bright_blue": 0x79C0FF,
+    "bright_magenta": 0xD2A8FF,
+    "bright_cyan": 0x56D4DD,
+    "bright_white": 0xF0F6FC,
+    "statusbar_bg": 0x161B22,
+    "statusbar_fg": 0x8B949E,
+    "tab_active_bg": 0x0D1117,
+    "tab_inactive_bg": 0x161B22
+  }
+}
+
+fn void_light_theme() -> Map {
+  return {
+    "name": "void_light",
+    "bg": 0xFFFFFF,
+    "fg": 0x24292F,
+    "cursor": 0x0969DA,
+    "selection": 0xDDF4FF,
+    "black": 0x24292F,
+    "red": 0xCF222E,
+    "green": 0x116329,
+    "yellow": 0x4D2D00,
+    "blue": 0x0969DA,
+    "magenta": 0x8250DF,
+    "cyan": 0x1B7C83,
+    "white": 0x6E7781,
+    "bright_black": 0x57606A,
+    "bright_red": 0xA40E26,
+    "bright_green": 0x1A7F37,
+    "bright_yellow": 0x633C01,
+    "bright_blue": 0x218BFF,
+    "bright_magenta": 0x6639BA,
+    "bright_cyan": 0x3192AA,
+    "bright_white": 0x8C959F,
+    "statusbar_bg": 0xF6F8FA,
+    "statusbar_fg": 0x57606A,
+    "tab_active_bg": 0xFFFFFF,
+    "tab_inactive_bg": 0xF6F8FA
+  }
+}

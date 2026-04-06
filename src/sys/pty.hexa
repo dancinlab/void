@@ -1,0 +1,111 @@
+// pty.hexa — PTY management via extern FFI
+// VOID Layer 1: System
+
+// ── libc extern declarations ──
+
+extern fn openpty(master: *Int, slave: *Int, name: *Byte, termp: *Void, winp: *Void) -> Int
+extern fn fork() -> Int
+extern fn setsid() -> Int
+extern fn close(fd: Int) -> Int
+extern fn dup2(old: Int, new: Int) -> Int
+extern fn execvp(file: *Byte, argv: *Void) -> Int
+extern fn read(fd: Int, buf: *Byte, count: Int) -> Int
+extern fn write(fd: Int, buf: *Byte, count: Int) -> Int
+extern fn kill(pid: Int, sig: Int) -> Int
+extern fn waitpid(pid: Int, status: *Int, options: Int) -> Int
+extern fn usleep(usec: Int) -> Int
+extern fn fcntl(fd: Int, cmd: Int, arg: Int) -> Int
+extern fn malloc(size: Int) -> *Void
+extern fn free(ptr: *Void)
+extern fn getenv(name: *Byte) -> *Byte
+extern fn ioctl(fd: Int, request: Int, argp: *Void) -> Int
+
+// ── Constants ──
+
+let F_GETFL = 3
+let F_SETFL = 4
+let O_NONBLOCK = 4
+let SIGTERM = 15
+let WNOHANG = 1
+
+// ── PTY open ──
+
+fn pty_open() -> Map {
+  let master_ptr = malloc(8)
+  let slave_ptr = malloc(8)
+
+  let ret = openpty(master_ptr, slave_ptr, ptr_null(), ptr_null(), ptr_null())
+  if ret != 0 {
+    free(master_ptr)
+    free(slave_ptr)
+    return {"ok": 0, "master": -1, "slave": -1}
+  }
+
+  let master_fd = deref(master_ptr)
+  let slave_fd = deref(slave_ptr)
+  free(master_ptr)
+  free(slave_ptr)
+
+  // Set non-blocking on master
+  let flags = fcntl(master_fd, F_GETFL, 0)
+  fcntl(master_fd, F_SETFL, O_NONBLOCK)
+
+  return {"ok": 1, "master": master_fd, "slave": slave_fd}
+}
+
+// ── Spawn shell ──
+
+fn pty_spawn_shell(master_fd: Int, slave_fd: Int) -> Int {
+  let pid = fork()
+  if pid == 0 {
+    // Child process
+    close(master_fd)
+    setsid()
+    dup2(slave_fd, 0)
+    dup2(slave_fd, 1)
+    dup2(slave_fd, 2)
+    if slave_fd > 2 { close(slave_fd) }
+
+    // Get user shell or default to /bin/sh
+    let shell_ptr = getenv(cstring("SHELL"))
+    let shell = "/bin/sh"
+    if ptr_addr(shell_ptr) > 0 {
+      shell = from_cstring(shell_ptr)
+    }
+    execvp(cstring(shell), ptr_null())
+    // Should not reach here
+  }
+  // Parent: close slave side
+  close(slave_fd)
+  return pid
+}
+
+// ── Read from PTY ──
+
+fn pty_read(master_fd: Int, max_bytes: Int) -> String {
+  let buf = malloc(max_bytes)
+  let n = read(master_fd, buf, max_bytes)
+  let result = ""
+  if n > 0 {
+    result = from_cstring(buf)
+  }
+  free(buf)
+  return result
+}
+
+// ── Write to PTY ──
+
+fn pty_write(master_fd: Int, data: String) -> Int {
+  let c = cstring(data)
+  return write(master_fd, c, len(data))
+}
+
+// ── Cleanup ──
+
+fn pty_close(master_fd: Int, pid: Int) {
+  pty_write(master_fd, "exit\n")
+  usleep(100000)
+  kill(pid, SIGTERM)
+  waitpid(pid, ptr_null(), 0)
+  close(master_fd)
+}

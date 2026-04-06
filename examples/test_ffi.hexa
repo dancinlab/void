@@ -1,0 +1,38 @@
+// test_ffi.hexa — FFI smoke test for VOID
+println("=== VOID FFI smoke test ===")
+
+extern fn getpid() -> Int
+extern fn getenv(name: *Byte) -> *Byte
+extern fn strlen(s: *Byte) -> Int
+extern fn time(t: *Void) -> Int
+extern fn malloc(size: Int) -> *Void
+extern fn free(ptr: *Void)
+
+// Test 1: getpid
+let pid = getpid()
+assert(pid > 0, "getpid failed")
+println("[PASS] getpid = " + str(pid))
+
+// Test 2: getenv
+let home_ptr = getenv(cstring("HOME"))
+let home = from_cstring(home_ptr)
+assert(home != "", "getenv HOME failed")
+println("[PASS] HOME = " + home)
+
+// Test 3: strlen
+let len_result = strlen(cstring("VOID"))
+assert(len_result == 4, "strlen failed")
+println("[PASS] strlen(VOID) = " + str(len_result))
+
+// Test 4: time
+let now = time(ptr_null())
+assert(now > 1000000000, "time failed")
+println("[PASS] time = " + str(now))
+
+// Test 5: malloc/free
+let ptr = malloc(1024)
+assert(ptr_addr(ptr) > 0, "malloc failed")
+free(ptr)
+println("[PASS] malloc/free")
+
+println("=== All FFI tests passed ===")
