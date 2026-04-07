@@ -104,10 +104,18 @@ pub fn apply_sgr(grid: map, params: array) -> map {
       // Standard FG colors (30=black, 31=red, ... 37=white)
       grid["current_fg"] = p - 30
     } else if p == 38 {
-      // Extended FG: 38;5;N (256-color)
+      // Extended FG
       if i + 2 < len(params) && params[i + 1] == 5 {
+        // 256-color: 38;5;N
         grid["current_fg"] = params[i + 2]
         i = i + 2
+      } else if i + 4 < len(params) && params[i + 1] == 2 {
+        // TrueColor: 38;2;R;G;B
+        let r = params[i + 2]
+        let g = params[i + 3]
+        let b = params[i + 4]
+        grid["current_fg"] = 256 + r * 65536 + g * 256 + b
+        i = i + 4
       }
     } else if p == 39 {
       // Default FG
@@ -116,10 +124,18 @@ pub fn apply_sgr(grid: map, params: array) -> map {
       // Standard BG colors
       grid["current_bg"] = p - 40
     } else if p == 48 {
-      // Extended BG: 48;5;N (256-color)
+      // Extended BG
       if i + 2 < len(params) && params[i + 1] == 5 {
+        // 256-color: 48;5;N
         grid["current_bg"] = params[i + 2]
         i = i + 2
+      } else if i + 4 < len(params) && params[i + 1] == 2 {
+        // TrueColor: 48;2;R;G;B
+        let r = params[i + 2]
+        let g = params[i + 3]
+        let b = params[i + 4]
+        grid["current_bg"] = 256 + r * 65536 + g * 256 + b
+        i = i + 4
       }
     } else if p == 49 {
       // Default BG

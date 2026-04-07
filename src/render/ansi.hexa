@@ -32,10 +32,19 @@ pub fn ansi_inverse() -> string {
 }
 
 // Foreground color escape sequence
-// 0-7: standard, 8-15: bright, 16-255: 256-color
+// 0-7: standard, 8-15: bright, 16-255: 256-color, 256+: TrueColor
 pub fn ansi_fg(color_index: int) -> string {
   if color_index < 0 {
     return ""
+  }
+  if color_index >= 256 {
+    // TrueColor: decode RGB from 256 + R*65536 + G*256 + B
+    let rgb = color_index - 256
+    let r = rgb / 65536
+    let remainder = rgb - r * 65536
+    let g = remainder / 256
+    let b = remainder - g * 256
+    return "\x1b[38;2;" + str(r) + ";" + str(g) + ";" + str(b) + "m"
   }
   if color_index < 8 {
     return "\x1b[" + str(30 + color_index) + "m"
@@ -48,9 +57,18 @@ pub fn ansi_fg(color_index: int) -> string {
 }
 
 // Background color escape sequence
+// 0-7: standard, 8-15: bright, 16-255: 256-color, 256+: TrueColor
 pub fn ansi_bg(color_index: int) -> string {
   if color_index < 0 {
     return ""
+  }
+  if color_index >= 256 {
+    let rgb = color_index - 256
+    let r = rgb / 65536
+    let remainder = rgb - r * 65536
+    let g = remainder / 256
+    let b = remainder - g * 256
+    return "\x1b[48;2;" + str(r) + ";" + str(g) + ";" + str(b) + "m"
   }
   if color_index < 8 {
     return "\x1b[" + str(40 + color_index) + "m"
