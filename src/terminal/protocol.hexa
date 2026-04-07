@@ -10,18 +10,18 @@
 //   plugin;name;action    — plugin message
 //   scan;target           — NEXUS-6 scan
 
-fn void_protocol_prefix() -> String {
+fn void_protocol_prefix() -> string {
   // ESC ] 777 ;
   return "\x1b]777;"
 }
 
-fn void_protocol_suffix() -> String {
+fn void_protocol_suffix() -> string {
   // ST (String Terminator)
   return "\x07"
 }
 
-fn void_send(fd: Int, msg_type: String, payload: String) {
+fn void_send(fd: int, msg_type: string, payload: string) {
   let msg = void_protocol_prefix() + msg_type + ";" + payload + void_protocol_suffix()
-  extern fn write(fd: Int, buf: *Byte, count: Int) -> Int
+  extern fn write(fd: int, buf: *Byte, count: int) -> int
   write(fd, cstring(msg), len(msg))
 }

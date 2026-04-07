@@ -1,0 +1,105 @@
+// term.hexa — Raw terminal control via extern FFI
+// VOID Layer 1: System
+
+// ── libc extern declarations ──
+
+extern fn system(cmd: *Byte) -> int
+extern fn popen(cmd: *Byte, mode: *Byte) -> *Void
+extern fn fgets(buf: *Byte, size: int, stream: *Void) -> *Byte
+extern fn pclose(stream: *Void) -> int
+extern fn fcntl(fd: int, cmd: int, arg: int) -> int
+extern fn write(fd: int, buf: *Byte, count: int) -> int
+extern fn malloc(size: int) -> *Void
+extern fn free(ptr: *Void)
+
+// ── Constants ──
+
+pub let fd_stdout = 1
+pub let fd_stdin = 0
+pub let f_getfl = 3
+pub let f_setfl = 4
+pub let o_nonblock = 4
+
+// ── Raw mode control ──
+
+pub fn term_raw() {
+  system(cstring("stty raw -echo -icanon"))
+}
+
+pub fn term_restore() {
+  system(cstring("stty sane"))
+}
+
+// ── Terminal size detection ──
+
+pub fn term_size() -> map {
+  let fp = popen(cstring("stty size 2>/dev/null"), cstring("r"))
+  if ptr_addr(fp) == 0 {
+    return #{"rows": 24, "cols": 80}
+  }
+
+  let buf = malloc(64)
+  let result = fgets(buf, 64, fp)
+  pclose(fp)
+
+  if ptr_addr(result) == 0 {
+    free(buf)
+    return #{"rows": 24, "cols": 80}
+  }
+
+  let output = from_cstring(buf)
+  free(buf)
+
+  // Parse "rows cols\n" output
+  let rows = 24
+  let cols = 80
+  let parts = split(trim(output), " ")
+  if len(parts) >= 2 {
+    rows = to_int(parts[0])
+    cols = to_int(parts[1])
+    if rows == 0 { rows = 24 }
+    if cols == 0 { cols = 80 }
+  }
+
+  return #{"rows": rows, "cols": cols}
+}
+
+// ── Non-blocking stdin ──
+
+pub fn stdin_set_nonblock() {
+  let flags = fcntl(fd_stdin, f_getfl, 0)
+  fcntl(fd_stdin, f_setfl, flags + o_nonblock)
+}
+
+// ── ANSI escape helpers ──
+
+pub fn write_escape(seq: string) {
+  let s = "\x1b[" + seq
+  let c = cstring(s)
+  write(fd_stdout, c, len(s))
+}
+
+pub fn cursor_move(row: int, col: int) {
+  write_escape(str(row) + ";" + str(col) + "H")
+}
+
+pub fn cursor_hide() {
+  write_escape("?25l")
+}
+
+pub fn cursor_show() {
+  write_escape("?25h")
+}
+
+pub fn screen_clear() {
+  write_escape("2J")
+  cursor_move(1, 1)
+}
+
+pub fn screen_alt_enter() {
+  write_escape("?1049h")
+}
+
+pub fn screen_alt_leave() {
+  write_escape("?1049l")
+}

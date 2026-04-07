@@ -15,22 +15,22 @@ extern fn objc_msgSend(obj: *Void, sel: *Void) -> *Void
 // ── Cocoa/AppKit ──
 
 @link("Cocoa")
-extern fn NSApplicationLoad() -> Int
+extern fn NSApplicationLoad() -> int
 
 // ── CoreGraphics ──
 
-extern fn CGMainDisplayID() -> Int
+extern fn CGMainDisplayID() -> int
 
 // ── Platform info ──
 
-fn platform_name() -> String {
+fn platform_name() -> string {
   return "macOS"
 }
 
-fn platform_is_macos() -> Bool {
+fn platform_is_macos() -> bool {
   return true
 }
 
-fn platform_is_linux() -> Bool {
+fn platform_is_linux() -> bool {
   return false
 }

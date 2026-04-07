@@ -1,0 +1,257 @@
+// ansi.hexa — ANSI terminal renderer
+// VOID Layer 5: Render — renders cell grid to host terminal via escape sequences
+
+extern fn write(fd: int, buf: *Byte, count: int) -> int
+
+// ── ANSI escape helpers ──
+
+let esc_prefix = "\x1b["
+
+pub fn ansi_reset() -> string {
+  return "\x1b[0m"
+}
+
+pub fn ansi_bold() -> string {
+  return "\x1b[1m"
+}
+
+pub fn ansi_dim() -> string {
+  return "\x1b[2m"
+}
+
+pub fn ansi_italic() -> string {
+  return "\x1b[3m"
+}
+
+pub fn ansi_underline() -> string {
+  return "\x1b[4m"
+}
+
+pub fn ansi_inverse() -> string {
+  return "\x1b[7m"
+}
+
+// Foreground color escape sequence
+// 0-7: standard, 8-15: bright, 16-255: 256-color
+pub fn ansi_fg(color_index: int) -> string {
+  if color_index < 0 {
+    return ""
+  }
+  if color_index < 8 {
+    return "\x1b[" + str(30 + color_index) + "m"
+  }
+  if color_index < 16 {
+    return "\x1b[" + str(90 + color_index - 8) + "m"
+  }
+  // 256-color mode
+  return "\x1b[38;5;" + str(color_index) + "m"
+}
+
+// Background color escape sequence
+pub fn ansi_bg(color_index: int) -> string {
+  if color_index < 0 {
+    return ""
+  }
+  if color_index < 8 {
+    return "\x1b[" + str(40 + color_index) + "m"
+  }
+  if color_index < 16 {
+    return "\x1b[" + str(100 + color_index - 8) + "m"
+  }
+  return "\x1b[48;5;" + str(color_index) + "m"
+}
+
+// ── Cursor movement ──
+
+// Move cursor to row, col (1-based ANSI)
+pub fn ansi_move(row: int, col: int) -> string {
+  return "\x1b[" + str(row) + ";" + str(col) + "H"
+}
+
+// Hide/show cursor
+pub fn ansi_cursor_hide() -> string {
+  return "\x1b[?25l"
+}
+
+pub fn ansi_cursor_show() -> string {
+  return "\x1b[?25h"
+}
+
+// Clear entire screen
+pub fn ansi_clear_screen() -> string {
+  return "\x1b[2J"
+}
+
+// ── Cell attribute builder ──
+
+// Build ANSI attribute string for a cell's flags + colors
+pub fn cell_attrs(fg: int, bg: int, flags: int) -> string {
+  let out = ansi_reset()
+  // flags: 1=bold, 2=italic, 4=underline, 8=inverse, 16=dim
+  if flags > 0 {
+    // Check bold (1)
+    let f = flags
+    if f >= 16 {
+      out = out + ansi_dim()
+      f = f - 16
+    }
+    if f >= 8 {
+      out = out + ansi_inverse()
+      f = f - 8
+    }
+    if f >= 4 {
+      out = out + ansi_underline()
+      f = f - 4
+    }
+    if f >= 2 {
+      out = out + ansi_italic()
+      f = f - 2
+    }
+    if f >= 1 {
+      out = out + ansi_bold()
+    }
+  }
+  out = out + ansi_fg(fg) + ansi_bg(bg)
+  return out
+}
+
+// ── Full grid render (no diff) ──
+
+pub fn render_grid_full(grid: map) -> string {
+  let rows = grid["rows"]
+  let cols = grid["cols"]
+  let cells = grid["cells"]
+  let cursor_row = grid["cursor_row"]
+  let cursor_col = grid["cursor_col"]
+
+  let out = ansi_cursor_hide() + ansi_move(1, 1)
+
+  let prev_fg = -1
+  let prev_bg = -1
+  let prev_flags = -1
+
+  let r = 0
+  while r < rows {
+    out = out + ansi_move(r + 1, 1)
+    let c = 0
+    while c < cols {
+      let cell = cells[r][c]
+      let fg = cell["fg"]
+      let bg = cell["bg"]
+      let flags = cell["flags"]
+
+      // Only emit attribute change when needed
+      if fg != prev_fg || bg != prev_bg || flags != prev_flags {
+        out = out + cell_attrs(fg, bg, flags)
+        prev_fg = fg
+        prev_bg = bg
+        prev_flags = flags
+      }
+
+      out = out + cell["ch"]
+      c = c + 1
+    }
+    r = r + 1
+  }
+
+  out = out + ansi_reset()
+  // Position cursor at terminal cursor location (1-based)
+  out = out + ansi_move(cursor_row + 1, cursor_col + 1)
+  out = out + ansi_cursor_show()
+  return out
+}
+
+// ── Differential grid render ──
+
+pub fn render_grid(grid: map, prev_grid: map) -> string {
+  let rows = grid["rows"]
+  let cols = grid["cols"]
+  let cells = grid["cells"]
+  let cursor_row = grid["cursor_row"]
+  let cursor_col = grid["cursor_col"]
+
+  // If no previous grid, do full render
+  if prev_grid == null {
+    return render_grid_full(grid)
+  }
+
+  let prev_cells = prev_grid["cells"]
+  let prev_rows = prev_grid["rows"]
+  let prev_cols = prev_grid["cols"]
+
+  // If dimensions changed, full render
+  if rows != prev_rows || cols != prev_cols {
+    return render_grid_full(grid)
+  }
+
+  let out = ansi_cursor_hide()
+  let changed = 0
+
+  let r = 0
+  while r < rows {
+    let c = 0
+    while c < cols {
+      let cell = cells[r][c]
+      let prev_cell = prev_cells[r][c]
+
+      let differ = false
+      if cell["ch"] != prev_cell["ch"] {
+        differ = true
+      }
+      if cell["fg"] != prev_cell["fg"] {
+        differ = true
+      }
+      if cell["bg"] != prev_cell["bg"] {
+        differ = true
+      }
+      if cell["flags"] != prev_cell["flags"] {
+        differ = true
+      }
+
+      if differ {
+        out = out + ansi_move(r + 1, c + 1)
+        out = out + cell_attrs(cell["fg"], cell["bg"], cell["flags"])
+        out = out + cell["ch"]
+        changed = changed + 1
+      }
+      c = c + 1
+    }
+    r = r + 1
+  }
+
+  out = out + ansi_reset()
+  out = out + ansi_move(cursor_row + 1, cursor_col + 1)
+  out = out + ansi_cursor_show()
+  return out
+}
+
+// ── Statusbar renderer ──
+
+pub fn render_statusbar(text: string, cols: int) -> string {
+  let out = ansi_inverse()
+  let padded = text
+  let text_len = len(text)
+  let i = text_len
+  while i < cols {
+    padded = padded + " "
+    i = i + 1
+  }
+  // Truncate if text is wider than cols — just use what we have
+  out = out + padded + ansi_reset()
+  return out
+}
+
+// ── Output helper ──
+
+pub fn flush_to_stdout(s: string) {
+  let buf = cstring(s)
+  let n = len(s)
+  let written = 0
+  while written < n {
+    let ret = write(1, buf, n - written)
+    if ret <= 0 {
+      return
+    }
+    written = written + ret
+  }
+}

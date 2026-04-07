@@ -2,9 +2,9 @@
 // VOID Layer 1: System
 
 extern fn getenv(name: *Byte) -> *Byte
-extern fn getpid() -> Int
+extern fn getpid() -> int
 
-fn get_shell() -> String {
+fn get_shell() -> string {
   let shell_ptr = getenv(cstring("SHELL"))
   if ptr_addr(shell_ptr) > 0 {
     return from_cstring(shell_ptr)
@@ -12,7 +12,7 @@ fn get_shell() -> String {
   return "/bin/sh"
 }
 
-fn get_term() -> String {
+fn get_term() -> string {
   let term_ptr = getenv(cstring("TERM"))
   if ptr_addr(term_ptr) > 0 {
     return from_cstring(term_ptr)
@@ -20,7 +20,7 @@ fn get_term() -> String {
   return "xterm-256color"
 }
 
-fn get_home() -> String {
+fn get_home() -> string {
   let home_ptr = getenv(cstring("HOME"))
   if ptr_addr(home_ptr) > 0 {
     return from_cstring(home_ptr)

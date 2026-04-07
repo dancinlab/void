@@ -1,123 +1,127 @@
 // VOID — Terminal emulator written in hexa-lang
 // https://github.com/need-singularity/void
+//
+// Phase 1-4: PTY + raw terminal + VT parser + cell grid + ANSI renderer
+// Runs as a TUI terminal multiplexer inside the host terminal.
 
-println("VOID Terminal v0.1.0")
-println("====================")
+// ── Load modules ──
 
-// ── System FFI ─���
+use sys::term
+use sys::pty
+use terminal::grid
+use terminal::vt_parser
+use render::ansi
 
-extern fn getpid() -> Int
-extern fn getenv(name: *Byte) -> *Byte
-extern fn openpty(master: *Int, slave: *Int, name: *Byte, termp: *Void, winp: *Void) -> Int
-extern fn fork() -> Int
-extern fn setsid() -> Int
-extern fn close(fd: Int) -> Int
-extern fn dup2(old: Int, new: Int) -> Int
-extern fn execvp(file: *Byte, argv: *Void) -> Int
-extern fn read(fd: Int, buf: *Byte, count: Int) -> Int
-extern fn write(fd: Int, buf: *Byte, count: Int) -> Int
-extern fn kill(pid: Int, sig: Int) -> Int
-extern fn waitpid(pid: Int, status: *Int, options: Int) -> Int
-extern fn usleep(usec: Int) -> Int
-extern fn fcntl(fd: Int, cmd: Int, arg: Int) -> Int
-extern fn malloc(size: Int) -> *Void
+// ── Additional extern declarations ──
+
+extern fn read(fd: int, buf: *Byte, count: int) -> int
+extern fn write(fd: int, buf: *Byte, count: int) -> int
+extern fn usleep(usec: int) -> int
+extern fn malloc(size: int) -> *Void
 extern fn free(ptr: *Void)
 
-// ── Constants ──
+// ── Get terminal size ──
 
-let F_GETFL = 3
-let F_SETFL = 4
-let O_NONBLOCK = 4
-let SIGTERM = 15
+let size = term_size()
+let term_rows = size["rows"]
+let term_cols = size["cols"]
 
-// ── Platform Info ──
+// Reserve 1 row for statusbar
+let grid_rows = term_rows - 1
+let grid_cols = term_cols
 
-let pid = getpid()
-println("[info] PID: " + str(pid))
+// ── Create grid and parser ──
 
-let shell_ptr = getenv(cstring("SHELL"))
-let shell = "/bin/sh"
-if ptr_addr(shell_ptr) > 0 {
-  shell = from_cstring(shell_ptr)
-}
-println("[info] Shell: " + shell)
+let grid = new_grid(grid_rows, grid_cols)
+grid["cursor_visible"] = true
+let parser = new_vt_parser()
+let window_title = "VOID"
 
-let term_ptr = getenv(cstring("TERM"))
-let term = "xterm-256color"
-if ptr_addr(term_ptr) > 0 {
-  term = from_cstring(term_ptr)
-}
-println("[info] TERM: " + term)
+// ── Open PTY and spawn shell ──
 
-// ── Open PTY ──
-
-let master_ptr = malloc(8)
-let slave_ptr = malloc(8)
-
-let ret = openpty(master_ptr, slave_ptr, ptr_null(), ptr_null(), ptr_null())
-assert(ret == 0, "openpty failed: " + str(ret))
-
-let master_fd = deref(master_ptr)
-let slave_fd = deref(slave_ptr)
-free(master_ptr)
-free(slave_ptr)
-
-println("[info] PTY opened: master=" + str(master_fd) + " slave=" + str(slave_fd))
-
-// Set non-blocking on master
-fcntl(master_fd, F_SETFL, O_NONBLOCK)
-
-// ── Fork + Exec Shell ──
-
-let child_pid = fork()
-if child_pid == 0 {
-  // Child: setup PTY as controlling terminal
-  close(master_fd)
-  setsid()
-  dup2(slave_fd, 0)
-  dup2(slave_fd, 1)
-  dup2(slave_fd, 2)
-  if slave_fd > 2 { close(slave_fd) }
-  execvp(cstring(shell), ptr_null())
+let pty_info = pty_open()
+if pty_info["ok"] != 1 {
+  println("VOID: failed to open PTY")
+  exit(1)
 }
 
-// Parent
-close(slave_fd)
-println("[info] Shell spawned: PID=" + str(child_pid))
+let master_fd = pty_info["master"]
+let slave_fd = pty_info["slave"]
+let child_pid = pty_spawn_shell(master_fd, slave_fd)
 
-// ── Main Loop (read PTY output) ──
+// ── Setup terminal ──
 
-println("[info] Reading shell output for 500ms...")
-println("---")
+screen_alt_enter()
+cursor_hide()
+screen_clear()
+term_raw()
+stdin_set_nonblock()
 
-let buf = malloc(4096)
-let total_read = 0
-let iterations = 0
+// ── Initial render ──
 
-// Simple read loop: poll PTY output
-while iterations < 10 {
-  usleep(50000)  // 50ms
-  let n = read(master_fd, buf, 4095)
-  if n > 0 {
-    let output = from_cstring(buf)
-    print(output)
-    total_read = total_read + n
+let status_text = " VOID | " + str(grid_cols) + "x" + str(grid_rows) + " | PID:" + str(child_pid)
+let rendered = render_grid_full(grid)
+let statusbar = ansi_move(term_rows, 1) + render_statusbar(status_text, grid_cols)
+flush_to_stdout(rendered + statusbar)
+
+// ── Main event loop ──
+
+let running = true
+let read_buf = malloc(4096)
+let stdin_buf = malloc(256)
+let frame_count = 0
+let dirty = false
+
+while running {
+  // 1. Read stdin (keyboard input) → forward to PTY
+  let stdin_n = read(0, stdin_buf, 255)
+  if stdin_n > 0 {
+    // Check for Ctrl+D (byte 4) to exit
+    let first_byte = deref(stdin_buf)
+    // Ctrl+D = 4, but deref reads 8 bytes as i64...
+    // Just forward all input to PTY
+    write(master_fd, stdin_buf, stdin_n)
   }
-  iterations = iterations + 1
-}
 
-println("")
-println("---")
-println("[info] Read " + str(total_read) + " bytes from PTY")
+  // 2. Read PTY output → parse VT → update grid
+  let pty_n = read(master_fd, read_buf, 4095)
+  if pty_n > 0 {
+    let output = from_cstring_n(read_buf, pty_n)
+    let result = vt_process(parser, grid, output)
+    parser = result["parser"]
+    grid = result["grid"]
+    if len(result["title"]) > 0 {
+      window_title = result["title"]
+    }
+    dirty = true
+  } else if pty_n == 0 {
+    // EOF — shell exited
+    running = false
+  }
+
+  // 3. Render if dirty (throttle to every 2 iterations = ~20ms)
+  if dirty {
+    frame_count = frame_count + 1
+    if frame_count >= 2 {
+      let rendered = render_grid_full(grid)
+      let status_text = " VOID | " + window_title + " | " + str(grid_cols) + "x" + str(grid_rows)
+      let statusbar = ansi_move(term_rows, 1) + render_statusbar(status_text, grid_cols)
+      flush_to_stdout(rendered + statusbar)
+      dirty = false
+      frame_count = 0
+    }
+  }
+
+  // 4. Sleep 10ms (100Hz poll rate)
+  usleep(10000)
+}
 
 // ── Cleanup ──
 
-let exit_cmd = cstring("exit\n")
-write(master_fd, exit_cmd, 5)
-usleep(100000)
-kill(child_pid, SIGTERM)
-waitpid(child_pid, ptr_null(), 0)
-close(master_fd)
-free(buf)
-
-println("[info] VOID session ended.")
+free(read_buf)
+free(stdin_buf)
+pty_close(master_fd, child_pid)
+cursor_show()
+screen_alt_leave()
+term_restore()
+println("VOID session ended.")

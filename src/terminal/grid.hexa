@@ -2,20 +2,20 @@
 // VOID Layer 3: Terminal Core
 
 // Cell: one character position in the terminal
-// { ch: String, fg: Int, bg: Int, flags: Int }
+// { ch: string, fg: int, bg: int, flags: Int }
 // flags: 1=bold, 2=italic, 4=underline, 8=inverse, 16=dim
 
-let CELL_BOLD = 1
-let CELL_ITALIC = 2
-let CELL_UNDERLINE = 4
-let CELL_INVERSE = 8
-let CELL_DIM = 16
+pub let cell_bold = 1
+pub let cell_italic = 2
+pub let cell_underline = 4
+pub let cell_inverse = 8
+pub let cell_dim = 16
 
-fn new_cell() -> Map {
-  return {"ch": " ", "fg": 7, "bg": 0, "flags": 0}
+pub fn new_cell() -> map {
+  return #{"ch": " ", "fg": 7, "bg": 0, "flags": 0}
 }
 
-fn new_grid(rows: Int, cols: Int) -> Map {
+pub fn new_grid(rows: int, cols: int) -> map {
   let cells = []
   let r = 0
   while r < rows {
@@ -28,7 +28,7 @@ fn new_grid(rows: Int, cols: Int) -> Map {
     cells = cells + [row]
     r = r + 1
   }
-  return {
+  return #{
     "cells": cells,
     "rows": rows,
     "cols": cols,
@@ -37,18 +37,21 @@ fn new_grid(rows: Int, cols: Int) -> Map {
     "scroll_top": 0,
     "scroll_bottom": rows - 1,
     "scrollback": [],
-    "scrollback_max": 10000
+    "scrollback_max": 10000,
+    "current_fg": 7,
+    "current_bg": 0,
+    "current_flags": 0
   }
 }
 
-fn grid_set_cell(grid: Map, row: Int, col: Int, ch: String, fg: Int, bg: Int, flags: Int) -> Map {
+pub fn grid_set_cell(grid: map, row: int, col: int, ch: string, fg: int, bg: int, flags: int) -> map {
   if row >= 0 && row < grid["rows"] && col >= 0 && col < grid["cols"] {
-    grid["cells"][row][col] = {"ch": ch, "fg": fg, "bg": bg, "flags": flags}
+    grid["cells"][row][col] = #{"ch": ch, "fg": fg, "bg": bg, "flags": flags}
   }
   return grid
 }
 
-fn grid_clear_row(grid: Map, row: Int) -> Map {
+pub fn grid_clear_row(grid: map, row: int) -> map {
   if row >= 0 && row < grid["rows"] {
     let c = 0
     while c < grid["cols"] {
@@ -59,23 +62,263 @@ fn grid_clear_row(grid: Map, row: Int) -> Map {
   return grid
 }
 
-fn grid_scroll_up(grid: Map) -> Map {
-  // Save top row to scrollback
-  let top_row = grid["cells"][0]
+pub fn grid_scroll_up(grid: map) -> map {
+  // Save top scroll-region row to scrollback
+  let top = grid["scroll_top"]
+  let bottom = grid["scroll_bottom"]
+  let top_row = grid["cells"][top]
   grid["scrollback"] = grid["scrollback"] + [top_row]
   if len(grid["scrollback"]) > grid["scrollback_max"] {
-    // trim oldest — simplified: rebuild without first
-    grid["scrollback"] = grid["scrollback"]
+    // Trim oldest entry by rebuilding from index 1
+    let trimmed = []
+    let i = 1
+    while i < len(grid["scrollback"]) {
+      trimmed = trimmed + [grid["scrollback"][i]]
+      i = i + 1
+    }
+    grid["scrollback"] = trimmed
   }
 
-  // Shift rows up
-  let r = 0
-  while r < grid["rows"] - 1 {
+  // Shift rows up within scroll region
+  let r = top
+  while r < bottom {
     grid["cells"][r] = grid["cells"][r + 1]
     r = r + 1
   }
 
-  // Clear bottom row
-  grid = grid_clear_row(grid, grid["rows"] - 1)
+  // Clear bottom row of scroll region
+  grid = grid_clear_row(grid, bottom)
+  return grid
+}
+
+pub fn grid_scroll_down(grid: map) -> map {
+  let top = grid["scroll_top"]
+  let bottom = grid["scroll_bottom"]
+
+  // Shift rows down within scroll region
+  let r = bottom
+  while r > top {
+    grid["cells"][r] = grid["cells"][r - 1]
+    r = r - 1
+  }
+
+  // Clear top row of scroll region
+  grid = grid_clear_row(grid, top)
+  return grid
+}
+
+// ── Cursor movement + character output ──
+
+pub fn grid_put_char(grid: map, ch: string, fg: int, bg: int, flags: int) -> map {
+  let row = grid["cursor_row"]
+  let col = grid["cursor_col"]
+
+  // Wrap if past end of line
+  if col >= grid["cols"] {
+    col = 0
+    row = row + 1
+    if row > grid["scroll_bottom"] {
+      grid = grid_scroll_up(grid)
+      row = grid["scroll_bottom"]
+    }
+  }
+
+  grid = grid_set_cell(grid, row, col, ch, fg, bg, flags)
+  col = col + 1
+  grid["cursor_row"] = row
+  grid["cursor_col"] = col
+  return grid
+}
+
+pub fn grid_newline(grid: map) -> map {
+  grid["cursor_col"] = 0
+  let row = grid["cursor_row"] + 1
+  if row > grid["scroll_bottom"] {
+    grid = grid_scroll_up(grid)
+    row = grid["scroll_bottom"]
+  }
+  grid["cursor_row"] = row
+  return grid
+}
+
+pub fn grid_carriage_return(grid: map) -> map {
+  grid["cursor_col"] = 0
+  return grid
+}
+
+pub fn grid_backspace(grid: map) -> map {
+  let col = grid["cursor_col"] - 1
+  if col < 0 {
+    col = 0
+  }
+  grid["cursor_col"] = col
+  return grid
+}
+
+pub fn grid_tab(grid: map) -> map {
+  let col = grid["cursor_col"]
+  // Advance to next multiple of 8
+  let remainder = col - (col / 8) * 8
+  let advance = 8 - remainder
+  col = col + advance
+  if col >= grid["cols"] {
+    col = grid["cols"] - 1
+  }
+  grid["cursor_col"] = col
+  return grid
+}
+
+// ── Cursor movement (CSI sequences) ──
+
+pub fn grid_cursor_up(grid: map, n: int) -> map {
+  let row = grid["cursor_row"] - n
+  if row < grid["scroll_top"] {
+    row = grid["scroll_top"]
+  }
+  grid["cursor_row"] = row
+  return grid
+}
+
+pub fn grid_cursor_down(grid: map, n: int) -> map {
+  let row = grid["cursor_row"] + n
+  if row > grid["scroll_bottom"] {
+    row = grid["scroll_bottom"]
+  }
+  grid["cursor_row"] = row
+  return grid
+}
+
+pub fn grid_cursor_forward(grid: map, n: int) -> map {
+  let col = grid["cursor_col"] + n
+  if col >= grid["cols"] {
+    col = grid["cols"] - 1
+  }
+  grid["cursor_col"] = col
+  return grid
+}
+
+pub fn grid_cursor_backward(grid: map, n: int) -> map {
+  let col = grid["cursor_col"] - n
+  if col < 0 {
+    col = 0
+  }
+  grid["cursor_col"] = col
+  return grid
+}
+
+pub fn grid_cursor_set(grid: map, row: int, col: int) -> map {
+  if row < 0 {
+    row = 0
+  }
+  if row >= grid["rows"] {
+    row = grid["rows"] - 1
+  }
+  if col < 0 {
+    col = 0
+  }
+  if col >= grid["cols"] {
+    col = grid["cols"] - 1
+  }
+  grid["cursor_row"] = row
+  grid["cursor_col"] = col
+  return grid
+}
+
+// ── Erase operations ──
+
+pub fn grid_erase_to_end(grid: map) -> map {
+  // Erase from cursor to end of current line
+  let col = grid["cursor_col"]
+  let row = grid["cursor_row"]
+  while col < grid["cols"] {
+    grid["cells"][row][col] = new_cell()
+    col = col + 1
+  }
+  return grid
+}
+
+pub fn grid_erase_to_start(grid: map) -> map {
+  // Erase from start of line to cursor (inclusive)
+  let col = 0
+  let row = grid["cursor_row"]
+  while col <= grid["cursor_col"] && col < grid["cols"] {
+    grid["cells"][row][col] = new_cell()
+    col = col + 1
+  }
+  return grid
+}
+
+pub fn grid_erase_line(grid: map) -> map {
+  return grid_clear_row(grid, grid["cursor_row"])
+}
+
+pub fn grid_erase_below(grid: map) -> map {
+  // Erase from cursor to end of line, then all lines below
+  grid = grid_erase_to_end(grid)
+  let r = grid["cursor_row"] + 1
+  while r < grid["rows"] {
+    grid = grid_clear_row(grid, r)
+    r = r + 1
+  }
+  return grid
+}
+
+pub fn grid_erase_above(grid: map) -> map {
+  // Erase from start of line to cursor, then all lines above
+  grid = grid_erase_to_start(grid)
+  let r = 0
+  while r < grid["cursor_row"] {
+    grid = grid_clear_row(grid, r)
+    r = r + 1
+  }
+  return grid
+}
+
+pub fn grid_erase_all(grid: map) -> map {
+  let r = 0
+  while r < grid["rows"] {
+    grid = grid_clear_row(grid, r)
+    r = r + 1
+  }
+  return grid
+}
+
+// ── Line insert/delete ──
+
+pub fn grid_insert_lines(grid: map, n: int) -> map {
+  // Insert n blank lines at cursor row, shifting existing lines down
+  // Only operates within scroll region
+  let cursor_r = grid["cursor_row"]
+  let bottom = grid["scroll_bottom"]
+  let i = 0
+  while i < n {
+    // Shift lines down from bottom
+    let r = bottom
+    while r > cursor_r {
+      grid["cells"][r] = grid["cells"][r - 1]
+      r = r - 1
+    }
+    grid = grid_clear_row(grid, cursor_r)
+    i = i + 1
+  }
+  return grid
+}
+
+pub fn grid_delete_lines(grid: map, n: int) -> map {
+  // Delete n lines at cursor row, shifting lines up
+  // Only operates within scroll region
+  let cursor_r = grid["cursor_row"]
+  let bottom = grid["scroll_bottom"]
+  let i = 0
+  while i < n {
+    // Shift lines up from cursor
+    let r = cursor_r
+    while r < bottom {
+      grid["cells"][r] = grid["cells"][r + 1]
+      r = r + 1
+    }
+    grid = grid_clear_row(grid, bottom)
+    i = i + 1
+  }
   return grid
 }

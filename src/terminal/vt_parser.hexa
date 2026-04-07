@@ -1,105 +1,482 @@
-// vt_parser.hexa — VT escape sequence parser (6-state)
+// vt_parser.hexa — VT100/xterm escape sequence parser
 // VOID Layer 3: Terminal Core
 
 // ── 6 Parser States (n=6) ──
 
-let STATE_GROUND = 0
-let STATE_ESCAPE = 1
-let STATE_CSI = 2
-let STATE_OSC = 3
-let STATE_DCS = 4
-let STATE_VOID = 5
+pub let st_ground = 0
+pub let st_escape = 1
+pub let st_csi = 2
+pub let st_osc = 3
+pub let st_dcs = 4
+pub let st_void = 5
 
-fn new_vt_parser() -> Map {
-  return {
-    "state": STATE_GROUND,
+pub fn new_vt_parser() -> map {
+  return #{
+    "state": st_ground,
     "params": "",
     "intermediate": "",
-    "osc_string": ""
+    "osc_string": "",
+    "private_mode": false
   }
 }
 
-// Parse a single byte and return action
-// Returns: {"action": String, "param": String}
-// Actions: "print", "execute", "csi_dispatch", "osc_dispatch", "none"
-fn vt_parse_byte(parser: Map, byte: Int) -> Map {
-  let ch = ""
-  if byte >= 32 && byte < 127 {
-    ch = to_string(byte)  // printable ASCII
+// ── Parameter parsing ──
+
+pub fn parse_csi_params(params_str: string) -> array {
+  // Split "1;2;3" into [1, 2, 3]. Default [0] if empty.
+  if len(params_str) == 0 {
+    return [0]
+  }
+  let result = []
+  let current = ""
+  let i = 0
+  while i < len(params_str) {
+    let ch = params_str[i]
+    if ch == ";" {
+      if len(current) > 0 {
+        result = result + [to_int(current)]
+      } else {
+        result = result + [0]
+      }
+      current = ""
+    } else {
+      current = current + ch
+    }
+    i = i + 1
+  }
+  // Last segment
+  if len(current) > 0 {
+    result = result + [to_int(current)]
+  } else {
+    result = result + [0]
+  }
+  if len(result) == 0 {
+    return [0]
+  }
+  return result
+}
+
+// ── SGR (Select Graphic Rendition) ──
+
+pub fn apply_sgr(grid: map, params: array) -> map {
+  let i = 0
+  while i < len(params) {
+    let p = params[i]
+    if p == 0 {
+      // Reset all
+      grid["current_fg"] = 7
+      grid["current_bg"] = 0
+      grid["current_flags"] = 0
+    } else if p == 1 {
+      // Bold
+      grid["current_flags"] = grid["current_flags"] + 1 - (grid["current_flags"] / 2) * 2 + (grid["current_flags"] / 2) * 2
+      // Simpler: just set bold bit. Since no bitwise, track individually.
+      // We use a flags accumulator approach: check if bold already set
+      let has_bold = (grid["current_flags"] / 1) - (grid["current_flags"] / 2) * 1
+      if has_bold == 0 {
+        grid["current_flags"] = grid["current_flags"] + 1
+      }
+    } else if p == 2 {
+      // Dim
+      let has_dim = (grid["current_flags"] / 16) - (grid["current_flags"] / 32) * 1
+      if has_dim == 0 {
+        grid["current_flags"] = grid["current_flags"] + 16
+      }
+    } else if p == 3 {
+      // Italic
+      let has_italic = (grid["current_flags"] / 2) - (grid["current_flags"] / 4) * 1
+      if has_italic == 0 {
+        grid["current_flags"] = grid["current_flags"] + 2
+      }
+    } else if p == 4 {
+      // Underline
+      let has_underline = (grid["current_flags"] / 4) - (grid["current_flags"] / 8) * 1
+      if has_underline == 0 {
+        grid["current_flags"] = grid["current_flags"] + 4
+      }
+    } else if p == 7 {
+      // Inverse
+      let has_inverse = (grid["current_flags"] / 8) - (grid["current_flags"] / 16) * 1
+      if has_inverse == 0 {
+        grid["current_flags"] = grid["current_flags"] + 8
+      }
+    } else if p >= 30 && p <= 37 {
+      // Standard FG colors (30=black, 31=red, ... 37=white)
+      grid["current_fg"] = p - 30
+    } else if p == 38 {
+      // Extended FG: 38;5;N (256-color)
+      if i + 2 < len(params) && params[i + 1] == 5 {
+        grid["current_fg"] = params[i + 2]
+        i = i + 2
+      }
+    } else if p == 39 {
+      // Default FG
+      grid["current_fg"] = 7
+    } else if p >= 40 && p <= 47 {
+      // Standard BG colors
+      grid["current_bg"] = p - 40
+    } else if p == 48 {
+      // Extended BG: 48;5;N (256-color)
+      if i + 2 < len(params) && params[i + 1] == 5 {
+        grid["current_bg"] = params[i + 2]
+        i = i + 2
+      }
+    } else if p == 49 {
+      // Default BG
+      grid["current_bg"] = 0
+    } else if p >= 90 && p <= 97 {
+      // Bright FG colors (offset by 8 from standard)
+      grid["current_fg"] = p - 90 + 8
+    } else if p >= 100 && p <= 107 {
+      // Bright BG colors
+      grid["current_bg"] = p - 100 + 8
+    }
+    i = i + 1
+  }
+  return grid
+}
+
+// ── CSI dispatch ──
+
+pub fn dispatch_csi(parser: map, grid: map, params_str: string, final_ch: string) -> map {
+  let is_private = parser["private_mode"]
+  let params = parse_csi_params(params_str)
+  let title = ""
+
+  // Default first param to 1 for cursor movement commands
+  let n = params[0]
+  if n == 0 {
+    n = 1
   }
 
-  let result = {"action": "none", "param": "", "parser": parser}
+  if final_ch == "A" {
+    // Cursor Up
+    grid = grid_cursor_up(grid, n)
+  } else if final_ch == "B" {
+    // Cursor Down
+    grid = grid_cursor_down(grid, n)
+  } else if final_ch == "C" {
+    // Cursor Forward
+    grid = grid_cursor_forward(grid, n)
+  } else if final_ch == "D" {
+    // Cursor Backward
+    grid = grid_cursor_backward(grid, n)
+  } else if final_ch == "H" || final_ch == "f" {
+    // Cursor Position (row;col) — 1-based in VT, convert to 0-based
+    let row = params[0]
+    if row == 0 {
+      row = 1
+    }
+    let col = 1
+    if len(params) > 1 {
+      col = params[1]
+      if col == 0 {
+        col = 1
+      }
+    }
+    grid = grid_cursor_set(grid, row - 1, col - 1)
+  } else if final_ch == "J" {
+    // Erase Display
+    let mode = params[0]
+    if mode == 0 {
+      grid = grid_erase_below(grid)
+    } else if mode == 1 {
+      grid = grid_erase_above(grid)
+    } else if mode == 2 {
+      grid = grid_erase_all(grid)
+    }
+  } else if final_ch == "K" {
+    // Erase Line
+    let mode = params[0]
+    if mode == 0 {
+      grid = grid_erase_to_end(grid)
+    } else if mode == 1 {
+      grid = grid_erase_to_start(grid)
+    } else if mode == 2 {
+      grid = grid_erase_line(grid)
+    }
+  } else if final_ch == "m" {
+    // SGR (Select Graphic Rendition)
+    grid = apply_sgr(grid, params)
+  } else if final_ch == "L" {
+    // Insert Lines
+    grid = grid_insert_lines(grid, n)
+  } else if final_ch == "M" {
+    // Delete Lines
+    grid = grid_delete_lines(grid, n)
+  } else if final_ch == "r" {
+    // Set Scroll Region (top;bottom) — 1-based
+    let top = params[0]
+    if top == 0 {
+      top = 1
+    }
+    let bottom = grid["rows"]
+    if len(params) > 1 && params[1] > 0 {
+      bottom = params[1]
+    }
+    grid["scroll_top"] = top - 1
+    grid["scroll_bottom"] = bottom - 1
+    // Cursor moves to home after setting scroll region
+    grid = grid_cursor_set(grid, 0, 0)
+  } else if final_ch == "h" {
+    // Set Mode
+    if is_private {
+      // ?25h = show cursor, ?1049h = alt screen, etc.
+      // Store mode flags on grid for renderer to read
+      if n == 25 {
+        grid["cursor_visible"] = true
+      } else if n == 1049 {
+        grid["alt_screen"] = true
+      }
+    }
+  } else if final_ch == "l" {
+    // Reset Mode
+    if is_private {
+      if n == 25 {
+        grid["cursor_visible"] = false
+      } else if n == 1049 {
+        grid["alt_screen"] = false
+      }
+    }
+  }
 
-  if parser["state"] == STATE_GROUND {
+  return #{"grid": grid, "title": title}
+}
+
+// ── Main processing: parse byte string and apply to grid ──
+
+pub fn vt_process(parser: map, grid: map, data: string) -> map {
+  let title = ""
+  let i = 0
+  while i < len(data) {
+    let ch = data[i]
+    let byte = to_int(ch)
+
+    if parser["state"] == st_ground {
+      if byte == 27 {
+        // ESC — enter escape state
+        parser["state"] = st_escape
+        parser["params"] = ""
+        parser["intermediate"] = ""
+        parser["private_mode"] = false
+      } else if byte == 13 {
+        // CR
+        grid = grid_carriage_return(grid)
+      } else if byte == 10 {
+        // LF
+        grid = grid_newline(grid)
+      } else if byte == 8 {
+        // BS
+        grid = grid_backspace(grid)
+      } else if byte == 9 {
+        // TAB
+        grid = grid_tab(grid)
+      } else if byte == 7 {
+        // BEL — ignored (could trigger visual bell)
+      } else if byte >= 32 {
+        // Printable character
+        grid = grid_put_char(grid, ch, grid["current_fg"], grid["current_bg"], grid["current_flags"])
+      }
+      // Other control chars (0-6, 11-12, 14-26, 28-31) are ignored
+
+    } else if parser["state"] == st_escape {
+      if byte == 91 {
+        // [ -> CSI
+        parser["state"] = st_csi
+        parser["params"] = ""
+        parser["private_mode"] = false
+      } else if byte == 93 {
+        // ] -> OSC
+        parser["state"] = st_osc
+        parser["osc_string"] = ""
+      } else if byte == 80 {
+        // P -> DCS
+        parser["state"] = st_dcs
+      } else if byte == 55 {
+        // 7 -> Save cursor (DECSC)
+        grid["saved_cursor_row"] = grid["cursor_row"]
+        grid["saved_cursor_col"] = grid["cursor_col"]
+        parser["state"] = st_ground
+      } else if byte == 56 {
+        // 8 -> Restore cursor (DECRC)
+        if grid["saved_cursor_row"] != nil {
+          grid["cursor_row"] = grid["saved_cursor_row"]
+          grid["cursor_col"] = grid["saved_cursor_col"]
+        }
+        parser["state"] = st_ground
+      } else if byte == 77 {
+        // M -> Reverse Index (scroll down)
+        if grid["cursor_row"] == grid["scroll_top"] {
+          grid = grid_scroll_down(grid)
+        } else {
+          grid = grid_cursor_up(grid, 1)
+        }
+        parser["state"] = st_ground
+      } else if byte == 99 {
+        // c -> Full Reset (RIS)
+        grid = grid_erase_all(grid)
+        grid = grid_cursor_set(grid, 0, 0)
+        grid["current_fg"] = 7
+        grid["current_bg"] = 0
+        grid["current_flags"] = 0
+        grid["scroll_top"] = 0
+        grid["scroll_bottom"] = grid["rows"] - 1
+        parser["state"] = st_ground
+      } else {
+        // Unknown escape — return to ground
+        parser["state"] = st_ground
+      }
+
+    } else if parser["state"] == st_csi {
+      if byte == 63 {
+        // ? — private mode indicator
+        parser["private_mode"] = true
+      } else if byte >= 48 && byte <= 57 {
+        // Digit — accumulate param
+        parser["params"] = parser["params"] + ch
+      } else if byte == 59 {
+        // ; — param separator
+        parser["params"] = parser["params"] + ";"
+      } else if byte >= 64 && byte <= 126 {
+        // Final byte — dispatch CSI sequence
+        let result = dispatch_csi(parser, grid, parser["params"], ch)
+        grid = result["grid"]
+        if len(result["title"]) > 0 {
+          title = result["title"]
+        }
+        parser["state"] = st_ground
+      }
+      // Intermediate bytes (32-47) are collected but not used yet
+
+    } else if parser["state"] == st_osc {
+      if byte == 7 {
+        // BEL — end OSC
+        title = handle_osc(parser["osc_string"], title)
+        parser["state"] = st_ground
+      } else if byte == 27 {
+        // ESC — might be ST (ESC \), treat as end of OSC
+        title = handle_osc(parser["osc_string"], title)
+        parser["state"] = st_escape
+      } else {
+        parser["osc_string"] = parser["osc_string"] + ch
+      }
+
+    } else if parser["state"] == st_dcs {
+      if byte == 27 {
+        // ESC — end DCS (via ST)
+        parser["state"] = st_escape
+      }
+      // DCS payload is ignored for now
+
+    } else if parser["state"] == st_void {
+      // VOID protocol extension
+      if byte == 7 || byte == 27 {
+        parser["state"] = st_ground
+      } else {
+        parser["osc_string"] = parser["osc_string"] + ch
+      }
+    }
+
+    i = i + 1
+  }
+
+  return #{"parser": parser, "grid": grid, "title": title}
+}
+
+// ── OSC handler ──
+
+pub fn handle_osc(osc_str: string, current_title: string) -> string {
+  // OSC 0;title — set window title
+  // OSC 2;title — set window title
+  // Format: "N;payload" where N is the OSC number
+  if len(osc_str) < 2 {
+    return current_title
+  }
+  let osc_num = osc_str[0]
+  if len(osc_str) > 1 && osc_str[1] == ";" {
+    if osc_num == "0" || osc_num == "2" {
+      // Extract title after "N;"
+      let title = ""
+      let i = 2
+      while i < len(osc_str) {
+        title = title + osc_str[i]
+        i = i + 1
+      }
+      return title
+    }
+  }
+  return current_title
+}
+
+// ── Single-byte parsing API (kept for backward compat) ──
+
+pub fn vt_parse_byte(parser: map, byte: int) -> map {
+  let ch = ""
+  if byte >= 32 && byte < 127 {
+    ch = str(byte)
+  }
+
+  let result = #{"action": "none", "param": "", "parser": parser}
+
+  if parser["state"] == st_ground {
     if byte == 27 {
-      // ESC
-      parser["state"] = STATE_ESCAPE
+      parser["state"] = st_escape
       parser["params"] = ""
       parser["intermediate"] = ""
     } else if byte >= 32 {
-      // Printable
       result["action"] = "print"
       result["param"] = ch
     } else {
-      // Control character (CR, LF, BS, TAB, BEL, etc.)
       result["action"] = "execute"
       result["param"] = str(byte)
     }
-  } else if parser["state"] == STATE_ESCAPE {
+  } else if parser["state"] == st_escape {
     if byte == 91 {
-      // [ → CSI
-      parser["state"] = STATE_CSI
+      parser["state"] = st_csi
       parser["params"] = ""
     } else if byte == 93 {
-      // ] → OSC
-      parser["state"] = STATE_OSC
+      parser["state"] = st_osc
       parser["osc_string"] = ""
     } else if byte == 80 {
-      // P → DCS
-      parser["state"] = STATE_DCS
+      parser["state"] = st_dcs
     } else {
-      // Simple escape sequence
       result["action"] = "execute"
       result["param"] = "ESC_" + ch
-      parser["state"] = STATE_GROUND
+      parser["state"] = st_ground
     }
-  } else if parser["state"] == STATE_CSI {
+  } else if parser["state"] == st_csi {
     if byte >= 48 && byte <= 57 {
-      // Digit: accumulate parameter
       parser["params"] = parser["params"] + ch
     } else if byte == 59 {
-      // ; separator
       parser["params"] = parser["params"] + ";"
+    } else if byte == 63 {
+      parser["private_mode"] = true
     } else if byte >= 64 && byte <= 126 {
-      // Final byte: dispatch CSI
       result["action"] = "csi_dispatch"
       result["param"] = parser["params"] + ch
-      parser["state"] = STATE_GROUND
+      parser["state"] = st_ground
     }
-  } else if parser["state"] == STATE_OSC {
+  } else if parser["state"] == st_osc {
     if byte == 7 {
-      // BEL: end OSC
       result["action"] = "osc_dispatch"
       result["param"] = parser["osc_string"]
-      parser["state"] = STATE_GROUND
+      parser["state"] = st_ground
     } else if byte == 27 {
-      // ESC might be followed by \ for ST
       result["action"] = "osc_dispatch"
       result["param"] = parser["osc_string"]
-      parser["state"] = STATE_GROUND
+      parser["state"] = st_ground
     } else {
       parser["osc_string"] = parser["osc_string"] + ch
     }
-  } else if parser["state"] == STATE_DCS {
+  } else if parser["state"] == st_dcs {
     if byte == 27 {
-      parser["state"] = STATE_GROUND
+      parser["state"] = st_ground
     }
-  } else if parser["state"] == STATE_VOID {
-    // VOID protocol: ESC ] 777 ; type ; payload ST
+  } else if parser["state"] == st_void {
     if byte == 7 || byte == 27 {
       result["action"] = "void_dispatch"
       result["param"] = parser["osc_string"]
-      parser["state"] = STATE_GROUND
+      parser["state"] = st_ground
     } else {
       parser["osc_string"] = parser["osc_string"] + ch
     }

@@ -1,8 +1,8 @@
 // theme.hexa — Theme engine
 // VOID Layer 4: UI
 
-fn void_dark_theme() -> Map {
-  return {
+fn void_dark_theme() -> map {
+  return #{
     "name": "void_dark",
     "bg": 0x0D1117,
     "fg": 0xC9D1D9,
@@ -31,8 +31,8 @@ fn void_dark_theme() -> Map {
   }
 }
 
-fn void_light_theme() -> Map {
-  return {
+fn void_light_theme() -> map {
+  return #{
     "name": "void_light",
     "bg": 0xFFFFFF,
     "fg": 0x24292F,

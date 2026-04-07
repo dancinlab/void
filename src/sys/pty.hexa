@@ -3,34 +3,34 @@
 
 // ── libc extern declarations ──
 
-extern fn openpty(master: *Int, slave: *Int, name: *Byte, termp: *Void, winp: *Void) -> Int
-extern fn fork() -> Int
-extern fn setsid() -> Int
-extern fn close(fd: Int) -> Int
-extern fn dup2(old: Int, new: Int) -> Int
-extern fn execvp(file: *Byte, argv: *Void) -> Int
-extern fn read(fd: Int, buf: *Byte, count: Int) -> Int
-extern fn write(fd: Int, buf: *Byte, count: Int) -> Int
-extern fn kill(pid: Int, sig: Int) -> Int
-extern fn waitpid(pid: Int, status: *Int, options: Int) -> Int
-extern fn usleep(usec: Int) -> Int
-extern fn fcntl(fd: Int, cmd: Int, arg: Int) -> Int
-extern fn malloc(size: Int) -> *Void
+extern fn openpty(master: *Int, slave: *Int, name: *Byte, termp: *Void, winp: *Void) -> int
+extern fn fork() -> int
+extern fn setsid() -> int
+extern fn close(fd: int) -> int
+extern fn dup2(old: int, new: int) -> int
+extern fn execvp(file: *Byte, argv: *Void) -> int
+extern fn read(fd: int, buf: *Byte, count: int) -> int
+extern fn write(fd: int, buf: *Byte, count: int) -> int
+extern fn kill(pid: int, sig: int) -> int
+extern fn waitpid(pid: int, status: *Int, options: int) -> int
+extern fn usleep(usec: int) -> int
+extern fn fcntl(fd: int, cmd: int, arg: int) -> int
+extern fn malloc(size: int) -> *Void
 extern fn free(ptr: *Void)
 extern fn getenv(name: *Byte) -> *Byte
-extern fn ioctl(fd: Int, request: Int, argp: *Void) -> Int
+extern fn ioctl(fd: int, request: int, argp: *Void) -> int
 
 // ── Constants ──
 
-let F_GETFL = 3
-let F_SETFL = 4
-let O_NONBLOCK = 4
-let SIGTERM = 15
-let WNOHANG = 1
+pub let f_getfl = 3
+pub let f_setfl = 4
+pub let o_nonblock = 4
+pub let sigterm = 15
+pub let wnohang = 1
 
 // ── PTY open ──
 
-fn pty_open() -> Map {
+pub fn pty_open() -> map {
   let master_ptr = malloc(8)
   let slave_ptr = malloc(8)
 
@@ -38,7 +38,7 @@ fn pty_open() -> Map {
   if ret != 0 {
     free(master_ptr)
     free(slave_ptr)
-    return {"ok": 0, "master": -1, "slave": -1}
+    return #{"ok": 0, "master": -1, "slave": -1}
   }
 
   let master_fd = deref(master_ptr)
@@ -47,15 +47,15 @@ fn pty_open() -> Map {
   free(slave_ptr)
 
   // Set non-blocking on master
-  let flags = fcntl(master_fd, F_GETFL, 0)
-  fcntl(master_fd, F_SETFL, O_NONBLOCK)
+  let flags = fcntl(master_fd, f_getfl, 0)
+  fcntl(master_fd, f_setfl, o_nonblock)
 
-  return {"ok": 1, "master": master_fd, "slave": slave_fd}
+  return #{"ok": 1, "master": master_fd, "slave": slave_fd}
 }
 
 // ── Spawn shell ──
 
-fn pty_spawn_shell(master_fd: Int, slave_fd: Int) -> Int {
+pub fn pty_spawn_shell(master_fd: int, slave_fd: int) -> int {
   let pid = fork()
   if pid == 0 {
     // Child process
@@ -82,7 +82,7 @@ fn pty_spawn_shell(master_fd: Int, slave_fd: Int) -> Int {
 
 // ── Read from PTY ──
 
-fn pty_read(master_fd: Int, max_bytes: Int) -> String {
+pub fn pty_read(master_fd: int, max_bytes: int) -> string {
   let buf = malloc(max_bytes)
   let n = read(master_fd, buf, max_bytes)
   let result = ""
@@ -95,17 +95,17 @@ fn pty_read(master_fd: Int, max_bytes: Int) -> String {
 
 // ── Write to PTY ──
 
-fn pty_write(master_fd: Int, data: String) -> Int {
+pub fn pty_write(master_fd: int, data: string) -> int {
   let c = cstring(data)
   return write(master_fd, c, len(data))
 }
 
 // ── Cleanup ──
 
-fn pty_close(master_fd: Int, pid: Int) {
+pub fn pty_close(master_fd: int, pid: int) {
   pty_write(master_fd, "exit\n")
   usleep(100000)
-  kill(pid, SIGTERM)
+  kill(pid, sigterm)
   waitpid(pid, ptr_null(), 0)
   close(master_fd)
 }
