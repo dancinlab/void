@@ -3,13 +3,38 @@
 
 // Cell: one character position in the terminal
 // { ch: string, fg: int, bg: int, flags: Int }
-// flags: 1=bold, 2=italic, 4=underline, 8=inverse, 16=dim
+// flags: 1=bold, 2=italic, 4=underline, 8=inverse, 16=dim, 32=strikethrough, 64=blink
 
 pub let cell_bold = 1
 pub let cell_italic = 2
 pub let cell_underline = 4
 pub let cell_inverse = 8
 pub let cell_dim = 16
+pub let cell_strikethrough = 32
+pub let cell_blink = 64
+
+pub fn mark_dirty(grid: map, row: int) -> map {
+  grid["dirty_rows"] = grid["dirty_rows"] + [row]
+  return grid
+}
+
+pub fn mark_all_dirty(grid: map) -> map {
+  let rows = []
+  let r = 0
+  while r < grid["rows"] {
+    rows = rows + [r]
+    r = r + 1
+  }
+  grid["dirty_rows"] = rows
+  grid["all_dirty"] = true
+  return grid
+}
+
+pub fn clear_dirty(grid: map) -> map {
+  grid["dirty_rows"] = []
+  grid["all_dirty"] = false
+  return grid
+}
 
 pub fn new_cell() -> map {
   return #{"ch": " ", "fg": 7, "bg": 0, "flags": 0}
@@ -41,13 +66,30 @@ pub fn new_grid(rows: int, cols: int) -> map {
     "current_fg": 7,
     "current_bg": 0,
     "current_flags": 0,
-    "saved_main": null
+    "saved_main": 0,
+    "saved_cursor_row": -1,
+    "saved_cursor_col": 0,
+    "dirty_rows": [],
+    "all_dirty": true,
+    "mouse_tracking": false,
+    "mouse_btn_event": false,
+    "mouse_any_event": false,
+    "mouse_sgr": false,
+    "mouse_last_btn": -1,
+    "mouse_last_col": 0,
+    "mouse_last_row": 0,
+    "mouse_last_evt": 0,
+    "mouse_last_shift": false,
+    "mouse_last_alt": false,
+    "mouse_last_ctrl": false,
+    "mouse_dragging": false
   }
 }
 
 pub fn grid_set_cell(grid: map, row: int, col: int, ch: string, fg: int, bg: int, flags: int) -> map {
   if row >= 0 && row < grid["rows"] && col >= 0 && col < grid["cols"] {
     grid["cells"][row][col] = #{"ch": ch, "fg": fg, "bg": bg, "flags": flags}
+    grid = mark_dirty(grid, row)
   }
   return grid
 }
@@ -59,6 +101,7 @@ pub fn grid_clear_row(grid: map, row: int) -> map {
       grid["cells"][row][c] = new_cell()
       c = c + 1
     }
+    grid = mark_dirty(grid, row)
   }
   return grid
 }
@@ -69,6 +112,7 @@ pub fn grid_scroll_up(grid: map) -> map {
   let bottom = grid["scroll_bottom"]
   let top_row = grid["cells"][top]
   grid["scrollback"] = grid["scrollback"] + [top_row]
+  grid = mark_all_dirty(grid)
   if len(grid["scrollback"]) > grid["scrollback_max"] {
     // Trim oldest entry by rebuilding from index 1
     let trimmed = []
@@ -95,6 +139,7 @@ pub fn grid_scroll_up(grid: map) -> map {
 pub fn grid_scroll_down(grid: map) -> map {
   let top = grid["scroll_top"]
   let bottom = grid["scroll_bottom"]
+  grid = mark_all_dirty(grid)
 
   // Shift rows down within scroll region
   let r = bottom
@@ -324,6 +369,55 @@ pub fn grid_delete_lines(grid: map, n: int) -> map {
   return grid
 }
 
+pub fn grid_delete_chars(grid: map, n: int) -> map {
+  let row = grid["cursor_row"]
+  let col = grid["cursor_col"]
+  let cols = grid["cols"]
+  let i = col
+  while i < cols - n {
+    grid["cells"][row][i] = grid["cells"][row][i + n]
+    i = i + 1
+  }
+  // Clear vacated cells at end
+  let j = cols - n
+  if j < col { j = col }
+  while j < cols {
+    grid["cells"][row][j] = new_cell()
+    j = j + 1
+  }
+  return grid
+}
+
+pub fn grid_insert_chars(grid: map, n: int) -> map {
+  let row = grid["cursor_row"]
+  let col = grid["cursor_col"]
+  let cols = grid["cols"]
+  // Shift right from end
+  let i = cols - 1
+  while i >= col + n {
+    grid["cells"][row][i] = grid["cells"][row][i - n]
+    i = i - 1
+  }
+  // Clear inserted positions
+  let j = col
+  while j < col + n && j < cols {
+    grid["cells"][row][j] = new_cell()
+    j = j + 1
+  }
+  return grid
+}
+
+pub fn grid_erase_chars(grid: map, n: int) -> map {
+  let row = grid["cursor_row"]
+  let col = grid["cursor_col"]
+  let i = 0
+  while i < n && col + i < grid["cols"] {
+    grid["cells"][row][col + i] = new_cell()
+    i = i + 1
+  }
+  return grid
+}
+
 pub fn grid_resize(grid: map, new_rows: int, new_cols: int) -> map {
   let old_rows = grid["rows"]
   let old_cols = grid["cols"]
@@ -394,7 +488,7 @@ pub fn grid_save_for_alt(grid: map) -> map {
 
 pub fn grid_restore_from_alt(grid: map, saved: map) -> map {
   // Restore saved main screen
-  if saved == null {
+  if saved == 0 {
     return grid
   }
   let r = 0

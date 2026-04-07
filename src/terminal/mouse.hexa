@@ -1,0 +1,325 @@
+// mouse.hexa — Mouse input parsing and state tracking
+// VOID Layer 3: Terminal Core — Task 4: Mouse Support
+//
+// Supports xterm mouse protocols:
+//   ?1000h  — Basic mouse tracking (button press/release)
+//   ?1002h  — Button-event tracking (press/release + drag)
+//   ?1003h  — Any-event tracking (all motion)
+//   ?1006h  — SGR extended mode (CSI < button;col;row M/m)
+//
+// SGR format: ESC [ < Cb ; Cx ; Cy M   (press)
+//             ESC [ < Cb ; Cx ; Cy m   (release)
+//   Cb = button code with modifier bits
+//   Cx = column (1-based)
+//   Cy = row (1-based)
+//
+// Button encoding (Cb):
+//   0 = left, 1 = middle, 2 = right, 3 = release (non-SGR)
+//   +4 = shift, +8 = meta/alt, +16 = control
+//   32 = motion (added when tracking motion)
+//   64 = scroll up, 65 = scroll down
+
+// ── Mouse button constants ──
+
+pub let mouse_btn_left = 0
+pub let mouse_btn_middle = 1
+pub let mouse_btn_right = 2
+pub let mouse_btn_release = 3
+pub let mouse_btn_scroll_up = 64
+pub let mouse_btn_scroll_down = 65
+pub let mouse_btn_none = -1
+
+// ── Mouse modifier masks (additive, no bitwise) ──
+
+pub let mouse_mod_shift = 4
+pub let mouse_mod_alt = 8
+pub let mouse_mod_ctrl = 16
+pub let mouse_mod_motion = 32
+
+// ── Mouse event types ──
+
+pub let mouse_evt_none = 0
+pub let mouse_evt_press = 1
+pub let mouse_evt_release = 2
+pub let mouse_evt_drag = 3
+pub let mouse_evt_move = 4
+pub let mouse_evt_scroll_up = 5
+pub let mouse_evt_scroll_down = 6
+
+// ── Mouse state ──
+
+pub fn new_mouse_state() -> map {
+  return #{
+    "button": mouse_btn_none,
+    "col": 0,
+    "row": 0,
+    "event_type": mouse_evt_none,
+    "shift": false,
+    "alt": false,
+    "ctrl": false,
+    "dragging": false,
+    "pressed_btn": mouse_btn_none
+  }
+}
+
+// ── Decode Cb (button code) into structured event ──
+
+pub fn decode_mouse_button(cb: int, is_release: bool) -> map {
+  // Extract modifier flags via arithmetic (no bitwise ops in hexa)
+  let has_shift = false
+  let has_alt = false
+  let has_ctrl = false
+  let has_motion = false
+
+  let raw = cb
+  // Check motion bit (32)
+  if raw >= 64 {
+    // Could be scroll (64/65) or motion+button
+    // Scroll events: raw >= 64 and raw < 96 (64+32=96 would be scroll+motion)
+    // Actually: scroll is encoded as 64 + scroll_dir
+    // Let's extract properly
+  }
+
+  // Decompose cb:
+  // bits: 0-1 = button, 2 = shift, 3 = alt, 4 = ctrl, 5 = motion, 6-7 = scroll
+  let remaining = cb
+
+  // Scroll: bit 6 (value 64)
+  let is_scroll = false
+  if remaining >= 128 {
+    remaining = remaining - 128
+  }
+  if remaining >= 64 {
+    is_scroll = true
+    remaining = remaining - 64
+  }
+
+  // Motion: bit 5 (value 32)
+  if remaining >= 32 {
+    has_motion = true
+    remaining = remaining - 32
+  }
+
+  // Ctrl: bit 4 (value 16)
+  if remaining >= 16 {
+    has_ctrl = true
+    remaining = remaining - 16
+  }
+
+  // Alt: bit 3 (value 8)
+  if remaining >= 8 {
+    has_alt = true
+    remaining = remaining - 8
+  }
+
+  // Shift: bit 2 (value 4)
+  if remaining >= 4 {
+    has_shift = true
+    remaining = remaining - 4
+  }
+
+  // Button: bits 0-1 (value 0-3)
+  let button = remaining
+
+  // Determine event type
+  let evt = mouse_evt_press
+  if is_release {
+    evt = mouse_evt_release
+  }
+
+  if is_scroll {
+    if button == 0 {
+      evt = mouse_evt_scroll_up
+      button = mouse_btn_scroll_up
+    } else if button == 1 {
+      evt = mouse_evt_scroll_down
+      button = mouse_btn_scroll_down
+    }
+  } else if has_motion {
+    if button == 3 {
+      // Motion with no button = move
+      evt = mouse_evt_move
+      button = mouse_btn_none
+    } else {
+      // Motion with button = drag
+      evt = mouse_evt_drag
+    }
+  } else if is_release {
+    evt = mouse_evt_release
+  }
+
+  return #{
+    "button": button,
+    "event_type": evt,
+    "shift": has_shift,
+    "alt": has_alt,
+    "ctrl": has_ctrl
+  }
+}
+
+// ── Parse SGR mouse sequence ──
+// Input: the content between CSI< and final M/m
+// e.g., for "\x1b[<0;15;3M" => params="0;15;3", final='M'
+// Returns: mouse state map or 0 if not a valid mouse sequence
+
+pub fn parse_sgr_mouse(params_str: string, is_release: bool) -> map {
+  // Split "Cb;Cx;Cy" by semicolons
+  let parts = []
+  let current = ""
+  let i = 0
+  while i < len(params_str) {
+    let ch = params_str[i]
+    if ch == ";" {
+      parts = parts + [current]
+      current = ""
+    } else {
+      current = current + ch
+    }
+    i = i + 1
+  }
+  parts = parts + [current]
+
+  if len(parts) < 3 {
+    return new_mouse_state()
+  }
+
+  let cb = to_int(parts[0])
+  let cx = to_int(parts[1])
+  let cy = to_int(parts[2])
+
+  // Decode button/modifiers from Cb
+  let decoded = decode_mouse_button(cb, is_release)
+
+  let state = new_mouse_state()
+  state["button"] = decoded["button"]
+  state["col"] = cx - 1
+  state["row"] = cy - 1
+  state["event_type"] = decoded["event_type"]
+  state["shift"] = decoded["shift"]
+  state["alt"] = decoded["alt"]
+  state["ctrl"] = decoded["ctrl"]
+
+  // Track drag state
+  if decoded["event_type"] == mouse_evt_press {
+    state["pressed_btn"] = decoded["button"]
+    state["dragging"] = false
+  } else if decoded["event_type"] == mouse_evt_drag {
+    state["pressed_btn"] = decoded["button"]
+    state["dragging"] = true
+  } else if decoded["event_type"] == mouse_evt_release {
+    state["pressed_btn"] = mouse_btn_none
+    state["dragging"] = false
+  }
+
+  return state
+}
+
+// ── Try to parse a mouse sequence from raw input ──
+// Looks for CSI < ... M or CSI < ... m at start of input
+// Returns: #{"mouse": state, "consumed": bytes_consumed}
+// If not a mouse sequence, consumed = 0
+
+pub fn try_parse_mouse_input(input: string) -> map {
+  let result = #{"mouse": new_mouse_state(), "consumed": 0}
+
+  // Minimum SGR mouse sequence: ESC [ < N ; N ; N M = 10 chars
+  if len(input) < 9 {
+    return result
+  }
+
+  // Check for ESC [ <
+  if input[0] != "\x1b" {
+    return result
+  }
+  if input[1] != "[" {
+    return result
+  }
+  if input[2] != "<" {
+    return result
+  }
+
+  // Collect digits and semicolons until M or m
+  let params = ""
+  let i = 3
+  let found_end = false
+  let is_release = false
+
+  while i < len(input) {
+    let ch = input[i]
+    let byte = to_int(ch)
+    if ch == "M" {
+      found_end = true
+      is_release = false
+      i = i + 1
+      break
+    } else if ch == "m" {
+      found_end = true
+      is_release = true
+      i = i + 1
+      break
+    } else if byte >= 48 && byte <= 57 {
+      // Digit
+      params = params + ch
+    } else if ch == ";" {
+      params = params + ";"
+    } else {
+      // Invalid character in mouse sequence
+      return result
+    }
+    i = i + 1
+  }
+
+  if found_end == false {
+    return result
+  }
+
+  let mouse = parse_sgr_mouse(params, is_release)
+  result["mouse"] = mouse
+  result["consumed"] = i
+  return result
+}
+
+// ── Mouse event to human-readable string (for debugging/statusbar) ──
+
+pub fn mouse_event_str(state: map) -> string {
+  let evt = state["event_type"]
+  let btn = state["button"]
+
+  let evt_name = "unknown"
+  if evt == mouse_evt_none { evt_name = "none" }
+  if evt == mouse_evt_press { evt_name = "press" }
+  if evt == mouse_evt_release { evt_name = "release" }
+  if evt == mouse_evt_drag { evt_name = "drag" }
+  if evt == mouse_evt_move { evt_name = "move" }
+  if evt == mouse_evt_scroll_up { evt_name = "scroll-up" }
+  if evt == mouse_evt_scroll_down { evt_name = "scroll-down" }
+
+  let btn_name = "none"
+  if btn == mouse_btn_left { btn_name = "left" }
+  if btn == mouse_btn_middle { btn_name = "middle" }
+  if btn == mouse_btn_right { btn_name = "right" }
+  if btn == mouse_btn_scroll_up { btn_name = "scroll-up" }
+  if btn == mouse_btn_scroll_down { btn_name = "scroll-down" }
+
+  let mods = ""
+  if state["shift"] == true { mods = mods + "S" }
+  if state["alt"] == true { mods = mods + "A" }
+  if state["ctrl"] == true { mods = mods + "C" }
+  if len(mods) > 0 { mods = "[" + mods + "]" }
+
+  return evt_name + " " + btn_name + mods + " @(" + str(state["col"] + 1) + "," + str(state["row"] + 1) + ")"
+}
+
+// ── Update grid mouse state ──
+
+pub fn grid_update_mouse(grid: map, mouse: map) -> map {
+  grid["mouse_last_btn"] = mouse["button"]
+  grid["mouse_last_col"] = mouse["col"]
+  grid["mouse_last_row"] = mouse["row"]
+  grid["mouse_last_evt"] = mouse["event_type"]
+  grid["mouse_last_shift"] = mouse["shift"]
+  grid["mouse_last_alt"] = mouse["alt"]
+  grid["mouse_last_ctrl"] = mouse["ctrl"]
+  grid["mouse_dragging"] = mouse["dragging"]
+  return grid
+}

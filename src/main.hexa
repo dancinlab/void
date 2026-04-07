@@ -10,6 +10,7 @@ use sys::term
 use sys::pty
 use terminal::grid
 use terminal::vt_parser
+use terminal::mouse
 use render::ansi
 
 // ── Additional extern declarations ──
@@ -19,6 +20,7 @@ extern fn write(fd: int, buf: *Byte, count: int) -> int
 extern fn usleep(usec: int) -> int
 extern fn malloc(size: int) -> *Void
 extern fn free(ptr: *Void)
+extern fn memset(s: *Void, c: int, n: int) -> *Void
 
 // ── Get terminal size ──
 
@@ -56,61 +58,112 @@ cursor_hide()
 screen_clear()
 term_raw()
 stdin_set_nonblock()
+mouse_enable()
 
 // ── Initial render ──
 
 let status_text = " VOID | " + str(grid_cols) + "x" + str(grid_rows) + " | PID:" + str(child_pid)
-let rendered = render_grid_full(grid)
 let statusbar = ansi_move(term_rows, 1) + render_statusbar(status_text, grid_cols)
-flush_to_stdout(rendered + statusbar)
+flush_to_stdout(ansi_move(1, 1) + statusbar)
 
 // ── Main event loop ──
 
 let running = true
 let read_buf = malloc(4096)
+memset(read_buf, 0, 4096)
 let stdin_buf = malloc(256)
-let frame_count = 0
-let dirty = false
+memset(stdin_buf, 0, 256)
 let resize_counter = 0
+let scroll_offset = 0
+let mouse_state = new_mouse_state()
+let mouse_info = ""
 
 while running {
   // 1. Read stdin (keyboard input) → forward to PTY
+  memset(stdin_buf, 0, 256)
   let stdin_n = read(0, stdin_buf, 255)
   if stdin_n > 0 {
-    // Check for Ctrl+D (byte 4) to exit
-    let first_byte = deref(stdin_buf)
-    // Ctrl+D = 4, but deref reads 8 bytes as i64...
-    // Just forward all input to PTY
-    write(master_fd, stdin_buf, stdin_n)
+    let input_str = from_cstring(stdin_buf)
+    let forwarded = true
+    let input_consumed = false
+
+    // Try to parse mouse input (SGR: ESC [ < Cb;Cx;Cy M/m)
+    let mouse_result = try_parse_mouse_input(input_str)
+    if mouse_result["consumed"] > 0 {
+      mouse_state = mouse_result["mouse"]
+      grid = grid_update_mouse(grid, mouse_state)
+      mouse_info = mouse_event_str(mouse_state)
+
+      // Update statusbar with mouse info
+      let new_status = " VOID | " + str(grid_cols) + "x" + str(grid_rows) + " | PID:" + str(child_pid) + " | " + mouse_info
+      let new_statusbar = ansi_move(term_rows, 1) + render_statusbar(new_status, grid_cols)
+      flush_to_stdout(new_statusbar)
+
+      // If the child app has mouse tracking enabled, forward the raw sequence
+      if grid["mouse_tracking"] == true || grid["mouse_btn_event"] == true || grid["mouse_any_event"] == true {
+        write(master_fd, stdin_buf, stdin_n)
+      }
+      input_consumed = true
+      forwarded = false
+
+      // Handle scroll events for scrollback when no child mouse tracking
+      if grid["mouse_tracking"] == false && grid["mouse_btn_event"] == false && grid["mouse_any_event"] == false {
+        let evt = mouse_state["event_type"]
+        if evt == mouse_evt_scroll_up {
+          let max_off = len(grid["scrollback"])
+          scroll_offset = scroll_offset + 3
+          if scroll_offset > max_off { scroll_offset = max_off }
+        } else if evt == mouse_evt_scroll_down {
+          scroll_offset = scroll_offset - 3
+          if scroll_offset < 0 { scroll_offset = 0 }
+        }
+      }
+    }
+
+    // Detect Shift+PageUp (ESC[5;2~) and Shift+PageDown (ESC[6;2~)
+    if input_consumed == false && stdin_n >= 6 {
+      if input_str == "\x1b[5;2~" {
+        // Shift+PageUp — scroll back
+        let max_off = len(grid["scrollback"])
+        scroll_offset = scroll_offset + grid_rows
+        if scroll_offset > max_off { scroll_offset = max_off }
+        forwarded = false
+      } else if input_str == "\x1b[6;2~" {
+        // Shift+PageDown — scroll forward
+        scroll_offset = scroll_offset - grid_rows
+        if scroll_offset < 0 { scroll_offset = 0 }
+        forwarded = false
+      }
+    }
+    if forwarded {
+      // Reset scroll offset on any other input
+      if scroll_offset > 0 {
+        scroll_offset = 0
+      }
+      write(master_fd, stdin_buf, stdin_n)
+    }
   }
 
-  // 2. Read PTY output → parse VT → update grid
+  // 2. Read PTY output → passthrough to host terminal + parse for state
+  memset(read_buf, 0, 4096)
   let pty_n = read(master_fd, read_buf, 4095)
   if pty_n > 0 {
-    let output = from_cstring_n(read_buf, pty_n)
+    let output = from_cstring(read_buf)
+    // Passthrough: send PTY output directly to host terminal
+    flush_to_stdout(output)
+    // Parse for internal state (title, void protocol)
     let result = vt_process(parser, grid, output)
     parser = result["parser"]
     grid = result["grid"]
     if len(result["title"]) > 0 {
       window_title = result["title"]
     }
-    dirty = true
+    if len(result["void_msg"]) > 0 {
+      grid["void_last_msg"] = result["void_msg"]
+    }
   } else if pty_n == 0 {
     // EOF — shell exited
     running = false
-  }
-
-  // 3. Render if dirty (throttle to every 2 iterations = ~20ms)
-  if dirty {
-    frame_count = frame_count + 1
-    if frame_count >= 2 {
-      let rendered = render_grid_full(grid)
-      let status_text = " VOID | " + window_title + " | " + str(grid_cols) + "x" + str(grid_rows)
-      let statusbar = ansi_move(term_rows, 1) + render_statusbar(status_text, grid_cols)
-      flush_to_stdout(rendered + statusbar)
-      dirty = false
-      frame_count = 0
-    }
   }
 
   // 5. Check for resize every 50 frames (~500ms)
@@ -124,8 +177,6 @@ while running {
       grid_rows = term_rows - 1
       grid_cols = term_cols
       grid = grid_resize(grid, grid_rows, grid_cols)
-      dirty = true
-      frame_count = 2
     }
   }
 
@@ -138,6 +189,7 @@ while running {
 free(read_buf)
 free(stdin_buf)
 pty_close(master_fd, child_pid)
+mouse_disable()
 cursor_show()
 screen_alt_leave()
 term_restore()

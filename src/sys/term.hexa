@@ -127,3 +127,45 @@ pub fn screen_alt_enter() {
 pub fn screen_alt_leave() {
   write_escape("?1049l")
 }
+
+pub fn mouse_enable() {
+  // Enable basic mouse tracking + SGR extended mode
+  write_escape("?1000h")
+  write_escape("?1002h")
+  write_escape("?1006h")
+}
+
+pub fn mouse_disable() {
+  write_escape("?1006l")
+  write_escape("?1003l")
+  write_escape("?1002l")
+  write_escape("?1000l")
+}
+
+// Enable specific mouse modes individually
+pub fn mouse_enable_btn_event() {
+  // ?1002h — report button press/release + motion while button held
+  write_escape("?1002h")
+}
+
+pub fn mouse_enable_any_event() {
+  // ?1003h — report all mouse motion (even with no buttons)
+  write_escape("?1003h")
+}
+
+pub fn mouse_enable_sgr() {
+  // ?1006h — SGR extended mouse mode (supports >223 cols/rows)
+  write_escape("?1006h")
+}
+
+pub fn mouse_disable_btn_event() {
+  write_escape("?1002l")
+}
+
+pub fn mouse_disable_any_event() {
+  write_escape("?1003l")
+}
+
+pub fn mouse_disable_sgr() {
+  write_escape("?1006l")
+}
