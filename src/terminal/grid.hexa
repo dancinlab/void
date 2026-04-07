@@ -322,3 +322,43 @@ pub fn grid_delete_lines(grid: map, n: int) -> map {
   }
   return grid
 }
+
+pub fn grid_resize(grid: map, new_rows: int, new_cols: int) -> map {
+  let old_rows = grid["rows"]
+  let old_cols = grid["cols"]
+  let old_cells = grid["cells"]
+
+  // Build new cell array
+  let cells = []
+  let r = 0
+  while r < new_rows {
+    let row = []
+    let c = 0
+    while c < new_cols {
+      if r < old_rows && c < old_cols {
+        row = row + [old_cells[r][c]]
+      } else {
+        row = row + [new_cell()]
+      }
+      c = c + 1
+    }
+    cells = cells + [row]
+    r = r + 1
+  }
+
+  grid["cells"] = cells
+  grid["rows"] = new_rows
+  grid["cols"] = new_cols
+  grid["scroll_top"] = 0
+  grid["scroll_bottom"] = new_rows - 1
+
+  // Clamp cursor
+  if grid["cursor_row"] >= new_rows {
+    grid["cursor_row"] = new_rows - 1
+  }
+  if grid["cursor_col"] >= new_cols {
+    grid["cursor_col"] = new_cols - 1
+  }
+
+  return grid
+}

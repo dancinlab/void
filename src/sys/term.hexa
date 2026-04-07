@@ -64,6 +64,30 @@ pub fn term_size() -> map {
   return #{"rows": rows, "cols": cols}
 }
 
+// TIOCGWINSZ on macOS = 0x40087468
+pub let tiocgwinsz = 1074295912
+
+extern fn ioctl(fd: int, request: int, argp: *Void) -> int
+
+pub fn term_size_fast() -> map {
+  // ioctl TIOCGWINSZ returns struct winsize {u16 row, u16 col, u16 xpixel, u16 ypixel}
+  let buf = malloc(8)
+  let ret = ioctl(fd_stdin, tiocgwinsz, buf)
+  if ret != 0 {
+    free(buf)
+    return term_size()
+  }
+  // deref reads i64 (8 bytes). Little-endian: low 16 bits = rows, next 16 = cols
+  let packed = deref(buf)
+  free(buf)
+  // Extract unsigned shorts via arithmetic (no bitwise in hexa)
+  let rows = packed - (packed / 65536) * 65536
+  let cols = (packed / 65536) - (packed / 65536 / 65536) * 65536
+  if rows <= 0 { rows = 24 }
+  if cols <= 0 { cols = 80 }
+  return #{"rows": rows, "cols": cols}
+}
+
 // ── Non-blocking stdin ──
 
 pub fn stdin_set_nonblock() {

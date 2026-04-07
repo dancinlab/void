@@ -71,6 +71,7 @@ let read_buf = malloc(4096)
 let stdin_buf = malloc(256)
 let frame_count = 0
 let dirty = false
+let resize_counter = 0
 
 while running {
   // 1. Read stdin (keyboard input) → forward to PTY
@@ -109,6 +110,22 @@ while running {
       flush_to_stdout(rendered + statusbar)
       dirty = false
       frame_count = 0
+    }
+  }
+
+  // 5. Check for resize every 50 frames (~500ms)
+  resize_counter = resize_counter + 1
+  if resize_counter >= 50 {
+    resize_counter = 0
+    let new_size = term_size_fast()
+    if new_size["rows"] != term_rows || new_size["cols"] != term_cols {
+      term_rows = new_size["rows"]
+      term_cols = new_size["cols"]
+      grid_rows = term_rows - 1
+      grid_cols = term_cols
+      grid = grid_resize(grid, grid_rows, grid_cols)
+      dirty = true
+      frame_count = 2
     }
   }
 
