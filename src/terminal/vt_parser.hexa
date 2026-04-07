@@ -242,7 +242,11 @@ pub fn dispatch_csi(parser: map, grid: map, params_str: string, final_ch: string
       if n == 25 {
         grid["cursor_visible"] = true
       } else if n == 1049 {
+        // Enter alt screen — save main grid
+        grid["saved_main"] = grid_save_for_alt(grid)
         grid["alt_screen"] = true
+        grid = grid_erase_all(grid)
+        grid = grid_cursor_set(grid, 0, 0)
       }
     }
   } else if final_ch == "l" {
@@ -251,6 +255,11 @@ pub fn dispatch_csi(parser: map, grid: map, params_str: string, final_ch: string
       if n == 25 {
         grid["cursor_visible"] = false
       } else if n == 1049 {
+        // Leave alt screen — restore main grid
+        if grid["saved_main"] != null {
+          grid = grid_restore_from_alt(grid, grid["saved_main"])
+          grid["saved_main"] = null
+        }
         grid["alt_screen"] = false
       }
     }

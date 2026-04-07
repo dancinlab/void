@@ -40,7 +40,8 @@ pub fn new_grid(rows: int, cols: int) -> map {
     "scrollback_max": 10000,
     "current_fg": 7,
     "current_bg": 0,
-    "current_flags": 0
+    "current_flags": 0,
+    "saved_main": null
   }
 }
 
@@ -360,5 +361,57 @@ pub fn grid_resize(grid: map, new_rows: int, new_cols: int) -> map {
     grid["cursor_col"] = new_cols - 1
   }
 
+  return grid
+}
+
+pub fn grid_save_for_alt(grid: map) -> map {
+  // Deep copy current cells for alt screen restore
+  let saved_cells = []
+  let r = 0
+  while r < grid["rows"] {
+    let row = []
+    let c = 0
+    while c < grid["cols"] {
+      let cell = grid["cells"][r][c]
+      row = row + [#{"ch": cell["ch"], "fg": cell["fg"], "bg": cell["bg"], "flags": cell["flags"]}]
+      c = c + 1
+    }
+    saved_cells = saved_cells + [row]
+    r = r + 1
+  }
+  return #{
+    "cells": saved_cells,
+    "rows": grid["rows"],
+    "cols": grid["cols"],
+    "cursor_row": grid["cursor_row"],
+    "cursor_col": grid["cursor_col"],
+    "current_fg": grid["current_fg"],
+    "current_bg": grid["current_bg"],
+    "current_flags": grid["current_flags"],
+    "scrollback": grid["scrollback"]
+  }
+}
+
+pub fn grid_restore_from_alt(grid: map, saved: map) -> map {
+  // Restore saved main screen
+  if saved == null {
+    return grid
+  }
+  let r = 0
+  while r < grid["rows"] && r < saved["rows"] {
+    let c = 0
+    while c < grid["cols"] && c < saved["cols"] {
+      grid["cells"][r][c] = saved["cells"][r][c]
+      c = c + 1
+    }
+    r = r + 1
+  }
+  grid["cursor_row"] = saved["cursor_row"]
+  grid["cursor_col"] = saved["cursor_col"]
+  grid["current_fg"] = saved["current_fg"]
+  grid["current_bg"] = saved["current_bg"]
+  grid["current_flags"] = saved["current_flags"]
+  grid["scrollback"] = saved["scrollback"]
+  grid["alt_screen"] = false
   return grid
 }
