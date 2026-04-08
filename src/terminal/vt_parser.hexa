@@ -1,3 +1,4 @@
+// ⛔ CORE — L0 불변식 (VT 파서 핵심 프로토콜. 수정 전 유저 승인 필수)
 // vt_parser.hexa — VT100/xterm escape sequence parser
 // VOID Layer 3: Terminal Core
 
@@ -9,6 +10,7 @@ pub let st_csi = 2
 pub let st_osc = 3
 pub let st_dcs = 4
 pub let st_void = 5
+pub let st_charset = 6
 
 pub fn new_vt_parser() -> map {
   return #{
@@ -16,8 +18,27 @@ pub fn new_vt_parser() -> map {
     "params": "",
     "intermediate": "",
     "osc_string": "",
-    "private_mode": false
+    "private_mode": false,
+    "charset": 0
   }
+}
+
+// ── DEC Special Graphics charset translation ──
+
+pub fn dec_line_char(ch: string) -> string {
+  if ch == "j" { return "┘" }
+  if ch == "k" { return "┐" }
+  if ch == "l" { return "┌" }
+  if ch == "m" { return "└" }
+  if ch == "n" { return "┼" }
+  if ch == "q" { return "─" }
+  if ch == "t" { return "├" }
+  if ch == "u" { return "┤" }
+  if ch == "v" { return "┴" }
+  if ch == "w" { return "┬" }
+  if ch == "x" { return "│" }
+  if ch == "a" { return "▒" }
+  return ch
 }
 
 // ── Parameter parsing ──
@@ -100,6 +121,45 @@ pub fn apply_sgr(grid: map, params: array) -> map {
       if has_inverse == 0 {
         grid["current_flags"] = grid["current_flags"] + 8
       }
+    } else if p == 5 {
+      // Blink
+      let has_blink = (grid["current_flags"] / 64) - (grid["current_flags"] / 128) * 1
+      if has_blink == 0 {
+        grid["current_flags"] = grid["current_flags"] + 64
+      }
+    } else if p == 9 {
+      // Strikethrough
+      let has_strike = (grid["current_flags"] / 32) - (grid["current_flags"] / 64) * 1
+      if has_strike == 0 {
+        grid["current_flags"] = grid["current_flags"] + 32
+      }
+    } else if p == 22 {
+      // Reset bold and dim
+      let f = grid["current_flags"]
+      let has_bold = f - (f / 2) * 2
+      let has_dim = (f / 16) - (f / 32) * 1
+      if has_bold > 0 { grid["current_flags"] = grid["current_flags"] - 1 }
+      if has_dim > 0 { grid["current_flags"] = grid["current_flags"] - 16 }
+    } else if p == 23 {
+      // Reset italic
+      let has_italic = (grid["current_flags"] / 2) - (grid["current_flags"] / 4) * 1
+      if has_italic > 0 { grid["current_flags"] = grid["current_flags"] - 2 }
+    } else if p == 24 {
+      // Reset underline
+      let has_underline = (grid["current_flags"] / 4) - (grid["current_flags"] / 8) * 1
+      if has_underline > 0 { grid["current_flags"] = grid["current_flags"] - 4 }
+    } else if p == 25 {
+      // Reset blink
+      let has_blink = (grid["current_flags"] / 64) - (grid["current_flags"] / 128) * 1
+      if has_blink > 0 { grid["current_flags"] = grid["current_flags"] - 64 }
+    } else if p == 27 {
+      // Reset inverse
+      let has_inverse = (grid["current_flags"] / 8) - (grid["current_flags"] / 16) * 1
+      if has_inverse > 0 { grid["current_flags"] = grid["current_flags"] - 8 }
+    } else if p == 29 {
+      // Reset strikethrough
+      let has_strike = (grid["current_flags"] / 32) - (grid["current_flags"] / 64) * 1
+      if has_strike > 0 { grid["current_flags"] = grid["current_flags"] - 32 }
     } else if p >= 30 && p <= 37 {
       // Standard FG colors (30=black, 31=red, ... 37=white)
       grid["current_fg"] = p - 30
@@ -177,6 +237,19 @@ pub fn dispatch_csi(parser: map, grid: map, params_str: string, final_ch: string
   } else if final_ch == "D" {
     // Cursor Backward
     grid = grid_cursor_backward(grid, n)
+  } else if final_ch == "E" {
+    // Cursor Next Line
+    grid["cursor_col"] = 0
+    grid = grid_cursor_down(grid, n)
+  } else if final_ch == "F" {
+    // Cursor Previous Line
+    grid["cursor_col"] = 0
+    grid = grid_cursor_up(grid, n)
+  } else if final_ch == "G" {
+    // Cursor Character Absolute (column)
+    let col = params[0]
+    if col == 0 { col = 1 }
+    grid = grid_cursor_set(grid, grid["cursor_row"], col - 1)
   } else if final_ch == "H" || final_ch == "f" {
     // Cursor Position (row;col) — 1-based in VT, convert to 0-based
     let row = params[0]
@@ -214,6 +287,46 @@ pub fn dispatch_csi(parser: map, grid: map, params_str: string, final_ch: string
   } else if final_ch == "m" {
     // SGR (Select Graphic Rendition)
     grid = apply_sgr(grid, params)
+  } else if final_ch == "P" {
+    // Delete Characters
+    grid = grid_delete_chars(grid, n)
+  } else if final_ch == "@" {
+    // Insert Characters
+    grid = grid_insert_chars(grid, n)
+  } else if final_ch == "X" {
+    // Erase Characters
+    grid = grid_erase_chars(grid, n)
+  } else if final_ch == "S" {
+    // Scroll Up
+    let j = 0
+    while j < n {
+      grid = grid_scroll_up(grid)
+      j = j + 1
+    }
+  } else if final_ch == "T" {
+    // Scroll Down
+    let j = 0
+    while j < n {
+      grid = grid_scroll_down(grid)
+      j = j + 1
+    }
+  } else if final_ch == "d" {
+    // Vertical Position Absolute (row)
+    let row = params[0]
+    if row == 0 { row = 1 }
+    grid = grid_cursor_set(grid, row - 1, grid["cursor_col"])
+  } else if final_ch == "s" {
+    // Save cursor position (ANSI.SYS)
+    if is_private == false {
+      grid["saved_cursor_row"] = grid["cursor_row"]
+      grid["saved_cursor_col"] = grid["cursor_col"]
+    }
+  } else if final_ch == "u" {
+    // Restore cursor position (ANSI.SYS)
+    if grid["saved_cursor_row"] >= 0 {
+      grid["cursor_row"] = grid["saved_cursor_row"]
+      grid["cursor_col"] = grid["saved_cursor_col"]
+    }
   } else if final_ch == "L" {
     // Insert Lines
     grid = grid_insert_lines(grid, n)
@@ -241,6 +354,14 @@ pub fn dispatch_csi(parser: map, grid: map, params_str: string, final_ch: string
       // Store mode flags on grid for renderer to read
       if n == 25 {
         grid["cursor_visible"] = true
+      } else if n == 1000 {
+        grid["mouse_tracking"] = true
+      } else if n == 1002 {
+        grid["mouse_btn_event"] = true
+      } else if n == 1003 {
+        grid["mouse_any_event"] = true
+      } else if n == 1006 {
+        grid["mouse_sgr"] = true
       } else if n == 1049 {
         // Enter alt screen — save main grid
         grid["saved_main"] = grid_save_for_alt(grid)
@@ -254,11 +375,19 @@ pub fn dispatch_csi(parser: map, grid: map, params_str: string, final_ch: string
     if is_private {
       if n == 25 {
         grid["cursor_visible"] = false
+      } else if n == 1000 {
+        grid["mouse_tracking"] = false
+      } else if n == 1002 {
+        grid["mouse_btn_event"] = false
+      } else if n == 1003 {
+        grid["mouse_any_event"] = false
+      } else if n == 1006 {
+        grid["mouse_sgr"] = false
       } else if n == 1049 {
         // Leave alt screen — restore main grid
-        if grid["saved_main"] != null {
+        if grid["saved_main"] != 0 {
           grid = grid_restore_from_alt(grid, grid["saved_main"])
-          grid["saved_main"] = null
+          grid["saved_main"] = 0
         }
         grid["alt_screen"] = false
       }
@@ -272,6 +401,7 @@ pub fn dispatch_csi(parser: map, grid: map, params_str: string, final_ch: string
 
 pub fn vt_process(parser: map, grid: map, data: string) -> map {
   let title = ""
+  let void_msg = ""
   let i = 0
   while i < len(data) {
     let ch = data[i]
@@ -299,8 +429,12 @@ pub fn vt_process(parser: map, grid: map, data: string) -> map {
       } else if byte == 7 {
         // BEL — ignored (could trigger visual bell)
       } else if byte >= 32 {
-        // Printable character
-        grid = grid_put_char(grid, ch, grid["current_fg"], grid["current_bg"], grid["current_flags"])
+        // Printable character — translate if DEC charset active
+        let out_ch = ch
+        if parser["charset"] == 1 && byte >= 96 && byte <= 126 {
+          out_ch = dec_line_char(ch)
+        }
+        grid = grid_put_char(grid, out_ch, grid["current_fg"], grid["current_bg"], grid["current_flags"])
       }
       // Other control chars (0-6, 11-12, 14-26, 28-31) are ignored
 
@@ -324,7 +458,7 @@ pub fn vt_process(parser: map, grid: map, data: string) -> map {
         parser["state"] = st_ground
       } else if byte == 56 {
         // 8 -> Restore cursor (DECRC)
-        if grid["saved_cursor_row"] != nil {
+        if grid["saved_cursor_row"] >= 0 {
           grid["cursor_row"] = grid["saved_cursor_row"]
           grid["cursor_col"] = grid["saved_cursor_col"]
         }
@@ -337,6 +471,9 @@ pub fn vt_process(parser: map, grid: map, data: string) -> map {
           grid = grid_cursor_up(grid, 1)
         }
         parser["state"] = st_ground
+      } else if byte == 40 || byte == 41 {
+        // ( or ) — charset designation, read next byte
+        parser["state"] = st_charset
       } else if byte == 99 {
         // c -> Full Reset (RIS)
         grid = grid_erase_all(grid)
@@ -346,11 +483,23 @@ pub fn vt_process(parser: map, grid: map, data: string) -> map {
         grid["current_flags"] = 0
         grid["scroll_top"] = 0
         grid["scroll_bottom"] = grid["rows"] - 1
+        parser["charset"] = 0
         parser["state"] = st_ground
       } else {
         // Unknown escape — return to ground
         parser["state"] = st_ground
       }
+
+    } else if parser["state"] == st_charset {
+      // Charset designator: 0 = DEC Special Graphics, B = ASCII
+      if byte == 48 {
+        // '0' — DEC line drawing
+        parser["charset"] = 1
+      } else {
+        // 'B' or anything else — ASCII
+        parser["charset"] = 0
+      }
+      parser["state"] = st_ground
 
     } else if parser["state"] == st_csi {
       if byte == 63 {
@@ -376,11 +525,15 @@ pub fn vt_process(parser: map, grid: map, data: string) -> map {
     } else if parser["state"] == st_osc {
       if byte == 7 {
         // BEL — end OSC
-        title = handle_osc(parser["osc_string"], title)
+        let osc_result = handle_osc(parser["osc_string"], title)
+        title = osc_result["title"]
+        if len(osc_result["void_msg"]) > 0 { void_msg = osc_result["void_msg"] }
         parser["state"] = st_ground
       } else if byte == 27 {
         // ESC — might be ST (ESC \), treat as end of OSC
-        title = handle_osc(parser["osc_string"], title)
+        let osc_result = handle_osc(parser["osc_string"], title)
+        title = osc_result["title"]
+        if len(osc_result["void_msg"]) > 0 { void_msg = osc_result["void_msg"] }
         parser["state"] = st_escape
       } else {
         parser["osc_string"] = parser["osc_string"] + ch
@@ -405,32 +558,44 @@ pub fn vt_process(parser: map, grid: map, data: string) -> map {
     i = i + 1
   }
 
-  return #{"parser": parser, "grid": grid, "title": title}
+  return #{"parser": parser, "grid": grid, "title": title, "void_msg": void_msg}
 }
 
 // ── OSC handler ──
 
-pub fn handle_osc(osc_str: string, current_title: string) -> string {
+pub fn handle_osc(osc_str: string, current_title: string) -> map {
   // OSC 0;title — set window title
   // OSC 2;title — set window title
+  // OSC 777;type;payload — VOID protocol
   // Format: "N;payload" where N is the OSC number
+  let result = #{"title": current_title, "void_msg": ""}
   if len(osc_str) < 2 {
-    return current_title
+    return result
+  }
+  // Check for VOID protocol (777;...)
+  if len(osc_str) >= 4 && osc_str[0] == "7" && osc_str[1] == "7" && osc_str[2] == "7" && osc_str[3] == ";" {
+    let payload = ""
+    let i = 4
+    while i < len(osc_str) {
+      payload = payload + osc_str[i]
+      i = i + 1
+    }
+    result["void_msg"] = payload
+    return result
   }
   let osc_num = osc_str[0]
   if len(osc_str) > 1 && osc_str[1] == ";" {
     if osc_num == "0" || osc_num == "2" {
-      // Extract title after "N;"
       let title = ""
       let i = 2
       while i < len(osc_str) {
         title = title + osc_str[i]
         i = i + 1
       }
-      return title
+      result["title"] = title
     }
   }
-  return current_title
+  return result
 }
 
 // ── Single-byte parsing API (kept for backward compat) ──

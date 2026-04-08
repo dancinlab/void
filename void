@@ -1,0 +1,7 @@
+#!/bin/bash
+# VOID launcher — runs native macOS terminal app
+DIR="$(cd "$(dirname "$0")" && pwd)"
+HEXA="$HOME/Dev/hexa-lang/target/release/hexa"
+[ ! -f "$HEXA" ] && HEXA="$HOME/Dev/hexa-lang/target/debug/hexa"
+[ ! -f "$HEXA" ] && { echo "hexa not found"; exit 1; }
+exec "$HEXA" "$DIR/src/main_app.hexa" "$@"

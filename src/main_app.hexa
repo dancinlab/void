@@ -1,0 +1,185 @@
+// VOID — Native macOS terminal emulator
+// https://github.com/need-singularity/void
+//
+// Native app mode: opens a macOS window with PTY-backed terminal.
+// Uses void_bridge.dylib for Cocoa windowing.
+
+// ── Load modules ──
+
+use sys::pty
+use terminal::grid
+use terminal::vt_parser
+
+// ── Extern: libc ──
+
+extern fn read(fd: int, buf: *Byte, count: int) -> int
+extern fn write(fd: int, buf: *Byte, count: int) -> int
+extern fn usleep(usec: int) -> int
+extern fn malloc(size: int) -> *Void
+extern fn free(ptr: *Void)
+extern fn memset(s: *Void, c: int, n: int) -> *Void
+extern fn dlopen(path: *Byte, flags: int) -> *Void
+
+// ── Extern: void_bridge.dylib ──
+
+extern fn void_app_init(rows: int, cols: int, font_size: int) -> int
+extern fn void_app_set_title(title: *Byte)
+extern fn void_app_set_cell(row: int, col: int, ch: int, fg: int, bg: int, flags: int)
+extern fn void_app_set_cursor(row: int, col: int, visible: int)
+extern fn void_app_flush()
+extern fn void_app_poll() -> int
+extern fn void_app_read_keys(buf: *Byte, max_len: int) -> int
+extern fn void_app_get_rows() -> int
+extern fn void_app_get_cols() -> int
+
+// ── Load bridge dylib ──
+
+let bridge = dlopen(cstring("lib/libvoid_bridge.dylib"), 1)
+if ptr_addr(bridge) == 0 {
+  let bridge2 = dlopen(cstring("/Users/ghost/Dev/void/lib/libvoid_bridge.dylib"), 1)
+  if ptr_addr(bridge2) == 0 {
+    println("VOID: failed to load libvoid_bridge.dylib")
+    exit(1)
+  }
+}
+
+// ── Init app ──
+
+let init_rows = 35
+let init_cols = 120
+let font_size = 14
+
+void_app_init(init_rows, init_cols, font_size)
+
+let grid_rows = void_app_get_rows()
+let grid_cols = void_app_get_cols()
+if grid_rows < 5 { grid_rows = init_rows }
+if grid_cols < 20 { grid_cols = init_cols }
+
+// ── Create grid and parser ──
+
+let grid = new_grid(grid_rows, grid_cols)
+grid["cursor_visible"] = true
+let parser = new_vt_parser()
+let window_title = "VOID"
+
+// ── Open PTY and spawn shell ──
+
+let pty_info = pty_open()
+if pty_info["ok"] != 1 {
+  println("VOID: failed to open PTY")
+  exit(1)
+}
+
+let master_fd = pty_info["master"]
+let slave_fd = pty_info["slave"]
+let child_pid = pty_spawn_shell(master_fd, slave_fd)
+
+void_app_set_title(cstring("VOID — PID:" + str(child_pid)))
+
+// ── Main event loop ──
+
+let running = true
+let read_buf = malloc(4096)
+memset(read_buf, 0, 4096)
+let key_buf = malloc(256)
+memset(key_buf, 0, 256)
+let resize_counter = 0
+let frame_count = 0
+
+while running {
+  // 1. Poll Cocoa events
+  let should_quit = void_app_poll()
+  if should_quit == 1 {
+    running = false
+    break
+  }
+
+  // 2. Read keyboard input from Cocoa → forward to PTY
+  memset(key_buf, 0, 256)
+  let key_n = void_app_read_keys(key_buf, 255)
+  if key_n > 0 {
+    write(master_fd, key_buf, key_n)
+  }
+
+  // 3. Read PTY output → VT parse → update grid
+  memset(read_buf, 0, 4096)
+  let pty_n = read(master_fd, read_buf, 4095)
+  if pty_n > 0 {
+    let output = from_cstring(read_buf)
+    let result = vt_process(parser, grid, output)
+    parser = result["parser"]
+    grid = result["grid"]
+    let rtitle = result["title"]
+    if len(rtitle) > 0 {
+      window_title = result["title"]
+      void_app_set_title(cstring("VOID — " + window_title))
+    }
+
+    // Push dirty rows to native view
+    let dirty = grid["dirty_rows"]
+    let di = 0
+    if grid["all_dirty"] == true {
+      // Full refresh — skip for now, just test first cell
+      let r = 0
+      while r < grid_rows {
+        let c = 0
+        while c < grid_cols {
+          let cell = grid["cells"][r][c]
+          let ch_code = to_int((str(cell["ch"]))[0])
+          void_app_set_cell(r, c, ch_code, cell["fg"], cell["bg"], cell["flags"])
+          c = c + 1
+        }
+        r = r + 1
+      }
+    } else {
+      while di < len(dirty) {
+        let r = dirty[di]
+        if r >= 0 && r < grid_rows {
+          let c = 0
+          while c < grid_cols {
+            let cell = grid["cells"][r][c]
+            let ch_code = to_int((str(cell["ch"]))[0])
+            void_app_set_cell(r, c, ch_code, cell["fg"], cell["bg"], cell["flags"])
+            c = c + 1
+          }
+        }
+        di = di + 1
+      }
+    }
+    grid = clear_dirty(grid)
+
+    let cv = 1
+    if grid["cursor_visible"] == false { cv = 0 }
+    void_app_set_cursor(grid["cursor_row"], grid["cursor_col"], cv)
+    void_app_flush()
+  } else if pty_n == 0 {
+    // EOF — shell exited
+    running = false
+  }
+
+  // 4. Check resize
+  resize_counter = resize_counter + 1
+  if resize_counter >= 30 {
+    resize_counter = 0
+    let new_rows = void_app_get_rows()
+    let new_cols = void_app_get_cols()
+    if new_rows != grid_rows || new_cols != grid_cols {
+      if new_rows >= 5 && new_cols >= 20 {
+        grid_rows = new_rows
+        grid_cols = new_cols
+        grid = grid_resize(grid, grid_rows, grid_cols)
+      }
+    }
+  }
+
+  // 5. Sleep ~8ms (~120Hz)
+  usleep(8000)
+}
+
+// ── Cleanup ──
+
+free(read_buf)
+free(key_buf)
+pty_close(master_fd, child_pid)
+println("VOID session ended.")

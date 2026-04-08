@@ -1,0 +1,69 @@
+// test_mouse.hexa — Mouse support test
+// Enables mouse tracking, reads stdin, parses mouse events, prints them.
+// Press 'q' to quit.
+//
+// Usage: hexa tests/test_mouse.hexa
+
+use sys::term
+use terminal::mouse
+
+extern fn read(fd: int, buf: *Byte, count: int) -> int
+extern fn malloc(size: int) -> *Void
+extern fn free(ptr: *Void)
+extern fn memset(s: *Void, c: int, n: int) -> *Void
+extern fn usleep(usec: int) -> int
+
+// Setup
+term_raw()
+stdin_set_nonblock()
+
+// Enable all mouse modes: basic + button-event + SGR
+mouse_enable()
+
+println("VOID Mouse Test — move/click/scroll. Press 'q' to quit.\r")
+println("Modes: ?1000h (basic) + ?1002h (btn-event) + ?1006h (SGR)\r")
+println("─────────────────────────────────────────────────────────\r")
+
+let running = true
+let buf = malloc(256)
+let event_count = 0
+
+while running {
+  memset(buf, 0, 256)
+  let n = read(0, buf, 255)
+  if n > 0 {
+    let input = from_cstring(buf)
+
+    // Check for 'q' to quit
+    if n == 1 && input[0] == "q" {
+      running = false
+    } else {
+      // Try to parse as mouse event
+      let result = try_parse_mouse_input(input)
+      if result["consumed"] > 0 {
+        event_count = event_count + 1
+        let ms = result["mouse"]
+        let desc = mouse_event_str(ms)
+        println("#" + str(event_count) + " " + desc + "\r")
+      } else {
+        // Print raw bytes for debugging
+        let hex = "raw(" + str(n) + "): "
+        let i = 0
+        while i < n {
+          let byte = to_int(input[i])
+          hex = hex + str(byte) + " "
+          i = i + 1
+        }
+        println(hex + "\r")
+      }
+    }
+  }
+  usleep(10000)
+}
+
+// Cleanup
+free(buf)
+mouse_disable()
+term_restore()
+println("")
+println("Mouse test ended. " + str(event_count) + " events captured.")

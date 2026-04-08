@@ -1,3 +1,4 @@
+// ⛔ CORE — L0 불변식 (렌더 ANSI 출력. 수정 전 유저 승인 필수)
 // ansi.hexa — ANSI terminal renderer
 // VOID Layer 5: Render — renders cell grid to host terminal via escape sequences
 
@@ -105,10 +106,16 @@ pub fn ansi_clear_screen() -> string {
 // Build ANSI attribute string for a cell's flags + colors
 pub fn cell_attrs(fg: int, bg: int, flags: int) -> string {
   let out = ansi_reset()
-  // flags: 1=bold, 2=italic, 4=underline, 8=inverse, 16=dim
   if flags > 0 {
-    // Check bold (1)
     let f = flags
+    if f >= 64 {
+      out = out + "\x1b[5m"
+      f = f - 64
+    }
+    if f >= 32 {
+      out = out + "\x1b[9m"
+      f = f - 32
+    }
     if f >= 16 {
       out = out + ansi_dim()
       f = f - 16
@@ -134,6 +141,7 @@ pub fn cell_attrs(fg: int, bg: int, flags: int) -> string {
 }
 
 // ── Full grid render (no diff) ──
+// Renders only dirty rows tracked in grid["dirty_rows"]
 
 pub fn render_grid_full(grid: map) -> string {
   let rows = grid["rows"]
@@ -142,38 +150,34 @@ pub fn render_grid_full(grid: map) -> string {
   let cursor_row = grid["cursor_row"]
   let cursor_col = grid["cursor_col"]
 
-  let out = ansi_cursor_hide() + ansi_move(1, 1)
+  let out = ansi_cursor_hide()
 
-  let prev_fg = -1
-  let prev_bg = -1
-  let prev_flags = -1
-
-  let r = 0
-  while r < rows {
-    out = out + ansi_move(r + 1, 1)
-    let c = 0
-    while c < cols {
-      let cell = cells[r][c]
-      let fg = cell["fg"]
-      let bg = cell["bg"]
-      let flags = cell["flags"]
-
-      // Only emit attribute change when needed
-      if fg != prev_fg || bg != prev_bg || flags != prev_flags {
-        out = out + cell_attrs(fg, bg, flags)
-        prev_fg = fg
-        prev_bg = bg
-        prev_flags = flags
-      }
-
-      out = out + cell["ch"]
-      c = c + 1
+  // If all_dirty, render every row; otherwise only dirty_rows
+  let dirty_rows = grid["dirty_rows"]
+  if grid["all_dirty"] == true {
+    dirty_rows = []
+    let ri = 0
+    while ri < rows {
+      dirty_rows = dirty_rows + [ri]
+      ri = ri + 1
     }
-    r = r + 1
+  }
+  let di = 0
+  while di < len(dirty_rows) {
+    let r = dirty_rows[di]
+    if r >= 0 && r < rows {
+      out = out + ansi_move(r + 1, 1)
+      let c = 0
+      while c < cols {
+        let cell = cells[r][c]
+        out = out + cell_attrs(cell["fg"], cell["bg"], cell["flags"]) + cell["ch"]
+        c = c + 1
+      }
+    }
+    di = di + 1
   }
 
   out = out + ansi_reset()
-  // Position cursor at terminal cursor location (1-based)
   out = out + ansi_move(cursor_row + 1, cursor_col + 1)
   out = out + ansi_cursor_show()
   return out
@@ -189,7 +193,7 @@ pub fn render_grid(grid: map, prev_grid: map) -> string {
   let cursor_col = grid["cursor_col"]
 
   // If no previous grid, do full render
-  if prev_grid == null {
+  if prev_grid == 0 {
     return render_grid_full(grid)
   }
 
@@ -239,6 +243,91 @@ pub fn render_grid(grid: map, prev_grid: map) -> string {
 
   out = out + ansi_reset()
   out = out + ansi_move(cursor_row + 1, cursor_col + 1)
+  out = out + ansi_cursor_show()
+  return out
+}
+
+// ── Scrollback view render ──
+
+pub fn render_grid_scrollback(grid: map, offset: int) -> string {
+  let rows = grid["rows"]
+  let cols = grid["cols"]
+  let cells = grid["cells"]
+  let scrollback = grid["scrollback"]
+  let sb_len = len(scrollback)
+
+  let out = ansi_cursor_hide() + ansi_move(1, 1)
+  let prev_fg = -1
+  let prev_bg = -1
+  let prev_flags = -1
+
+  let r = 0
+  while r < rows {
+    out = out + ansi_move(r + 1, 1)
+    // Which line to show: scrollback or grid?
+    let sb_idx = sb_len - offset + r
+    let c = 0
+    if sb_idx < sb_len && sb_idx >= 0 {
+      // Show scrollback row
+      let sb_row = scrollback[sb_idx]
+      while c < cols && c < len(sb_row) {
+        let cell = sb_row[c]
+        let fg = cell["fg"]
+        let bg = cell["bg"]
+        let flags = cell["flags"]
+        if fg != prev_fg || bg != prev_bg || flags != prev_flags {
+          out = out + cell_attrs(fg, bg, flags)
+          prev_fg = fg
+          prev_bg = bg
+          prev_flags = flags
+        }
+        out = out + cell["ch"]
+        c = c + 1
+      }
+      // Pad remaining cols
+      while c < cols {
+        if prev_fg != 7 || prev_bg != 0 || prev_flags != 0 {
+          out = out + cell_attrs(7, 0, 0)
+          prev_fg = 7
+          prev_bg = 0
+          prev_flags = 0
+        }
+        out = out + " "
+        c = c + 1
+      }
+    } else {
+      // Show grid row (grid_row_idx = r - rows visible from scrollback)
+      let grid_r = r - offset
+      if offset > sb_len { grid_r = r - sb_len + (sb_len - offset) }
+      // Simpler: grid row = sb_idx - sb_len maps to grid row sb_idx - sb_len
+      let g_r = sb_idx - sb_len
+      if g_r >= 0 && g_r < rows {
+        while c < cols {
+          let cell = cells[g_r][c]
+          let fg = cell["fg"]
+          let bg = cell["bg"]
+          let flags = cell["flags"]
+          if fg != prev_fg || bg != prev_bg || flags != prev_flags {
+            out = out + cell_attrs(fg, bg, flags)
+            prev_fg = fg
+            prev_bg = bg
+            prev_flags = flags
+          }
+          out = out + cell["ch"]
+          c = c + 1
+        }
+      } else {
+        // Empty row
+        while c < cols {
+          out = out + " "
+          c = c + 1
+        }
+      }
+    }
+    r = r + 1
+  }
+
+  out = out + ansi_reset()
   out = out + ansi_cursor_show()
   return out
 }

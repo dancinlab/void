@@ -1,3 +1,24 @@
+## ⛔ L0 CORE 보호 파일 (AI 수정 승인 필수)
+
+> 아래 파일은 수렴 완료된 코어 로직. 수정 시 반드시 유저에게 승인 질문.
+> 상세: `nexus/shared/core-lockdown.json`
+
+```
+🔴 L0 (불변식 — 코드 수정 전 유저 명시 승인 필수):
+  src/sys/pty.hexa             — PTY 시스템
+  src/sys/term.hexa            — 터미널 시스템
+  src/sys/signal.hexa          — 시그널 핸들링
+  src/render/ansi.hexa         — 렌더 ANSI 출력
+  src/terminal/vt_parser.hexa  — VT 파서 핵심 프로토콜
+  src/terminal/grid.hexa       — 그리드 셀 상태
+
+🟡 L1 (보호 — 리뷰 필요):
+  src/terminal/mouse.hexa      — 마우스 입력
+  src/terminal/protocol.hexa   — 프로토콜 협상
+  src/ui/                      — UI 레이어
+  src/platform/                — 플랫폼 브릿지
+```
+
 > 🔴 **HEXA-FIRST**: 모든 코드는 `.hexa`로 작성. 부하 유발 명령 최소화.
 
 # void
