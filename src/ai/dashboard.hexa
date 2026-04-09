@@ -1,0 +1,201 @@
+// dashboard.hexa — NEXUS-6 in-terminal dashboard stub
+// VOID Layer 6: AI — scaffold for 6-layer health dashboard.
+//
+// Pure HEXA. Uses only public ansi.hexa helpers. ASCII box chars only
+// (no unicode) to avoid escape issues.
+
+use render::ansi
+
+// Status color indices (256-color palette approximations).
+// Note: top-level `let` does not reach into functions in hexa, so
+// color values are inlined at use sites below.
+//   OK       = 2 (green)
+//   DEGRADED = 3 (yellow)
+//   DOWN     = 1 (red)
+//   border   = 8 (bright black)
+//   selected = 4 (blue)
+
+fn new_panel(name: string, metric_label: string, metric_value: string) -> map {
+  return #{
+    "name": name,
+    "status": "OK",
+    "metric_label": metric_label,
+    "metric_value": metric_value
+  }
+}
+
+pub fn new_dashboard() -> map {
+  let panels = []
+  panels = panels + [new_panel("System", "pty", "0/0")]
+  panels = panels + [new_panel("Render", "fps", "60")]
+  panels = panels + [new_panel("Terminal", "cells", "0")]
+  panels = panels + [new_panel("UI", "tabs", "0")]
+  panels = panels + [new_panel("Plugin", "loaded", "0")]
+  panels = panels + [new_panel("AI", "ctx", "idle")]
+  return #{"panels": panels, "selected": 0}
+}
+
+pub fn dashboard_set_status(dash: map, layer_idx: int, status: string, metric_value: string) -> map {
+  let panels = dash["panels"]
+  let n = len(panels)
+  if layer_idx < 0 || layer_idx >= n { return dash }
+  let new_panels = []
+  let i = 0
+  while i < n {
+    let p = panels[i]
+    if i == layer_idx {
+      p = #{
+        "name": p["name"],
+        "status": status,
+        "metric_label": p["metric_label"],
+        "metric_value": metric_value
+      }
+    }
+    new_panels = new_panels + [p]
+    i = i + 1
+  }
+  return #{"panels": new_panels, "selected": dash["selected"]}
+}
+
+pub fn dashboard_next(dash: map) -> map {
+  let n = len(dash["panels"])
+  let s = dash["selected"] + 1
+  if s >= n { s = 0 }
+  return #{"panels": dash["panels"], "selected": s}
+}
+
+pub fn dashboard_prev(dash: map) -> map {
+  let n = len(dash["panels"])
+  let s = dash["selected"] - 1
+  if s < 0 { s = n - 1 }
+  return #{"panels": dash["panels"], "selected": s}
+}
+
+fn status_color(status: string) -> int {
+  if status == "OK" { return 2 }
+  if status == "DEGRADED" { return 3 }
+  if status == "DOWN" { return 1 }
+  return 7
+}
+
+fn pad_right(s: string, width: int) -> string {
+  let out = s
+  let l = len(s)
+  while l < width {
+    out = out + " "
+    l = l + 1
+  }
+  return out
+}
+
+fn repeat_char(ch: string, n: int) -> string {
+  let out = ""
+  let i = 0
+  while i < n {
+    out = out + ch
+    i = i + 1
+  }
+  return out
+}
+
+// Render one panel inside its sub-region (row, col, rows, cols).
+fn render_panel(panel: map, r0: int, c0: int, rows: int, cols: int, is_selected: bool) -> string {
+  let out = ""
+  if rows < 3 || cols < 6 { return out }
+
+  let border_col = 8
+  if is_selected { border_col = 4 }
+
+  // Top border: +----name----+
+  out = out + ansi_move(r0, c0)
+  out = out + ansi_fg(border_col)
+  let name = panel["name"]
+  let inner = cols - 2
+  let name_len = len(name)
+  let pre_dashes = 1
+  let post_dashes = inner - name_len - pre_dashes - 2
+  if post_dashes < 0 { post_dashes = 0 }
+  let top = "+" + repeat_char("-", pre_dashes) + " " + name + " " + repeat_char("-", post_dashes) + "+"
+  // Recompute to be exact width = cols
+  let top_len = len(top)
+  while top_len < cols {
+    top = top + "-"
+    top_len = top_len + 1
+  }
+  out = out + top
+  out = out + ansi_reset()
+
+  // Middle rows
+  let mid_rows = rows - 2
+  let i = 0
+  while i < mid_rows {
+    out = out + ansi_move(r0 + 1 + i, c0)
+    out = out + ansi_fg(border_col) + "|" + ansi_reset()
+
+    let content = ""
+    if i == 0 {
+      // Status line
+      let st = panel["status"]
+      let sc = status_color(st)
+      content = " status: "
+      out = out + pad_right(content, 1)  // no-op, keep order
+      out = out + content
+      out = out + ansi_fg(sc) + st + ansi_reset()
+      let used = 1 + len(content) + len(st)
+      while used < cols - 1 {
+        out = out + " "
+        used = used + 1
+      }
+    } else {
+      if i == 1 {
+        let ml = panel["metric_label"]
+        let mv = panel["metric_value"]
+        content = " " + ml + ": " + mv
+      } else {
+        content = ""
+      }
+      let padded = pad_right(content, cols - 2)
+      out = out + padded
+    }
+
+    out = out + ansi_fg(border_col) + "|" + ansi_reset()
+    i = i + 1
+  }
+
+  // Bottom border
+  out = out + ansi_move(r0 + rows - 1, c0)
+  out = out + ansi_fg(border_col)
+  let bot = "+" + repeat_char("-", cols - 2) + "+"
+  out = out + bot
+  out = out + ansi_reset()
+  return out
+}
+
+// Render the full dashboard in a 2 col x 3 row grid of panels.
+pub fn render_dashboard(dash: map, region: map) -> string {
+  let r0 = region["row"]
+  let c0 = region["col"]
+  let rows = region["rows"]
+  let cols = region["cols"]
+
+  let cell_rows = rows / 3
+  let cell_cols = cols / 2
+  if cell_rows < 3 { cell_rows = 3 }
+  if cell_cols < 10 { cell_cols = 10 }
+
+  let panels = dash["panels"]
+  let selected = dash["selected"]
+
+  let out = ""
+  let idx = 0
+  while idx < 6 {
+    let gr = idx / 2
+    let gc = idx - gr * 2
+    let pr = r0 + gr * cell_rows
+    let pc = c0 + gc * cell_cols
+    let is_sel = (idx == selected)
+    out = out + render_panel(panels[idx], pr, pc, cell_rows, cell_cols, is_sel)
+    idx = idx + 1
+  }
+  return out
+}

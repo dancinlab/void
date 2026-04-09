@@ -1,0 +1,33 @@
+// smoke_dashboard.hexa — Smoke test for NEXUS-6 dashboard stub.
+
+use render::ansi
+use ui::layout
+use ai::dashboard
+
+let dash = new_dashboard()
+println("panels: " + str(len(dash["panels"])))
+println("selected: " + str(dash["selected"]))
+
+dash = dashboard_set_status(dash, 2, "DEGRADED", "slow")
+dash = dashboard_set_status(dash, 4, "DOWN", "x")
+
+println("panel 2 status: " + dash["panels"][2]["status"])
+println("panel 4 status: " + dash["panels"][4]["status"])
+
+dash = dashboard_next(dash)
+println("after next, selected: " + str(dash["selected"]))
+dash = dashboard_prev(dash)
+dash = dashboard_prev(dash)
+println("after 2 prev, selected: " + str(dash["selected"]))
+
+let region = new_region(1, 1, 20, 60)
+let out = render_dashboard(dash, region)
+let n = len(out)
+println("dashboard render len: " + str(n))
+
+if n <= 100 {
+  println("FAIL: render too small")
+  return
+}
+
+println("DASHBOARD SMOKE OK")
