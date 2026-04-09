@@ -72,7 +72,7 @@ fn parse_int_line(s: string) -> int {
   let v = 0
   let i = 0
   while i < n {
-    let ch = str_at(s, i)
+    let ch = s.substring(i, i + 1)
     if ch == "0" { v = v * 10 + 0 }
     else if ch == "1" { v = v * 10 + 1 }
     else if ch == "2" { v = v * 10 + 2 }
@@ -92,17 +92,9 @@ fn parse_int_line(s: string) -> int {
 fn strip_newline(s: string) -> string {
   let n = len(s)
   if n == 0 { return s }
-  let last = str_at(s, n - 1)
+  let last = s.substring(n - 1, n)
   if last == "\n" {
-    let out = ""
-    let i = 0
-    while i < n - 1 {
-      out = out + str_at(s, i)
-      i = i + 1
-    }
-    return out
+    return s.substring(0, n - 1)
   }
   return s
 }
-
-extern fn str_at(s: string, idx: int) -> string

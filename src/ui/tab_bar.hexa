@@ -114,9 +114,5 @@ fn substr_char(s: string, idx: int) -> string {
   let n = len(s)
   if idx < 0 || idx >= n { return "" }
   // hexa: s[idx] gives a byte; wrap to string via intrinsic if available.
-  return str_at(s, idx)
+  return s.substring(idx, idx + 1)
 }
-
-// str_at is expected to be provided by hexa stdlib / host runtime. If not,
-// S3 degrades gracefully: titles are truncated by the padding loop above.
-extern fn str_at(s: string, idx: int) -> string

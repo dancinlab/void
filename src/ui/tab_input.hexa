@@ -26,8 +26,8 @@ pub fn parse_tab_key(input: string) -> map {
   let n = len(input)
   if n < 2 { return new_tab_action() }
   // Alt+X arrives as ESC X (0x1B then one byte)
-  if str_at(input, 0) != "\x1b" { return new_tab_action() }
-  let c = str_at(input, 1)
+  if input.starts_with("\x1b") == false { return new_tab_action() }
+  let c = input.substring(1, 2)
 
   // Alt+1..9
   if c == "1" { return #{"consumed": true, "action": "focus", "arg": 0} }
@@ -68,5 +68,3 @@ pub fn tab_bar_hit_test(region: map, row: int, col: int, n_tabs: int) -> int {
   if local_row < 0 || local_row >= n_tabs { return -1 }
   return local_row
 }
-
-extern fn str_at(s: string, idx: int) -> string
