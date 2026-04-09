@@ -1,0 +1,120 @@
+// plugin.hexa — VOID Layer 5: Plugin registry scaffold
+// Pure HEXA. Hotload .hexa plugin runtime stub — tracks plugin metadata
+// and hook subscriptions. Does not yet execute plugin code (future work).
+
+// Registry shape:
+//   { plugins: [PluginEntry], hooks: {event_name: [plugin_id]}, next_id: int }
+// PluginEntry:
+//   { id, name, version, status, loaded_at, hooks: [string] }
+
+pub fn new_plugin_registry() -> map {
+  let r = #{}
+  r["plugins"] = []
+  r["hooks"] = #{}
+  r["next_id"] = 1
+  return r
+}
+
+pub fn register_plugin(registry: map, name: string, version: string, hooks_list: array) -> map {
+  let id = registry["next_id"]
+
+  let entry = #{}
+  entry["id"] = id
+  entry["name"] = name
+  entry["version"] = version
+  entry["status"] = "loaded"
+  entry["loaded_at"] = 0
+  entry["hooks"] = hooks_list
+
+  registry["plugins"] = registry["plugins"] + [entry]
+  registry["next_id"] = id + 1
+
+  // Wire up hook subscriptions
+  let hooks = registry["hooks"]
+  let n = len(hooks_list)
+  let i = 0
+  while i < n {
+    let ev = hooks_list[i]
+    let subs = []
+    if has_key(hooks, ev) {
+      subs = hooks[ev]
+    }
+    subs = subs + [id]
+    hooks[ev] = subs
+    i = i + 1
+  }
+  registry["hooks"] = hooks
+
+  return registry
+}
+
+pub fn unregister_plugin(registry: map, plugin_id: int) -> map {
+  let plugins = registry["plugins"]
+  let n = len(plugins)
+  let out = []
+  let removed_hooks = []
+  let i = 0
+  while i < n {
+    let p = plugins[i]
+    if p["id"] == plugin_id {
+      p["status"] = "unloaded"
+      removed_hooks = p["hooks"]
+    }
+    out = out + [p]
+    i = i + 1
+  }
+  registry["plugins"] = out
+
+  // Strip plugin_id from all hook subscription arrays it was part of
+  let hooks = registry["hooks"]
+  let hn = len(removed_hooks)
+  let hi = 0
+  while hi < hn {
+    let ev = removed_hooks[hi]
+    if has_key(hooks, ev) {
+      let subs = hooks[ev]
+      let sn = len(subs)
+      let new_subs = []
+      let si = 0
+      while si < sn {
+        if subs[si] != plugin_id {
+          new_subs = new_subs + [subs[si]]
+        }
+        si = si + 1
+      }
+      hooks[ev] = new_subs
+    }
+    hi = hi + 1
+  }
+  registry["hooks"] = hooks
+
+  return registry
+}
+
+pub fn list_plugins(registry: map) -> array {
+  let plugins = registry["plugins"]
+  let n = len(plugins)
+  let out = []
+  let i = 0
+  while i < n {
+    let p = plugins[i]
+    if p["status"] != "unloaded" {
+      out = out + [p["name"]]
+    }
+    i = i + 1
+  }
+  return out
+}
+
+pub fn emit_hook(registry: map, event_name: string, payload: map) -> map {
+  let hooks = registry["hooks"]
+  let handled = 0
+  if has_key(hooks, event_name) {
+    let subs = hooks[event_name]
+    handled = len(subs)
+  }
+  let res = #{}
+  res["handled"] = handled
+  res["payload"] = payload
+  return res
+}

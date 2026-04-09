@@ -1,0 +1,65 @@
+// smoke_plugin.hexa — Layer 5 plugin registry smoke (non-TTY)
+
+use plugin::plugin
+use plugin::example_plugin
+
+let passes = 0
+let total = 4
+
+let reg = new_plugin_registry()
+
+// Register example plugin
+let meta = example_plugin_meta()
+reg = register_plugin(reg, meta["name"], meta["version"], meta["hooks"])
+
+// Register a second fake plugin with different hooks
+let h2 = []
+h2 = h2 + ["on_startup"]
+h2 = h2 + ["on_tab_open"]
+reg = register_plugin(reg, "second", "0.0.1", h2)
+
+// Assert list_plugins length == 2
+let names = list_plugins(reg)
+if len(names) == 2 {
+  println("STEP 1 register x2: PASS")
+  passes = passes + 1
+} else {
+  println("STEP 1 register x2: FAIL (len=" + str(len(names)) + ")")
+}
+
+// emit_hook("on_tab_open") — both plugins subscribed → handled == 2
+let payload = #{}
+payload["tab_id"] = 7
+let res = emit_hook(reg, "on_tab_open", payload)
+if res["handled"] >= 1 {
+  println("STEP 2 emit_hook on_tab_open: PASS (handled=" + str(res["handled"]) + ")")
+  passes = passes + 1
+} else {
+  println("STEP 2 emit_hook on_tab_open: FAIL")
+}
+
+// Unregister plugin id=1 (example)
+reg = unregister_plugin(reg, 1)
+let names2 = list_plugins(reg)
+if len(names2) == 1 {
+  println("STEP 3 unregister: PASS (remaining=" + str(len(names2)) + ")")
+  passes = passes + 1
+} else {
+  println("STEP 3 unregister: FAIL (len=" + str(len(names2)) + ")")
+}
+
+// After unregister, on_tab_open should only have 1 subscriber
+let res2 = emit_hook(reg, "on_tab_open", payload)
+if res2["handled"] == 1 {
+  println("STEP 4 emit after unregister: PASS (handled=1)")
+  passes = passes + 1
+} else {
+  println("STEP 4 emit after unregister: FAIL (handled=" + str(res2["handled"]) + ")")
+}
+
+println("")
+if passes == total {
+  println("PLUGIN SMOKE OK (" + str(passes) + "/" + str(total) + ")")
+} else {
+  println("PLUGIN SMOKE FAIL (" + str(passes) + "/" + str(total) + ")")
+}

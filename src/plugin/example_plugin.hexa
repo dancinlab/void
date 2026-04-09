@@ -1,0 +1,20 @@
+// example_plugin.hexa — trivial example for Layer 5 plugin registry.
+// Demonstrates the metadata + hook callback shape future hotload will use.
+
+pub fn example_plugin_meta() -> map {
+  let m = #{}
+  m["name"] = "example"
+  m["version"] = "0.1.0"
+  let hooks = []
+  hooks = hooks + ["on_tab_open"]
+  hooks = hooks + ["on_tab_close"]
+  m["hooks"] = hooks
+  return m
+}
+
+pub fn example_on_tab_open(payload: map) -> map {
+  let r = #{}
+  r["ok"] = 1
+  r["msg"] = "hello from example plugin"
+  return r
+}
