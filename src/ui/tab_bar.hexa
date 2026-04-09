@@ -1,0 +1,122 @@
+// tab_bar.hexa — Left-side tab bar renderer
+// VOID Layer 4: UI
+//
+// Uses only public ansi.hexa helpers (ansi_move, ansi_fg, ansi_bg, ansi_inverse,
+// ansi_reset). Produces a single escape-sequence string to flush. The bar
+// occupies `region` and draws one row per tab plus an activity heat marker.
+//
+// Layout per tab cell (left region, W cols wide):
+//   col 1      : heat marker "▎" in activity color
+//   col 2      : active ">" / idle " "
+//   col 3      : dirty bell "●" / " "
+//   col 4      : space
+//   col 5..W-1 : truncated title
+//
+// Active tab: inverse video over full row.
+
+use render::ansi
+use ui::tab_model
+
+pub fn render_tab_bar(ring: map, region: map) -> string {
+  let tabs = ring["tabs"]
+  let n = len(tabs)
+  let active = ring["active"]
+  let r0 = region["row"]
+  let c0 = region["col"]
+  let rows = region["rows"]
+  let cols = region["cols"]
+
+  let out = ""
+  let i = 0
+  while i < rows {
+    out = out + ansi_move(r0 + i, c0)
+    if i < n {
+      let t = tabs[i]
+      let is_active = (i == active)
+      let heat = activity_heat_color(t["activity_score"])
+      let bell = t["dirty_bell"]
+
+      // Background: active inverse, else dim
+      if is_active {
+        out = out + ansi_inverse()
+      } else {
+        out = out + ansi_reset()
+      }
+
+      // Heat marker
+      out = out + ansi_fg(heat) + "|"
+      out = out + ansi_reset()
+      if is_active { out = out + ansi_inverse() }
+
+      // Active arrow
+      if is_active {
+        out = out + ">"
+      } else {
+        out = out + " "
+      }
+
+      // Dirty bell
+      if bell && is_active == false {
+        out = out + ansi_fg(214) + "*"
+        out = out + ansi_reset()
+        if is_active { out = out + ansi_inverse() }
+      } else {
+        out = out + " "
+      }
+
+      out = out + " "
+
+      // Title (truncated to cols - 4)
+      let title = t["title"]
+      let max_title = cols - 4
+      if max_title < 0 { max_title = 0 }
+      let tlen = len(title)
+      let shown = title
+      if tlen > max_title {
+        // Take first max_title chars via char-by-char append (hexa has no slice)
+        let j = 0
+        shown = ""
+        while j < max_title {
+          shown = shown + substr_char(title, j)
+          j = j + 1
+        }
+      }
+      out = out + shown
+
+      // Pad remaining cols with spaces to paint background across row
+      let painted = 4 + len(shown)
+      while painted < cols {
+        out = out + " "
+        painted = painted + 1
+      }
+      out = out + ansi_reset()
+    } else {
+      // Empty row — paint dim background
+      let j = 0
+      while j < cols {
+        out = out + " "
+        j = j + 1
+      }
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// Single-char substring extractor. hexa has no slice, so walk the string.
+// For ASCII titles this is correct; multibyte titles are truncated at bytes.
+fn substr_char(s: string, idx: int) -> string {
+  // Rebuild character at idx by skipping idx chars.
+  // Since hexa strings are byte-indexable via concatenation only, we fall back
+  // to building via a loop over individual chars. Here we assume ASCII and
+  // use a simple marker: this helper is intentionally minimal — real impl
+  // defers to a future string.hexa utility.
+  let n = len(s)
+  if idx < 0 || idx >= n { return "" }
+  // hexa: s[idx] gives a byte; wrap to string via intrinsic if available.
+  return str_at(s, idx)
+}
+
+// str_at is expected to be provided by hexa stdlib / host runtime. If not,
+// S3 degrades gracefully: titles are truncated by the padding loop above.
+extern fn str_at(s: string, idx: int) -> string

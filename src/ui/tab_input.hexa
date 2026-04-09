@@ -1,0 +1,72 @@
+// tab_input.hexa — Tab key bindings + mouse hit-test
+// VOID Layer 4: UI
+//
+// macOS Terminal / iTerm2 do not forward ⌘ to the TTY, so tab shortcuts use
+// Alt-prefixed sequences (Alt = ESC prefix in ANSI). Bindings:
+//
+//   Alt+1 .. Alt+9   focus tab N
+//   Alt+t            new tab
+//   Alt+w            close active tab
+//   Alt+[            prev tab
+//   Alt+]            next tab
+//
+// A binding match consumes the input (not forwarded to PTY).
+
+use ui::tab_model
+use ui::layout
+
+// Result: #{ "consumed": bool, "action": string, "arg": int }
+//   action ∈ { "none", "focus", "new", "close", "prev", "next" }
+
+pub fn new_tab_action() -> map {
+  return #{"consumed": false, "action": "none", "arg": 0}
+}
+
+pub fn parse_tab_key(input: string) -> map {
+  let n = len(input)
+  if n < 2 { return new_tab_action() }
+  // Alt+X arrives as ESC X (0x1B then one byte)
+  if str_at(input, 0) != "\x1b" { return new_tab_action() }
+  let c = str_at(input, 1)
+
+  // Alt+1..9
+  if c == "1" { return #{"consumed": true, "action": "focus", "arg": 0} }
+  if c == "2" { return #{"consumed": true, "action": "focus", "arg": 1} }
+  if c == "3" { return #{"consumed": true, "action": "focus", "arg": 2} }
+  if c == "4" { return #{"consumed": true, "action": "focus", "arg": 3} }
+  if c == "5" { return #{"consumed": true, "action": "focus", "arg": 4} }
+  if c == "6" { return #{"consumed": true, "action": "focus", "arg": 5} }
+  if c == "7" { return #{"consumed": true, "action": "focus", "arg": 6} }
+  if c == "8" { return #{"consumed": true, "action": "focus", "arg": 7} }
+  if c == "9" { return #{"consumed": true, "action": "focus", "arg": 8} }
+
+  if c == "t" { return #{"consumed": true, "action": "new", "arg": 0} }
+  if c == "w" { return #{"consumed": true, "action": "close", "arg": 0} }
+  if c == "[" { return #{"consumed": true, "action": "prev", "arg": 0} }
+  if c == "]" { return #{"consumed": true, "action": "next", "arg": 0} }
+
+  return new_tab_action()
+}
+
+// Apply a parsed action to the ring. Callers handle "new"/"close" since those
+// require PTY spawn/teardown (see tab_mux.hexa).
+pub fn apply_nav_action(ring: map, action: map) -> map {
+  let name = action["action"]
+  if name == "focus" {
+    return ring_focus(ring, action["arg"])
+  }
+  if name == "prev" { return ring_prev(ring) }
+  if name == "next" { return ring_next(ring) }
+  return ring
+}
+
+// Mouse hit-test: given a click at (row, col) in the tab bar region, return
+// the clicked tab index or -1.
+pub fn tab_bar_hit_test(region: map, row: int, col: int, n_tabs: int) -> int {
+  if region_contains(region, row, col) == false { return -1 }
+  let local_row = row - region["row"]
+  if local_row < 0 || local_row >= n_tabs { return -1 }
+  return local_row
+}
+
+extern fn str_at(s: string, idx: int) -> string

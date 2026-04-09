@@ -1,0 +1,143 @@
+// main_tabs.hexa — VOID bootstrap with left-side tab bar
+// VOID Layer 4+: UI integration entry point
+//
+// Alternative to main.hexa. Splits the terminal into:
+//   [ tab_bar | active_grid ]
+//                statusbar
+// Starts with one tab; Alt+t spawns new, Alt+w closes, Alt+1..9 focuses,
+// Alt+[ / Alt+] cycles.
+//
+// main.hexa is unchanged (L0-adjacent bootstrap). This file is the Phase 5
+// tab-enabled entry point. Build with: hexa src/main_tabs.hexa
+
+use sys::term
+use sys::pty
+use terminal::grid
+use terminal::vt_parser
+use terminal::mouse
+use render::ansi
+use ui::tab_model
+use ui::layout
+use ui::tab_bar
+use ui::tab_input
+use ui::tab_mux
+
+extern fn read(fd: int, buf: *Byte, count: int) -> int
+extern fn write(fd: int, buf: *Byte, count: int) -> int
+extern fn usleep(usec: int) -> int
+extern fn malloc(size: int) -> *Void
+extern fn free(ptr: *Void)
+extern fn memset(s: *Void, c: int, n: int) -> *Void
+
+// ── Tab bar column width ──
+pub let tab_bar_width = 20
+
+// ── Setup terminal + compute regions ──
+
+let size = term_size()
+let term_rows = size["rows"]
+let term_cols = size["cols"]
+
+let full = region_full(term_rows, term_cols)
+let rs = reserve_statusbar(full, 1)
+let main_region = rs["main"]
+let status_region = rs["status"]
+
+let split = split_vertical(main_region, tab_bar_width)
+let bar_region = split["left"]
+let grid_region = split["right"]
+
+let grid_rows = grid_region["rows"]
+let grid_cols = grid_region["cols"]
+
+// ── Create tab ring + first tab ──
+
+let ring = new_tab_ring()
+ring = mux_spawn(ring, grid_rows, grid_cols, "shell")
+
+// ── Setup host terminal ──
+
+screen_alt_enter()
+cursor_hide()
+screen_clear()
+term_raw()
+stdin_set_nonblock()
+mouse_enable()
+
+// ── Initial paint ──
+
+let bar_str = render_tab_bar(ring, bar_region)
+flush_to_stdout(bar_str)
+let status_text = " VOID | tabs:" + str(len(ring["tabs"])) + " | " + str(grid_cols) + "x" + str(grid_rows)
+let statusbar = ansi_move(status_region["row"], status_region["col"]) + render_statusbar(status_text, term_cols)
+flush_to_stdout(statusbar)
+
+// ── Main event loop ──
+
+let running = true
+let stdin_buf = malloc(256)
+memset(stdin_buf, 0, 256)
+let frame = 0
+
+while running {
+  // 1. Read stdin
+  memset(stdin_buf, 0, 256)
+  let stdin_n = read(0, stdin_buf, 255)
+  if stdin_n > 0 {
+    let input = from_cstring(stdin_buf)
+    let action = parse_tab_key(input)
+
+    if action["consumed"] {
+      let name = action["action"]
+      if name == "new" {
+        ring = mux_spawn(ring, grid_rows, grid_cols, "shell")
+      } else if name == "close" {
+        ring = mux_close_active(ring)
+        if len(ring["tabs"]) == 0 {
+          running = false
+        }
+      } else {
+        ring = apply_nav_action(ring, action)
+      }
+      // Repaint bar immediately on any consumed action
+      flush_to_stdout(render_tab_bar(ring, bar_region))
+    } else {
+      // Forward to active tab's PTY
+      mux_forward_input(ring, input, stdin_n)
+    }
+  }
+
+  // 2. Poll all PTYs, render active grid if it produced output
+  let poll = mux_poll_all(ring)
+  ring = poll["ring"]
+  if poll["active_output"] {
+    let active = ring_active_tab(ring)
+    if active != 0 {
+      let g = active["grid"]
+      // Render active grid relocated into grid_region
+      let rendered = render_grid_full(g)
+      // Prepend region origin so the grid draws inside its column
+      let origin = ansi_move(grid_region["row"], grid_region["col"])
+      flush_to_stdout(origin + rendered)
+    }
+  }
+
+  // 3. Repaint tab bar every 10 frames (~100ms) to show activity decay
+  frame = frame + 1
+  if frame >= 10 {
+    frame = 0
+    flush_to_stdout(render_tab_bar(ring, bar_region))
+  }
+
+  usleep(10000)
+}
+
+// ── Cleanup ──
+
+mux_shutdown(ring)
+free(stdin_buf)
+mouse_disable()
+cursor_show()
+screen_alt_leave()
+term_restore()
+println("VOID tab session ended.")

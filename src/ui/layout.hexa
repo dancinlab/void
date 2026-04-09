@@ -1,0 +1,57 @@
+// layout.hexa — Region algebra for split screens
+// VOID Layer 4: UI
+//
+// Pure layout math. A Region is a rectangular subregion of the host terminal
+// addressed in 1-based ANSI coordinates (row, col, rows, cols). Splits never
+// mutate input regions — they return new ones.
+
+// Region: #{ "row": int, "col": int, "rows": int, "cols": int }
+
+pub fn new_region(row: int, col: int, rows: int, cols: int) -> map {
+  return #{"row": row, "col": col, "rows": rows, "cols": cols}
+}
+
+pub fn region_full(term_rows: int, term_cols: int) -> map {
+  return new_region(1, 1, term_rows, term_cols)
+}
+
+// Split a region vertically: left gets `left_cols` columns, right gets rest.
+// Returns #{ "left": Region, "right": Region }.
+pub fn split_vertical(region: map, left_cols: int) -> map {
+  let total = region["cols"]
+  let lw = left_cols
+  if lw < 0 { lw = 0 }
+  if lw > total { lw = total }
+  let left = new_region(region["row"], region["col"], region["rows"], lw)
+  let right = new_region(region["row"], region["col"] + lw, region["rows"], total - lw)
+  return #{"left": left, "right": right}
+}
+
+// Split a region horizontally: top gets `top_rows` rows, bottom gets rest.
+pub fn split_horizontal(region: map, top_rows: int) -> map {
+  let total = region["rows"]
+  let th = top_rows
+  if th < 0 { th = 0 }
+  if th > total { th = total }
+  let top = new_region(region["row"], region["col"], th, region["cols"])
+  let bottom = new_region(region["row"] + th, region["col"], total - th, region["cols"])
+  return #{"top": top, "bottom": bottom}
+}
+
+// Reserve `n` rows at the bottom of a region for a statusbar. Returns
+// #{ "main": Region, "status": Region }.
+pub fn reserve_statusbar(region: map, n: int) -> map {
+  let split = split_horizontal(region, region["rows"] - n)
+  return #{"main": split["top"], "status": split["bottom"]}
+}
+
+// Hit-test: does (row, col) lie inside region?
+pub fn region_contains(region: map, row: int, col: int) -> bool {
+  let r0 = region["row"]
+  let c0 = region["col"]
+  let r1 = r0 + region["rows"]
+  let c1 = c0 + region["cols"]
+  if row < r0 || row >= r1 { return false }
+  if col < c0 || col >= c1 { return false }
+  return true
+}

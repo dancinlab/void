@@ -1,0 +1,157 @@
+// tab_model.hexa — Tab data model + AI-native activity decay
+// VOID Layer 4: UI
+//
+// Pure HEXA, no side effects. TabRing holds N tabs; each tab carries a
+// monotonic id, title, pty handles, dirty-bell, and an activity_score that
+// decays every tick and accumulates on PTY output bytes. The score drives
+// tab-bar heat gradient (AI-native: activity as attention signal).
+
+// ── Tab struct (as map) ──
+// { id, title, master_fd, slave_fd, pid, grid, dirty_bell, activity_score }
+
+pub fn new_tab(id: int, title: string, master_fd: int, slave_fd: int, pid: int, grid: map) -> map {
+  return #{
+    "id": id,
+    "title": title,
+    "master_fd": master_fd,
+    "slave_fd": slave_fd,
+    "pid": pid,
+    "grid": grid,
+    "dirty_bell": false,
+    "activity_score": 0
+  }
+}
+
+// ── TabRing ──
+// { tabs: [Tab], active: int, next_id: int }
+
+pub fn new_tab_ring() -> map {
+  return #{
+    "tabs": [],
+    "active": 0,
+    "next_id": 1
+  }
+}
+
+pub fn ring_add(ring: map, tab: map) -> map {
+  ring["tabs"] = ring["tabs"] + [tab]
+  ring["active"] = len(ring["tabs"]) - 1
+  ring["next_id"] = ring["next_id"] + 1
+  return ring
+}
+
+pub fn ring_remove(ring: map, idx: int) -> map {
+  let tabs = ring["tabs"]
+  let n = len(tabs)
+  if idx < 0 || idx >= n {
+    return ring
+  }
+  let out = []
+  let i = 0
+  while i < n {
+    if i != idx {
+      out = out + [tabs[i]]
+    }
+    i = i + 1
+  }
+  ring["tabs"] = out
+  let active = ring["active"]
+  if active >= len(out) {
+    active = len(out) - 1
+  }
+  if active < 0 { active = 0 }
+  ring["active"] = active
+  return ring
+}
+
+pub fn ring_focus(ring: map, idx: int) -> map {
+  if idx >= 0 && idx < len(ring["tabs"]) {
+    ring["active"] = idx
+    // clear dirty bell on focus
+    let tabs = ring["tabs"]
+    let t = tabs[idx]
+    t["dirty_bell"] = false
+    tabs[idx] = t
+    ring["tabs"] = tabs
+  }
+  return ring
+}
+
+pub fn ring_next(ring: map) -> map {
+  let n = len(ring["tabs"])
+  if n == 0 { return ring }
+  let next = ring["active"] + 1
+  if next >= n { next = 0 }
+  return ring_focus(ring, next)
+}
+
+pub fn ring_prev(ring: map) -> map {
+  let n = len(ring["tabs"])
+  if n == 0 { return ring }
+  let prev = ring["active"] - 1
+  if prev < 0 { prev = n - 1 }
+  return ring_focus(ring, prev)
+}
+
+pub fn ring_active_tab(ring: map) -> map {
+  let tabs = ring["tabs"]
+  let idx = ring["active"]
+  if idx < 0 || idx >= len(tabs) {
+    return 0
+  }
+  return tabs[idx]
+}
+
+// ── AI-native activity decay ──
+// Per tick: score = (score * 95) / 100  (~5% decay)
+// On bytes:  score = score + min(bytes, 4096)
+// Saturating at 100000 to bound gradient mapping.
+
+pub let activity_cap = 100000
+
+pub fn decay_activity(ring: map) -> map {
+  let tabs = ring["tabs"]
+  let n = len(tabs)
+  let i = 0
+  while i < n {
+    let t = tabs[i]
+    let s = t["activity_score"]
+    s = (s * 95) / 100
+    t["activity_score"] = s
+    tabs[i] = t
+    i = i + 1
+  }
+  ring["tabs"] = tabs
+  return ring
+}
+
+pub fn add_activity(ring: map, tab_idx: int, bytes: int) -> map {
+  let tabs = ring["tabs"]
+  if tab_idx < 0 || tab_idx >= len(tabs) {
+    return ring
+  }
+  let t = tabs[tab_idx]
+  let add = bytes
+  if add > 4096 { add = 4096 }
+  let s = t["activity_score"] + add
+  if s > activity_cap { s = activity_cap }
+  t["activity_score"] = s
+  // dirty bell fires on background tabs
+  if tab_idx != ring["active"] && bytes > 0 {
+    t["dirty_bell"] = true
+  }
+  tabs[tab_idx] = t
+  ring["tabs"] = tabs
+  return ring
+}
+
+// Map activity_score → 256-color heat index (16..231 cube subset)
+// Cool (low) → dark blue-gray; Hot (high) → bright yellow-red.
+pub fn activity_heat_color(score: int) -> int {
+  if score <= 0 { return 240 }       // neutral gray
+  if score < 1000 { return 24 }       // deep blue
+  if score < 5000 { return 33 }       // cyan-blue
+  if score < 15000 { return 35 }      // green
+  if score < 40000 { return 214 }     // orange
+  return 203                           // hot red
+}

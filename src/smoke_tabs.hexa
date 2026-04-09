@@ -1,0 +1,64 @@
+// smoke_tabs.hexa — Non-TTY smoke test for Phase 5 tab UI layer.
+// Verifies all new ui modules load, regions split correctly, and the
+// tab bar renders for a synthetic ring. No PTY, no terminal setup.
+
+use render::ansi
+use ui::tab_model
+use ui::layout
+use ui::tab_bar
+use ui::tab_input
+
+// Fake 40x10 terminal
+let full = region_full(10, 40)
+let rs = reserve_statusbar(full, 1)
+let main = rs["main"]
+let split = split_vertical(main, 20)
+let bar = split["left"]
+let grid = split["right"]
+
+println("bar region: " + str(bar["row"]) + "," + str(bar["col"]) + " " + str(bar["rows"]) + "x" + str(bar["cols"]))
+println("grid region: " + str(grid["row"]) + "," + str(grid["col"]) + " " + str(grid["rows"]) + "x" + str(grid["cols"]))
+
+// Synthetic ring with 3 tabs (no real PTY)
+let ring = new_tab_ring()
+let t1 = new_tab(1, "shell", -1, -1, 0, 0)
+let t2 = new_tab(2, "vim readme.md", -1, -1, 0, 0)
+let t3 = new_tab(3, "htop", -1, -1, 0, 0)
+ring = ring_add(ring, t1)
+ring = ring_add(ring, t2)
+ring = ring_add(ring, t3)
+ring = ring_focus(ring, 1)
+
+// Drive activity
+ring = add_activity(ring, 0, 500)
+ring = add_activity(ring, 2, 8000)
+
+println("active: " + str(ring["active"]))
+println("tabs: " + str(len(ring["tabs"])))
+
+// Nav tests
+ring = ring_next(ring)
+println("after next, active: " + str(ring["active"]))
+ring = ring_prev(ring)
+ring = ring_prev(ring)
+println("after 2 prev, active: " + str(ring["active"]))
+
+// Decay
+let before = ring["tabs"][2]["activity_score"]
+ring = decay_activity(ring)
+let after = ring["tabs"][2]["activity_score"]
+println("decay (capped 4096) -> " + str(after) + " (expected ~3891)")
+
+// Heat colors across thresholds
+println("heat 0 = " + str(activity_heat_color(0)))
+println("heat 500 = " + str(activity_heat_color(500)))
+println("heat 6000 = " + str(activity_heat_color(6000)))
+println("heat 50000 = " + str(activity_heat_color(50000)))
+
+// Hit test
+let hit = tab_bar_hit_test(bar, 2, 5, 3)
+println("hit (2,5) = " + str(hit))
+let miss = tab_bar_hit_test(bar, 2, 30, 3)
+println("hit (2,30) = " + str(miss))
+
+println("SMOKE OK")

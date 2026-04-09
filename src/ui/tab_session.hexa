@@ -1,0 +1,108 @@
+// tab_session.hexa — Session persistence (tab count + titles)
+// VOID Layer 4: UI
+//
+// Minimal serialization: writes "<count>\n<title1>\n<title2>\n..." to
+// $HOME/.void/session. On load, returns a list of titles for restore.
+// PTYs/PIDs are not serialized — restore spawns fresh shells.
+
+extern fn getenv(name: *Byte) -> *Byte
+extern fn fopen(path: *Byte, mode: *Byte) -> *Void
+extern fn fclose(fp: *Void) -> int
+extern fn fputs(s: *Byte, fp: *Void) -> int
+extern fn fgets(buf: *Byte, n: int, fp: *Void) -> *Byte
+extern fn malloc(size: int) -> *Void
+extern fn free(ptr: *Void)
+
+fn session_path() -> string {
+  let home_ptr = getenv(cstring("HOME"))
+  let home = "/tmp"
+  if ptr_addr(home_ptr) > 0 {
+    home = from_cstring(home_ptr)
+  }
+  return home + "/.void/session"
+}
+
+pub fn save_session(ring: map) -> int {
+  let path = session_path()
+  let fp = fopen(cstring(path), cstring("w"))
+  if ptr_addr(fp) == 0 { return 0 }
+  let tabs = ring["tabs"]
+  let n = len(tabs)
+  fputs(cstring(str(n) + "\n"), fp)
+  let i = 0
+  while i < n {
+    let t = tabs[i]
+    fputs(cstring(t["title"] + "\n"), fp)
+    i = i + 1
+  }
+  fclose(fp)
+  return 1
+}
+
+pub fn load_session_titles() -> array {
+  let path = session_path()
+  let fp = fopen(cstring(path), cstring("r"))
+  if ptr_addr(fp) == 0 { return [] }
+  let buf = malloc(1024)
+  let header = fgets(buf, 1024, fp)
+  if ptr_addr(header) == 0 {
+    free(buf)
+    fclose(fp)
+    return []
+  }
+  let count_str = from_cstring(buf)
+  // crude parse: strip trailing newline, convert to int via successive digits
+  let n = parse_int_line(count_str)
+  let out = []
+  let i = 0
+  while i < n {
+    let line_ptr = fgets(buf, 1024, fp)
+    if ptr_addr(line_ptr) == 0 { break }
+    let s = from_cstring(buf)
+    out = out + [strip_newline(s)]
+    i = i + 1
+  }
+  free(buf)
+  fclose(fp)
+  return out
+}
+
+fn parse_int_line(s: string) -> int {
+  let n = len(s)
+  let v = 0
+  let i = 0
+  while i < n {
+    let ch = str_at(s, i)
+    if ch == "0" { v = v * 10 + 0 }
+    else if ch == "1" { v = v * 10 + 1 }
+    else if ch == "2" { v = v * 10 + 2 }
+    else if ch == "3" { v = v * 10 + 3 }
+    else if ch == "4" { v = v * 10 + 4 }
+    else if ch == "5" { v = v * 10 + 5 }
+    else if ch == "6" { v = v * 10 + 6 }
+    else if ch == "7" { v = v * 10 + 7 }
+    else if ch == "8" { v = v * 10 + 8 }
+    else if ch == "9" { v = v * 10 + 9 }
+    else { return v }
+    i = i + 1
+  }
+  return v
+}
+
+fn strip_newline(s: string) -> string {
+  let n = len(s)
+  if n == 0 { return s }
+  let last = str_at(s, n - 1)
+  if last == "\n" {
+    let out = ""
+    let i = 0
+    while i < n - 1 {
+      out = out + str_at(s, i)
+      i = i + 1
+    }
+    return out
+  }
+  return s
+}
+
+extern fn str_at(s: string, idx: int) -> string

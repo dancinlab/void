@@ -1,0 +1,124 @@
+// tab_mux.hexa — Tab multiplexer: PTY spawn/teardown + poll dispatch
+// VOID Layer 4: UI
+//
+// Wraps ring_add/ring_remove with real PTY lifecycle (sys::pty). Each tab
+// owns its own master/slave fd, shell pid, and grid. The main loop only has
+// to call mux_poll_active(ring) and mux_poll_background(ring) each tick.
+//
+// NOTE: this file uses only the public pty.hexa API — pty.hexa itself is L0
+// and untouched.
+
+use sys::pty
+use terminal::grid
+use terminal::vt_parser
+use render::ansi
+use ui::tab_model
+
+extern fn read(fd: int, buf: *Byte, count: int) -> int
+extern fn write(fd: int, buf: *Byte, count: int) -> int
+extern fn malloc(size: int) -> *Void
+extern fn free(ptr: *Void)
+extern fn memset(s: *Void, c: int, n: int) -> *Void
+
+// ── Spawn a new tab with its own PTY + shell + grid + parser ──
+
+pub fn mux_spawn(ring: map, grid_rows: int, grid_cols: int, title: string) -> map {
+  let info = pty_open()
+  if info["ok"] != 1 {
+    return ring
+  }
+  let master = info["master"]
+  let slave = info["slave"]
+  let pid = pty_spawn_shell(master, slave)
+
+  let g = new_grid(grid_rows, grid_cols)
+  g["cursor_visible"] = true
+
+  let id = ring["next_id"]
+  let tab = new_tab(id, title, master, slave, pid, g)
+  // Stash a parser per tab — vt state is per-PTY.
+  tab["parser"] = new_vt_parser()
+  return ring_add(ring, tab)
+}
+
+// ── Close the active tab: kill PTY, remove from ring ──
+
+pub fn mux_close_active(ring: map) -> map {
+  let idx = ring["active"]
+  let tabs = ring["tabs"]
+  if idx < 0 || idx >= len(tabs) { return ring }
+  let t = tabs[idx]
+  pty_close(t["master_fd"], t["pid"])
+  return ring_remove(ring, idx)
+}
+
+// ── Close tab by index ──
+
+pub fn mux_close(ring: map, idx: int) -> map {
+  let tabs = ring["tabs"]
+  if idx < 0 || idx >= len(tabs) { return ring }
+  let t = tabs[idx]
+  pty_close(t["master_fd"], t["pid"])
+  return ring_remove(ring, idx)
+}
+
+// ── Poll every tab's PTY once. Parse vt into each tab's grid and accumulate
+//    activity_score. Returns #{ "ring": map, "active_output": bool }.
+//    active_output signals caller to re-render the active grid.
+
+pub fn mux_poll_all(ring: map) -> map {
+  let tabs = ring["tabs"]
+  let n = len(tabs)
+  let active = ring["active"]
+  let any_active = false
+  let buf = malloc(4096)
+
+  let i = 0
+  while i < n {
+    let t = tabs[i]
+    memset(buf, 0, 4096)
+    let got = read(t["master_fd"], buf, 4095)
+    if got > 0 {
+      let chunk = from_cstring(buf)
+      let parser = t["parser"]
+      let g = t["grid"]
+      let res = vt_process(parser, g, chunk)
+      t["parser"] = res["parser"]
+      t["grid"] = res["grid"]
+      if len(res["title"]) > 0 {
+        t["title"] = res["title"]
+      }
+      // Activity accounting (AI-native heat)
+      ring = add_activity(ring, i, got)
+      if i == active { any_active = true }
+      tabs[i] = t
+    }
+    i = i + 1
+  }
+  free(buf)
+  ring["tabs"] = tabs
+  ring = decay_activity(ring)
+  return #{"ring": ring, "active_output": any_active}
+}
+
+// ── Forward keyboard input to the active tab's PTY ──
+
+pub fn mux_forward_input(ring: map, data: string, n: int) {
+  let t = ring_active_tab(ring)
+  if t == 0 { return }
+  let c = cstring(data)
+  write(t["master_fd"], c, n)
+}
+
+// ── Teardown all tabs on exit ──
+
+pub fn mux_shutdown(ring: map) {
+  let tabs = ring["tabs"]
+  let n = len(tabs)
+  let i = 0
+  while i < n {
+    let t = tabs[i]
+    pty_close(t["master_fd"], t["pid"])
+    i = i + 1
+  }
+}
