@@ -46,4 +46,4 @@ Phase 6 — Plugin + AI         ⬜
 - UI 레이아웃 (탭, 패널 분할) — Phase 5
 
 ## 할일 (todo)
-- "todo", "할일" → `$HOME/Dev/hexa-lang/target/release/hexa $HOME/Dev/nexus/mk2_hexa/native/todo.hexa void` 실행 후 **결과를 마크다운 텍스트로 그대로 출력** (재포맷 금지)
+- "todo", "할일" → `$HOME/Dev/hexa-lang/target/release/hexa $HOME/Dev/nexus/mk2_hexa/native/todo.hexa void` 실행 후 **결과를 마크다운 텍스트로 그대로 출력** (재포맷 금지). "todo 대량" 시 `... void 대량` 으로 실행.

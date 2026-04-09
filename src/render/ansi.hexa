@@ -183,6 +183,34 @@ pub fn render_grid_full(grid: map) -> string {
   return out
 }
 
+// ── Region-shifted full render ──
+// Same as render_grid_full but translates every cursor move by (row_off, col_off)
+// so the grid draws inside a sub-region of the host terminal.
+pub fn render_grid_in_region(grid: map, row_off: int, col_off: int) -> string {
+  let rows = grid["rows"]
+  let cols = grid["cols"]
+  let cells = grid["cells"]
+  let cursor_row = grid["cursor_row"]
+  let cursor_col = grid["cursor_col"]
+
+  let out = ansi_cursor_hide()
+  let r = 0
+  while r < rows {
+    out = out + ansi_move(r + 1 + row_off, 1 + col_off)
+    let c = 0
+    while c < cols {
+      let cell = cells[r][c]
+      out = out + cell_attrs(cell["fg"], cell["bg"], cell["flags"]) + cell["ch"]
+      c = c + 1
+    }
+    r = r + 1
+  }
+  out = out + ansi_reset()
+  out = out + ansi_move(cursor_row + 1 + row_off, cursor_col + 1 + col_off)
+  out = out + ansi_cursor_show()
+  return out
+}
+
 // ── Differential grid render ──
 
 pub fn render_grid(grid: map, prev_grid: map) -> string {

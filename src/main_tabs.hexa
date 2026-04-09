@@ -21,6 +21,8 @@ use ui::layout
 use ui::tab_bar
 use ui::tab_input
 use ui::tab_mux
+use plugin::plugin
+use ai::infer
 
 extern fn read(fd: int, buf: *Byte, count: int) -> int
 extern fn write(fd: int, buf: *Byte, count: int) -> int
@@ -52,8 +54,18 @@ let grid_cols = grid_region["cols"]
 
 // ── Create tab ring + first tab ──
 
+// L5 Plugin + L6 AI: minimal bootstrap, passive until invoked
+let plugins = new_plugin_registry()
+let ai_ctx = new_infer_context("nexus-6", 4096)
+
 let ring = new_tab_ring()
 ring = mux_spawn(ring, grid_rows, grid_cols, "shell")
+
+// Push real winsize to the freshly spawned PTY so the shell knows its actual box
+let first = ring_active_tab(ring)
+if first != 0 {
+  pty_resize(first["master_fd"], grid_rows, grid_cols)
+}
 
 // ── Setup host terminal ──
 
@@ -91,6 +103,8 @@ while running {
       let name = action["action"]
       if name == "new" {
         ring = mux_spawn(ring, grid_rows, grid_cols, "shell")
+        let nt = ring_active_tab(ring)
+        if nt != 0 { pty_resize(nt["master_fd"], grid_rows, grid_cols) }
       } else if name == "close" {
         ring = mux_close_active(ring)
         if len(ring["tabs"]) == 0 {
@@ -114,11 +128,9 @@ while running {
     let active = ring_active_tab(ring)
     if active != 0 {
       let g = active["grid"]
-      // Render active grid relocated into grid_region
-      let rendered = render_grid_full(g)
-      // Prepend region origin so the grid draws inside its column
-      let origin = ansi_move(grid_region["row"], grid_region["col"])
-      flush_to_stdout(origin + rendered)
+      // Region-shifted render: coordinates translated into grid_region
+      let rendered = render_grid_in_region(g, grid_region["row"] - 1, grid_region["col"] - 1)
+      flush_to_stdout(rendered)
     }
   }
 
