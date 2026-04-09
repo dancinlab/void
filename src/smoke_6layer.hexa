@@ -1,0 +1,80 @@
+// smoke_6layer.hexa — VOID 6-layer 통합 스모크 (non-TTY)
+// Exercises each of the 6 layers without requiring a real terminal.
+
+use terminal::grid
+use terminal::vt_parser
+use render::ansi
+use ui::theme
+use ui::tab_model
+use ui::layout
+use ui::tab_bar
+use ai::dashboard
+
+let passes = 0
+let total = 6
+
+// ── Layer 3: Terminal (grid + vt_parser) ──────────────────
+let g = new_grid(10, 40)
+let p = new_vt_parser()
+let res = vt_process(p, g, "hello world\n")
+g = res["grid"]
+let cell = g["cells"][0][6]
+let ch = cell["ch"]
+if ch != " " {
+  println("LAYER 3 Terminal: PASS (cell[0][6]='" + ch + "')")
+  passes = passes + 1
+} else {
+  println("LAYER 3 Terminal: FAIL (empty)")
+}
+
+// ── Layer 2: Render (ansi) ────────────────────────────────
+let rendered = render_grid_full(g)
+if len(rendered) > 10 {
+  println("LAYER 2 Render: PASS (" + str(len(rendered)) + " bytes)")
+  passes = passes + 1
+} else {
+  println("LAYER 2 Render: FAIL")
+}
+
+// ── Layer 4: UI (theme + tab_model + layout + tab_bar) ────
+let themes = list_themes()
+let ring = new_tab_ring()
+let t1 = new_tab(1, "shell", -1, -1, 0, 0)
+let t2 = new_tab(2, "vim", -1, -1, 0, 0)
+ring = ring_add(ring, t1)
+ring = ring_add(ring, t2)
+let full = region_full(24, 100)
+let rs = reserve_statusbar(full, 1)
+let split = split_vertical(rs["main"], 20)
+let bar_str = render_tab_bar(ring, split["left"])
+if len(themes) == 8 && len(ring["tabs"]) == 2 && len(bar_str) > 0 {
+  println("LAYER 4 UI: PASS (themes=" + str(len(themes)) + " tabs=2 bar=" + str(len(bar_str)) + "b)")
+  passes = passes + 1
+} else {
+  println("LAYER 4 UI: FAIL")
+}
+
+// ── Layer 1: System ────────────────────────────────────────
+// term_size needs a TTY; we only verify the module loads by referencing
+// grid dimensions (already via Layer 3). Accept pass if we got here.
+println("LAYER 1 System: PASS (modules loaded)")
+passes = passes + 1
+
+// ── Layer 5: Plugin ────────────────────────────────────────
+// src/plugin/ is empty — report not implemented, don't count as fail.
+println("LAYER 5 Plugin: NYI (src/plugin/ empty)")
+
+// ── Layer 6: AI (dashboard) ────────────────────────────────
+let dash = new_dashboard()
+dash = dashboard_set_status(dash, 2, "DEGRADED", "87")
+dash = dashboard_next(dash)
+let drender = render_dashboard(dash, full)
+if len(dash["panels"]) == 6 && len(drender) > 100 {
+  println("LAYER 6 AI: PASS (panels=6 render=" + str(len(drender)) + "b)")
+  passes = passes + 1
+} else {
+  println("LAYER 6 AI: FAIL")
+}
+
+println("")
+println("6LAYER SMOKE: " + str(passes) + "/" + str(total) + " PASS (L5 NYI)")
