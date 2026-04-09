@@ -1,62 +1,258 @@
-// theme.hexa — Theme engine
+// theme.hexa — Theme engine (n=6 resonance + classic)
 // VOID Layer 4: UI
+// Imperative style: literal #{"k": v, ...} parser workaround
 
 fn void_dark_theme() -> map {
-  return #{
-    "name": "void_dark",
-    "bg": 0x0D1117,
-    "fg": 0xC9D1D9,
-    "cursor": 0x58A6FF,
-    "selection": 0x264F78,
-    "black": 0x0D1117,
-    "red": 0xFF7B72,
-    "green": 0x7EE787,
-    "yellow": 0xD29922,
-    "blue": 0x58A6FF,
-    "magenta": 0xBC8CFF,
-    "cyan": 0x39D2C0,
-    "white": 0xC9D1D9,
-    "bright_black": 0x484F58,
-    "bright_red": 0xFFA198,
-    "bright_green": 0xAFECAF,
-    "bright_yellow": 0xE3B341,
-    "bright_blue": 0x79C0FF,
-    "bright_magenta": 0xD2A8FF,
-    "bright_cyan": 0x56D4DD,
-    "bright_white": 0xF0F6FC,
-    "statusbar_bg": 0x161B22,
-    "statusbar_fg": 0x8B949E,
-    "tab_active_bg": 0x0D1117,
-    "tab_inactive_bg": 0x161B22
-  }
+  let t = #{}
+  t["name"] = "void_dark"
+  t["bg"] = 0x0D1117
+  t["fg"] = 0xC9D1D9
+  t["cursor"] = 0x58A6FF
+  t["selection"] = 0x264F78
+  t["black"] = 0x0D1117
+  t["red"] = 0xFF7B72
+  t["green"] = 0x7EE787
+  t["yellow"] = 0xD29922
+  t["blue"] = 0x58A6FF
+  t["magenta"] = 0xBC8CFF
+  t["cyan"] = 0x39D2C0
+  t["white"] = 0xC9D1D9
+  t["bright_black"] = 0x484F58
+  t["bright_red"] = 0xFFA198
+  t["bright_green"] = 0xAFECAF
+  t["bright_yellow"] = 0xE3B341
+  t["bright_blue"] = 0x79C0FF
+  t["bright_magenta"] = 0xD2A8FF
+  t["bright_cyan"] = 0x56D4DD
+  t["bright_white"] = 0xF0F6FC
+  t["statusbar_bg"] = 0x161B22
+  t["statusbar_fg"] = 0x8B949E
+  t["tab_active_bg"] = 0x0D1117
+  t["tab_inactive_bg"] = 0x161B22
+  return t
 }
 
 fn void_light_theme() -> map {
-  return #{
-    "name": "void_light",
-    "bg": 0xFFFFFF,
-    "fg": 0x24292F,
-    "cursor": 0x0969DA,
-    "selection": 0xDDF4FF,
-    "black": 0x24292F,
-    "red": 0xCF222E,
-    "green": 0x116329,
-    "yellow": 0x4D2D00,
-    "blue": 0x0969DA,
-    "magenta": 0x8250DF,
-    "cyan": 0x1B7C83,
-    "white": 0x6E7781,
-    "bright_black": 0x57606A,
-    "bright_red": 0xA40E26,
-    "bright_green": 0x1A7F37,
-    "bright_yellow": 0x633C01,
-    "bright_blue": 0x218BFF,
-    "bright_magenta": 0x6639BA,
-    "bright_cyan": 0x3192AA,
-    "bright_white": 0x8C959F,
-    "statusbar_bg": 0xF6F8FA,
-    "statusbar_fg": 0x57606A,
-    "tab_active_bg": 0xFFFFFF,
-    "tab_inactive_bg": 0xF6F8FA
-  }
+  let t = #{}
+  t["name"] = "void_light"
+  t["bg"] = 0xFFFFFF
+  t["fg"] = 0x24292F
+  t["cursor"] = 0x0969DA
+  t["selection"] = 0xDDF4FF
+  t["black"] = 0x24292F
+  t["red"] = 0xCF222E
+  t["green"] = 0x116329
+  t["yellow"] = 0x4D2D00
+  t["blue"] = 0x0969DA
+  t["magenta"] = 0x8250DF
+  t["cyan"] = 0x1B7C83
+  t["white"] = 0x6E7781
+  t["bright_black"] = 0x57606A
+  t["bright_red"] = 0xA40E26
+  t["bright_green"] = 0x1A7F37
+  t["bright_yellow"] = 0x633C01
+  t["bright_blue"] = 0x218BFF
+  t["bright_magenta"] = 0x6639BA
+  t["bright_cyan"] = 0x3192AA
+  t["bright_white"] = 0x8C959F
+  t["statusbar_bg"] = 0xF6F8FA
+  t["statusbar_fg"] = 0x57606A
+  t["tab_active_bg"] = 0xFFFFFF
+  t["tab_inactive_bg"] = 0xF6F8FA
+  return t
 }
+
+pub fn void_nexus_theme() -> map {
+  let t = #{}
+  t["name"] = "void_nexus"
+  t["bg"] = 0x16121F
+  t["fg"] = 0xD6C8FF
+  t["cursor"] = 0xBC8CFF
+  t["selection"] = 0x3B2A5E
+  t["black"] = 0x16121F
+  t["red"] = 0xE36A9E
+  t["green"] = 0x9F8CFF
+  t["yellow"] = 0xCDA7FF
+  t["blue"] = 0x7C6AFF
+  t["magenta"] = 0xBC8CFF
+  t["cyan"] = 0x8AE6FF
+  t["white"] = 0xD6C8FF
+  t["bright_black"] = 0x493C6B
+  t["bright_red"] = 0xFF8EBA
+  t["bright_green"] = 0xBFA8FF
+  t["bright_yellow"] = 0xE3C9FF
+  t["bright_blue"] = 0xA593FF
+  t["bright_magenta"] = 0xD2A8FF
+  t["bright_cyan"] = 0xB0F0FF
+  t["bright_white"] = 0xF1EAFF
+  t["statusbar_bg"] = 0x231A35
+  t["statusbar_fg"] = 0xA593FF
+  t["tab_active_bg"] = 0x16121F
+  t["tab_inactive_bg"] = 0x231A35
+  return t
+}
+
+pub fn void_anima_theme() -> map {
+  let t = #{}
+  t["name"] = "void_anima"
+  t["bg"] = 0x1A120B
+  t["fg"] = 0xFFD8A8
+  t["cursor"] = 0xFFA94D
+  t["selection"] = 0x5C3A17
+  t["black"] = 0x1A120B
+  t["red"] = 0xFF7043
+  t["green"] = 0xE8C370
+  t["yellow"] = 0xFFB347
+  t["blue"] = 0xD99058
+  t["magenta"] = 0xFF8A65
+  t["cyan"] = 0xFFC98A
+  t["white"] = 0xFFD8A8
+  t["bright_black"] = 0x6B4A2B
+  t["bright_red"] = 0xFF8A65
+  t["bright_green"] = 0xFFD07A
+  t["bright_yellow"] = 0xFFCB6B
+  t["bright_blue"] = 0xFFB07A
+  t["bright_magenta"] = 0xFFA27A
+  t["bright_cyan"] = 0xFFDDAE
+  t["bright_white"] = 0xFFF2DC
+  t["statusbar_bg"] = 0x2A1C10
+  t["statusbar_fg"] = 0xFFB347
+  t["tab_active_bg"] = 0x1A120B
+  t["tab_inactive_bg"] = 0x2A1C10
+  return t
+}
+
+pub fn void_fathom_theme() -> map {
+  let t = #{}
+  t["name"] = "void_fathom"
+  t["bg"] = 0x061A1E
+  t["fg"] = 0x9EE5E6
+  t["cursor"] = 0x39D2C0
+  t["selection"] = 0x0F3A40
+  t["black"] = 0x061A1E
+  t["red"] = 0xFF6E6E
+  t["green"] = 0x4CE0C0
+  t["yellow"] = 0x6ED6E0
+  t["blue"] = 0x2E9EB5
+  t["magenta"] = 0x5FB8CC
+  t["cyan"] = 0x39D2C0
+  t["white"] = 0x9EE5E6
+  t["bright_black"] = 0x1E4248
+  t["bright_red"] = 0xFF8A8A
+  t["bright_green"] = 0x7FF0D6
+  t["bright_yellow"] = 0x9AE6EF
+  t["bright_blue"] = 0x5EC8DC
+  t["bright_magenta"] = 0x85D0DD
+  t["bright_cyan"] = 0x7FF0E8
+  t["bright_white"] = 0xC7F0F2
+  t["statusbar_bg"] = 0x0C2328
+  t["statusbar_fg"] = 0x39D2C0
+  t["tab_active_bg"] = 0x061A1E
+  t["tab_inactive_bg"] = 0x0C2328
+  return t
+}
+
+pub fn void_genesis_theme() -> map {
+  let t = #{}
+  t["name"] = "void_genesis"
+  t["bg"] = 0x000800
+  t["fg"] = 0x7EE787
+  t["cursor"] = 0x00FF41
+  t["selection"] = 0x003B17
+  t["black"] = 0x000000
+  t["red"] = 0xFF4040
+  t["green"] = 0x00FF41
+  t["yellow"] = 0xAEEA2B
+  t["blue"] = 0x22B455
+  t["magenta"] = 0x30D07A
+  t["cyan"] = 0x50E19B
+  t["white"] = 0x7EE787
+  t["bright_black"] = 0x0E3A14
+  t["bright_red"] = 0xFF6B6B
+  t["bright_green"] = 0x5AFF7A
+  t["bright_yellow"] = 0xC9F35F
+  t["bright_blue"] = 0x4EE180
+  t["bright_magenta"] = 0x69EBA5
+  t["bright_cyan"] = 0x8AEFC2
+  t["bright_white"] = 0xBFFFC4
+  t["statusbar_bg"] = 0x011A04
+  t["statusbar_fg"] = 0x00FF41
+  t["tab_active_bg"] = 0x000800
+  t["tab_inactive_bg"] = 0x011A04
+  return t
+}
+
+pub fn void_solar_theme() -> map {
+  let t = #{}
+  t["name"] = "void_solar"
+  t["bg"] = 0xFDF6E3
+  t["fg"] = 0x586E75
+  t["cursor"] = 0xB58900
+  t["selection"] = 0xEEE8D5
+  t["black"] = 0x073642
+  t["red"] = 0xDC322F
+  t["green"] = 0x859900
+  t["yellow"] = 0xB58900
+  t["blue"] = 0x268BD2
+  t["magenta"] = 0xD33682
+  t["cyan"] = 0x2AA198
+  t["white"] = 0x93A1A1
+  t["bright_black"] = 0x586E75
+  t["bright_red"] = 0xCB4B16
+  t["bright_green"] = 0x586E75
+  t["bright_yellow"] = 0x657B83
+  t["bright_blue"] = 0x839496
+  t["bright_magenta"] = 0x6C71C4
+  t["bright_cyan"] = 0x93A1A1
+  t["bright_white"] = 0xFDF6E3
+  t["statusbar_bg"] = 0xEEE8D5
+  t["statusbar_fg"] = 0x657B83
+  t["tab_active_bg"] = 0xFDF6E3
+  t["tab_inactive_bg"] = 0xEEE8D5
+  return t
+}
+
+pub fn void_crimson_theme() -> map {
+  let t = #{}
+  t["name"] = "void_crimson"
+  t["bg"] = 0x0A0000
+  t["fg"] = 0xFFCECE
+  t["cursor"] = 0xFF2D2D
+  t["selection"] = 0x4A0000
+  t["black"] = 0x0A0000
+  t["red"] = 0xFF2D2D
+  t["green"] = 0xFF6B6B
+  t["yellow"] = 0xFFB3B3
+  t["blue"] = 0xCC2222
+  t["magenta"] = 0xFF4D6D
+  t["cyan"] = 0xFF9999
+  t["white"] = 0xFFCECE
+  t["bright_black"] = 0x5C0000
+  t["bright_red"] = 0xFF5555
+  t["bright_green"] = 0xFF8585
+  t["bright_yellow"] = 0xFFCACA
+  t["bright_blue"] = 0xE04444
+  t["bright_magenta"] = 0xFF7A94
+  t["bright_cyan"] = 0xFFB5B5
+  t["bright_white"] = 0xFFE8E8
+  t["statusbar_bg"] = 0x1A0000
+  t["statusbar_fg"] = 0xFF2D2D
+  t["tab_active_bg"] = 0x0A0000
+  t["tab_inactive_bg"] = 0x1A0000
+  return t
+}
+
+pub fn list_themes() -> array {
+  let a = []
+  a = a + ["void_dark"]
+  a = a + ["void_light"]
+  a = a + ["void_nexus"]
+  a = a + ["void_anima"]
+  a = a + ["void_fathom"]
+  a = a + ["void_genesis"]
+  a = a + ["void_solar"]
+  a = a + ["void_crimson"]
+  return a
+}
+
+pub fn theme_count() -> int { return 8 }
