@@ -1,0 +1,42 @@
+// smoke_ai.hexa — Phase 6 NEXUS-6 inference stub smoke test.
+
+use ai::infer
+use ai::command_palette
+
+let ctx = new_infer_context("nexus-6", 4096)
+
+let r1 = infer_ask(ctx, "explain vt parser")
+ctx = r1["ctx"]
+let r2 = infer_ask(ctx, "fix the render loop")
+ctx = r2["ctx"]
+let r3 = infer_ask(ctx, "list tabs")
+ctx = r3["ctx"]
+
+let hist = ctx["history"]
+let hlen = len(hist)
+let tok = ctx["total_tokens"]
+
+if tok <= 0 {
+  println("FAIL: total_tokens = " + str(tok))
+} else {
+  println("tokens ok: " + str(tok))
+}
+
+if hlen != 6 {
+  println("FAIL: history len = " + str(hlen))
+} else {
+  println("history ok: 6")
+}
+
+println(infer_context_summary(ctx))
+
+let palette = new_command_palette()
+palette = palette_search(palette, "? how do tabs work", ctx)
+let pres = palette["results"]
+if len(pres) == 0 {
+  println("FAIL: palette results empty")
+} else {
+  println("palette ok: " + str(len(pres)) + " result(s)")
+}
+
+println("AI SMOKE OK")

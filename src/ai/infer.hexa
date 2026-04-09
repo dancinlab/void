@@ -1,0 +1,86 @@
+// infer.hexa — NEXUS-6 inference interface stub
+// VOID Layer 6: AI — scaffold glue for in-terminal AI inference.
+//
+// No real model. Simple keyword-routed stub responses plus a chat
+// history + token accounting shell.
+
+// Check if `needle` appears in `haystack`.
+fn str_contains(haystack: string, needle: string) -> bool {
+  return haystack.contains(needle)
+}
+
+fn str_starts_with(s: string, prefix: string) -> bool {
+  return s.starts_with(prefix)
+}
+
+pub fn new_infer_context(model_name: string, max_tokens: int) -> map {
+  let ctx = #{}
+  ctx["model"] = model_name
+  ctx["max_tokens"] = max_tokens
+  ctx["history"] = []
+  ctx["total_tokens"] = 0
+  ctx["status"] = "ready"
+  return ctx
+}
+
+fn stub_response(prompt: string) -> string {
+  if str_contains(prompt, "error") {
+    return "Investigating error in latest command..."
+  }
+  if str_contains(prompt, "explain") {
+    return "Breaking down the concept..."
+  }
+  if str_contains(prompt, "fix") {
+    return "Proposing fix for the issue..."
+  }
+  return "Ready to assist. What would you like to do?"
+}
+
+pub fn infer_ask(ctx: map, prompt: string) -> map {
+  let response = stub_response(prompt)
+
+  let user_turn = #{}
+  user_turn["role"] = "user"
+  user_turn["content"] = prompt
+
+  let asst_turn = #{}
+  asst_turn["role"] = "assistant"
+  asst_turn["content"] = response
+
+  let hist = ctx["history"]
+  hist = hist + [user_turn]
+  hist = hist + [asst_turn]
+  ctx["history"] = hist
+
+  let used = len(prompt) + len(response)
+  ctx["total_tokens"] = ctx["total_tokens"] + used
+  ctx["status"] = "ready"
+
+  let out = #{}
+  out["ctx"] = ctx
+  out["response"] = response
+  out["tokens_used"] = used
+  return out
+}
+
+pub fn infer_reset(ctx: map) -> map {
+  ctx["history"] = []
+  ctx["total_tokens"] = 0
+  ctx["status"] = "ready"
+  return ctx
+}
+
+pub fn infer_context_summary(ctx: map) -> string {
+  let hist = ctx["history"]
+  let turns = len(hist) / 2
+  return "model: " + ctx["model"] + " | turns: " + str(turns) + " | tokens: " + str(ctx["total_tokens"])
+}
+
+// Exported helpers for command_palette reuse.
+pub fn infer_str_contains(h: string, n: string) -> bool {
+  return str_contains(h, n)
+}
+
+pub fn infer_str_starts_with(s: string, p: string) -> bool {
+  return str_starts_with(s, p)
+}

@@ -1,0 +1,61 @@
+// command_palette.hexa — minimal AI-backed command palette
+// VOID Layer 6: AI — single-line palette rendered into statusbar region.
+
+use render::ansi
+use ai::infer
+
+pub fn new_command_palette() -> map {
+  let p = #{}
+  p["query"] = ""
+  p["open"] = false
+  p["results"] = []
+  return p
+}
+
+pub fn palette_search(palette: map, query: string, ctx: map) -> map {
+  palette["query"] = query
+  palette["open"] = true
+
+  let results = []
+  if infer_str_starts_with(query, "?") {
+    // Strip leading "?" and optional space.
+    let qn = len(query)
+    let start = 1
+    if start < qn {
+      let head = query.substring(start, start + 1)
+      if head == " " { start = start + 1 }
+    }
+    let rest = query.substring(start, qn)
+    let ask_result = infer_ask(ctx, "explain: " + rest)
+    let r = #{}
+    r["kind"] = "ai"
+    r["label"] = ask_result["response"]
+    results = results + [r]
+  } else {
+    let r = #{}
+    r["kind"] = "cmd"
+    r["label"] = "run: " + query
+    results = results + [r]
+  }
+
+  palette["results"] = results
+  return palette
+}
+
+pub fn palette_render(palette: map, region: map) -> string {
+  let rows = region["rows"]
+  let cols = region["cols"]
+  let r0 = region["row"]
+  let c0 = region["col"]
+
+  let text = "> " + palette["query"]
+  let results = palette["results"]
+  if len(results) > 0 {
+    let first = results[0]
+    text = text + "  | " + first["label"]
+  }
+
+  let out = ansi_move(r0 + rows - 1, c0)
+  out = out + render_statusbar(text, cols)
+  return out
+}
