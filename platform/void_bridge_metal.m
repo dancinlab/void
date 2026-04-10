@@ -445,13 +445,15 @@ static void create_glyph_atlas(int cell_w, int cell_h) {
             needs_upload = 0;
         }
 
-        // Update uniforms
+        // Update uniforms — scale cell size by backing scale for Retina
         CGSize drawableSize = view.drawableSize;
+        CGFloat scale = view.window.backingScaleFactor;
+        if (scale < 1.0) scale = 1.0;
         Uniforms u;
         u.grid_cols = (float)grid_cols;
         u.grid_rows = (float)grid_rows;
-        u.cell_w = (float)cell_width;
-        u.cell_h = (float)cell_height;
+        u.cell_w = (float)(cell_width * scale);
+        u.cell_h = (float)(cell_height * scale);
         u.viewport_w = (float)drawableSize.width;
         u.viewport_h = (float)drawableSize.height;
         u.cursor_row = (float)cursor_row;
