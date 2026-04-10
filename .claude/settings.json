@@ -1,12 +1,42 @@
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ghost/Dev/hexa-lang/target/release/hexa /Users/ghost/Dev/nexus/shared/hooks/hook-entry.hexa prompt /Users/ghost/Dev/nexus/shared/hooks/nexus-prompt-scan.hexa",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "/Users/ghost/Dev/hexa-lang/target/release/hexa /Users/ghost/Dev/nexus/shared/hooks/hook-entry.hexa prompt /Users/ghost/Dev/nexus/shared/hooks/go-parallel.hexa",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": ".shared/hooks/block-forbidden-ext.sh"
+            "command": "/Users/ghost/Dev/hexa-lang/target/release/hexa /Users/ghost/Dev/nexus/shared/hooks/hook-entry.hexa pretool /Users/ghost/Dev/nexus/shared/hooks/block-forbidden-ext.hexa"
+          },
+          {
+            "type": "command",
+            "command": "/Users/ghost/Dev/hexa-lang/target/release/hexa /Users/ghost/Dev/nexus/shared/hooks/hook-entry.hexa pretool /Users/ghost/Dev/nexus/shared/hooks/absolute-rules-loader.hexa"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ghost/Dev/hexa-lang/target/release/hexa /Users/ghost/Dev/nexus/shared/hooks/hook-entry.hexa guard"
           }
         ]
       }
@@ -17,7 +47,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "OUTPUT=$(cat); if echo \"$OUTPUT\" | grep -q 'error\\[Syntax\\]\\|error\\[Type\\]\\|error\\[Parse\\]\\|문법'; then FILE=$(echo \"$OUTPUT\" | grep -oE '[^ ]+\\.hexa:[0-9]+' | head -1 | cut -d: -f1); ERR=$(echo \"$OUTPUT\" | grep 'error\\[' | head -1); GID=''; case \"$ERR\" in *Semicolon*) GID='G6';; *'-> ('*|*RParen*LBracket*) GID='G1';; *'block comment'*|*'/*'*) GID='G3';; *': ['*|*'expected identifier'*) GID='G2';; *'Struct{}'*) GID='G5';; esac; echo \"{\\\"systemMessage\\\":\\\"⚠️ hexa 문법 오류 ${GID:-?} 감지. 에러: $ERR 파일: $FILE — 참조: shared/hexa-grammar/ (autofix.json+issues.jsonl+convergence.json). 해당 파일 직접 수정 후 재실행.\\\"}\"; fi"
+            "command": "/Users/ghost/Dev/hexa-lang/target/release/hexa /Users/ghost/Dev/nexus/shared/hooks/hook-entry.hexa post /Users/ghost/Dev/nexus/shared/hooks/nexus-post-bash.hexa"
+          },
+          {
+            "type": "command",
+            "command": "/Users/ghost/Dev/hexa-lang/target/release/hexa /Users/ghost/Dev/nexus/shared/hooks/hook-entry.hexa post /Users/ghost/Dev/nexus/shared/hooks/hexa-grammar-guard.hexa"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ghost/Dev/hexa-lang/target/release/hexa /Users/ghost/Dev/nexus/shared/hooks/hook-entry.hexa post /Users/ghost/Dev/nexus/shared/hooks/nexus-post-edit.hexa"
           }
         ]
       }
