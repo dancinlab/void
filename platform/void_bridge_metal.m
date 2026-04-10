@@ -711,10 +711,10 @@ int void_app_init(int rows, int cols, int font_size) {
         delegate = [[VoidAppDelegate alloc] init];
         [app setDelegate:delegate];
 
-        // Setup font
-        mono_font = CTFontCreateWithName(CFSTR("MesloLGS-NF-Regular"), font_size, NULL);
+        // Setup font — Menlo has correct advance width; MesloLGS-NF is 38% wider
+        mono_font = CTFontCreateWithName(CFSTR("Menlo-Regular"), font_size, NULL);
         if (!mono_font) {
-            mono_font = CTFontCreateWithName(CFSTR("Menlo-Regular"), font_size, NULL);
+            mono_font = CTFontCreateWithName(CFSTR("SFMono-Regular"), font_size, NULL);
         }
         if (!mono_font) {
             mono_font = CTFontCreateWithName(CFSTR("Monaco"), font_size, NULL);

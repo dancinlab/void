@@ -1094,6 +1094,8 @@ int main(int argc, char *argv[]) {
             setenv("TERM", "xterm-256color", 1);
             setenv("COLORTERM", "truecolor", 1);
             setenv("LANG", "en_US.UTF-8", 1);
+            // Ensure homebrew + standard paths are available (GUI apps don't inherit shell PATH)
+            setenv("PATH", "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/ghost/.hx/bin", 1);
 
             // Set window size
             struct winsize ws = { .ws_row = g_rows, .ws_col = g_cols };
