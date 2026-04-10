@@ -1,5 +1,0 @@
-// run.hexa — VOID TUI entry (project root for module resolution)
-// hexa resolves `use X::Y` from the entry file's directory,
-// so this file lives at the project root where core/, ui/, ai/ etc. are.
-
-use app::main_tabs

@@ -1,2 +1,0 @@
-// run_native.hexa — VOID macOS native app entry
-use app::main_app

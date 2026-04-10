@@ -17,16 +17,11 @@ for p in "$HOME/Dev/hexa-lang/target/release/hexa" "$HOME/Dev/hexa-lang/target/d
 done
 [ -z "$HEXA" ] && { echo "hexa not found"; exit 1; }
 
-# hexa resolves `use X::Y` from entry file's directory
-cd "$DIR"
-
-# Suppress Ctrl+C noise — terminal app handles signals internally
 trap '' INT
-
 printf '\033[32m⬡ VOID launching...\033[0m\n'
 
 case "${1:-}" in
-  --native) exec "$HEXA" "$DIR/run_native.hexa" "${@:2}" ;;
-  --bare)   exec "$HEXA" "$DIR/run_bare.hexa" "${@:2}" ;;
-  *)        exec "$HEXA" "$DIR/run.hexa" "$@" ;;
+  --native) exec "$HEXA" "$DIR/app/main_app.hexa" "${@:2}" ;;
+  --bare)   exec "$HEXA" "$DIR/app/main.hexa" "${@:2}" ;;
+  *)        exec "$HEXA" "$DIR/app/main_tabs.hexa" "$@" ;;
 esac

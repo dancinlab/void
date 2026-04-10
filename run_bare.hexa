@@ -1,2 +1,0 @@
-// run_bare.hexa — VOID single-PTY entry (debug mode)
-use app::main
