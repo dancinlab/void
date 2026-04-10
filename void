@@ -3,7 +3,13 @@
 # Usage: void          — TUI 탭 모드 (기본)
 #        void --native — macOS 네이티브 앱
 #        void --bare   — 단일 PTY (디버그용)
-DIR="$(cd "$(dirname "$0")" && pwd)"
+SOURCE="$0"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 
 # Resolve hexa binary
 for p in "$HOME/.hx/bin/hexa" "$HOME/Dev/hexa-lang/target/release/hexa" "$HOME/Dev/hexa-lang/target/debug/hexa"; do
