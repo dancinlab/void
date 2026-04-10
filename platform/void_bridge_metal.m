@@ -54,7 +54,12 @@ typedef struct {
     float cursor_row;
     float cursor_col;
     float cursor_visible;
-    float _pad[3];
+    float sel_active;    // 1.0 if selection exists
+    float sel_start_row;
+    float sel_start_col;
+    float sel_end_row;
+    float sel_end_col;
+    float _pad[2];
 } Uniforms;
 
 // ── Global state ──
