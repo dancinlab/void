@@ -796,6 +796,9 @@ int void_app_init(int rows, int cols, int font_size) {
         [window makeFirstResponder:mtkView];
         [window makeKeyAndOrderFront:nil];
 
+        // finishLaunching is required when driving the event loop manually
+        // (without [NSApp run]). Without it, the window never appears on screen.
+        [app finishLaunching];
         [app activateIgnoringOtherApps:YES];
 
         // Create menu bar
