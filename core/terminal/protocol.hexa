@@ -9,6 +9,10 @@
 //   theme;name            — switch theme
 //   plugin;name;action    — plugin message
 //   scan;target           — NEXUS-6 scan
+//   key;cmd+t             — ⌘+T new tab (native bridge → TUI)
+//   key;cmd+w             — ⌘+W close tab
+//   key;cmd+n             — ⌘+N new tab (alias)
+//   key;cmd+1..9          — ⌘+1..9 focus tab
 
 fn void_protocol_prefix() -> string {
   // ESC ] 777 ;

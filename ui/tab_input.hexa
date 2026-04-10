@@ -4,12 +4,15 @@
 // macOS Terminal / iTerm2 do not forward ⌘ to the TTY, so tab shortcuts use
 // Alt-prefixed sequences (Alt = ESC prefix in ANSI). Bindings:
 //
+//   Ctrl+t           new tab  (0x14 — works in all modes)
+//   Ctrl+w           close active tab  (0x17)
 //   Alt+1 .. Alt+9   focus tab N
 //   Alt+t            new tab
 //   Alt+w            close active tab
 //   Alt+[            prev tab
 //   Alt+]            next tab
 //
+// Native app mode: bridge sends ESC ] 777 ; key ; cmd+t ST for ⌘+T.
 // A binding match consumes the input (not forwarded to PTY).
 
 use ui::tab_model
@@ -24,7 +27,30 @@ pub fn new_tab_action() -> map {
 
 pub fn parse_tab_key(input: string) -> map {
   let n = len(input)
+  if n == 0 { return new_tab_action() }
+
+  // Ctrl+T (0x14) — new tab (⌘+T equivalent for TUI mode)
+  if n >= 1 && input.starts_with("\x14") {
+    return #{"consumed": true, "action": "new", "arg": 0}
+  }
+  // Ctrl+W (0x17) — close active tab (⌘+W equivalent for TUI mode)
+  if n >= 1 && input.starts_with("\x17") {
+    return #{"consumed": true, "action": "close", "arg": 0}
+  }
+
   if n < 2 { return new_tab_action() }
+
+  // VOID protocol key event from native bridge: ESC ] 777 ; key ; cmd+t BEL
+  if input.starts_with("\x1b]777;key;cmd+t\x07") {
+    return #{"consumed": true, "action": "new", "arg": 0}
+  }
+  if input.starts_with("\x1b]777;key;cmd+w\x07") {
+    return #{"consumed": true, "action": "close", "arg": 0}
+  }
+  if input.starts_with("\x1b]777;key;cmd+n\x07") {
+    return #{"consumed": true, "action": "new", "arg": 0}
+  }
+
   // Alt+X arrives as ESC X (0x1B then one byte)
   if input.starts_with("\x1b") == false { return new_tab_action() }
   let c = input.substring(1, 2)
