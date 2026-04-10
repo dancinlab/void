@@ -1,7 +1,18 @@
 #!/bin/bash
-# VOID launcher — runs native macOS terminal app
+# VOID launcher
+# Usage: void          — TUI 탭 모드 (기본)
+#        void --native — macOS 네이티브 앱
+#        void --bare   — 단일 PTY (디버그용)
 DIR="$(cd "$(dirname "$0")" && pwd)"
-HEXA="$HOME/Dev/hexa-lang/target/release/hexa"
-[ ! -f "$HEXA" ] && HEXA="$HOME/Dev/hexa-lang/target/debug/hexa"
-[ ! -f "$HEXA" ] && { echo "hexa not found"; exit 1; }
-exec "$HEXA" "$DIR/app/main_app.hexa" "$@"
+
+# Resolve hexa binary
+for p in "$HOME/.hx/bin/hexa" "$HOME/Dev/hexa-lang/target/release/hexa" "$HOME/Dev/hexa-lang/target/debug/hexa"; do
+  [ -x "$p" ] && HEXA="$p" && break
+done
+[ -z "$HEXA" ] && { echo "hexa not found"; exit 1; }
+
+case "${1:-}" in
+  --native) exec "$HEXA" "$DIR/app/main_app.hexa" "${@:2}" ;;
+  --bare)   exec "$HEXA" "$DIR/app/main.hexa" "${@:2}" ;;
+  *)        exec "$HEXA" "$DIR/app/main_tabs.hexa" "$@" ;;
+esac
