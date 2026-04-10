@@ -1,7 +1,7 @@
 #!/bin/bash
-# VOID launcher
-# Usage: void          — TUI 탭 모드 (기본)
-#        void --native — macOS 네이티브 앱
+# VOID — AI-native terminal
+# Usage: void          — native macOS 앱 (기본)
+#        void --tui    — TUI 탭 모드 (iTerm 안)
 #        void --bare   — 단일 PTY (디버그용)
 SOURCE="$0"
 while [ -L "$SOURCE" ]; do
@@ -11,17 +11,15 @@ while [ -L "$SOURCE" ]; do
 done
 DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 
-# Resolve hexa binary (skip gate wrapper — VOID is a local terminal app)
 for p in "$HOME/Dev/hexa-lang/target/release/hexa" "$HOME/Dev/hexa-lang/target/debug/hexa"; do
   [ -x "$p" ] && HEXA="$p" && break
 done
 [ -z "$HEXA" ] && { echo "hexa not found"; exit 1; }
 
 trap '' INT
-printf '\033[32m⬡ VOID launching...\033[0m\n'
 
 case "${1:-}" in
-  --native) exec "$HEXA" "$DIR/app/main_app.hexa" "${@:2}" ;;
-  --bare)   exec "$HEXA" "$DIR/app/main.hexa" "${@:2}" ;;
-  *)        exec "$HEXA" "$DIR/app/main_tabs.hexa" "$@" ;;
+  --tui)  exec "$HEXA" "$DIR/app/main_tabs.hexa" "${@:2}" ;;
+  --bare) exec "$HEXA" "$DIR/app/main.hexa" "${@:2}" ;;
+  *)      exec "$HEXA" "$DIR/app/main_app.hexa" "$@" ;;
 esac

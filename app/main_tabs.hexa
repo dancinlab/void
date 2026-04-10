@@ -40,6 +40,7 @@ let size = term_size()
 let term_rows = size["rows"]
 let term_cols = size["cols"]
 
+
 let full = region_full(term_rows, term_cols)
 let rs = reserve_statusbar(full, 1)
 let main_region = rs["main"]
