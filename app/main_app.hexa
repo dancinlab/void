@@ -34,9 +34,10 @@ extern fn void_app_get_cols() -> int
 
 // ── Load bridge dylib ──
 
-let bridge = dlopen(cstring("lib/libvoid_bridge.dylib"), 1)
+// RTLD_LAZY=1 | RTLD_GLOBAL=8 = 9 — symbols must be global for hexa extern FFI
+let bridge = dlopen(cstring("lib/libvoid_bridge.dylib"), 9)
 if ptr_addr(bridge) == 0 {
-  let bridge2 = dlopen(cstring("/Users/ghost/Dev/void/lib/libvoid_bridge.dylib"), 1)
+  let bridge2 = dlopen(cstring("/Users/ghost/Dev/void/lib/libvoid_bridge.dylib"), 9)
   if ptr_addr(bridge2) == 0 {
     println("VOID: failed to load libvoid_bridge.dylib")
     exit(1)
