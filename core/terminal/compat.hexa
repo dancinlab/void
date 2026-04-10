@@ -1,0 +1,275 @@
+// compat.hexa — Terminal compatibility layer for Phase 4 completion
+// VOID Layer 3: Terminal Core — vim/htop/tmux interop
+//
+// Handles terminal queries that applications send to discover capabilities:
+//   CSI 6n        — DSR: Cursor Position Report  (→ CSI row;col R)
+//   CSI c / CSI 0c — DA1: Device Attributes       (→ CSI ?62;c)
+//   CSI > c       — DA2: Secondary DA             (→ CSI >0;0;0c)
+//   CSI Ps q      — DECSCUSR: Set cursor style
+//
+// Manages terminal modes beyond basic VT100:
+//   ?2004h/l  — Bracketed paste mode
+//   ?1004h/l  — Focus event reporting
+//   ?7h/l     — Auto-wrap mode (DECAWM)
+//   ?6h/l     — Origin mode (DECOM)
+//   ?12h/l    — Cursor blink (att610)
+//   ?1h/l     — Application cursor keys (DECCKM)
+
+use terminal::grid
+
+extern fn write(fd: int, buf: *Byte, count: int) -> int
+
+// ── Terminal mode state ──
+
+pub fn new_term_modes() -> map {
+  return #{
+    "bracketed_paste": false,
+    "focus_events": false,
+    "auto_wrap": true,
+    "origin_mode": false,
+    "cursor_blink": true,
+    "app_cursor_keys": false,
+    "cursor_style": 0,
+    "term_id": "VT220"
+  }
+}
+
+// ── Device Status Report (DSR) ──
+// When an application sends CSI 6n, we must reply with cursor position.
+// Returns the response string to write back to the PTY master fd.
+
+pub fn dsr_cursor_position(grid: map) -> string {
+  // Response: ESC [ row ; col R   (1-based)
+  let row = grid["cursor_row"] + 1
+  let col = grid["cursor_col"] + 1
+  return "\x1b[" + str(row) + ";" + str(col) + "R"
+}
+
+// DSR operating status (CSI 5n) → reply CSI 0n (terminal OK)
+pub fn dsr_status_ok() -> string {
+  return "\x1b[0n"
+}
+
+// ── Device Attributes (DA1) ──
+// CSI c or CSI 0c → reply as VT220 with supported features
+// Features: 62=VT220, 1=132-col, 6=selective-erase, 22=color
+
+pub fn da1_response() -> string {
+  return "\x1b[?62;1;6;22c"
+}
+
+// ── Secondary Device Attributes (DA2) ──
+// CSI > c or CSI > 0c → reply with terminal type + version
+// Format: CSI > Pp ; Pv ; Pc c
+//   Pp=0 (VT100 family), Pv=version, Pc=0 (no ROM)
+// We identify as "VOID 1" → Pp=1, Pv=100, Pc=0
+
+pub fn da2_response() -> string {
+  return "\x1b[>1;100;0c"
+}
+
+// ── Tertiary Device Attributes (DA3) ──
+// CSI = c → reply with unit ID (DCS ! | <hex> ST)
+// VOID sends "564F4944" = "VOID" in hex
+
+pub fn da3_response() -> string {
+  return "\x1bP!|564F4944\x1b\\"
+}
+
+// ── Cursor Style (DECSCUSR) ──
+// CSI Ps SP q — Set cursor style
+//   0,1 = blinking block, 2 = steady block
+//   3 = blinking underline, 4 = steady underline
+//   5 = blinking bar, 6 = steady bar
+
+pub fn apply_cursor_style(modes: map, ps: int) -> map {
+  modes["cursor_style"] = ps
+  if ps == 0 || ps == 1 || ps == 3 || ps == 5 {
+    modes["cursor_blink"] = true
+  } else {
+    modes["cursor_blink"] = false
+  }
+  return modes
+}
+
+// ── Mode set/reset dispatcher ──
+// Handles DECSET (?...h) and DECRST (?...l) for modes not covered
+// by the L0 vt_parser. Returns updated modes + optional response.
+
+pub fn compat_set_mode(modes: map, grid: map, n: int, set: bool) -> map {
+  let response = ""
+
+  if n == 1 {
+    // DECCKM — Application cursor keys
+    modes["app_cursor_keys"] = set
+  } else if n == 6 {
+    // DECOM — Origin mode
+    modes["origin_mode"] = set
+    if set {
+      grid = grid_cursor_set(grid, grid["scroll_top"], 0)
+    } else {
+      grid = grid_cursor_set(grid, 0, 0)
+    }
+  } else if n == 7 {
+    // DECAWM — Auto-wrap
+    modes["auto_wrap"] = set
+  } else if n == 12 {
+    // att610 — Cursor blink
+    modes["cursor_blink"] = set
+  } else if n == 1004 {
+    // Focus event reporting
+    modes["focus_events"] = set
+  } else if n == 2004 {
+    // Bracketed paste mode
+    modes["bracketed_paste"] = set
+  }
+
+  return #{"modes": modes, "grid": grid, "response": response}
+}
+
+// ── CSI dispatch for compat sequences ──
+// Called from main loop when dispatch_csi does not handle a sequence.
+// Returns: #{"handled": bool, "response": string, "modes": modes, "grid": grid}
+//
+// Params:
+//   is_private: true if '?' prefix
+//   params: parsed param array
+//   final_ch: final dispatch character
+//   intermediate: any intermediate bytes (e.g., space for DECSCUSR)
+//   grid: terminal grid
+//   modes: terminal mode state
+//   master_fd: PTY master fd for sending responses
+
+pub fn dispatch_compat(is_private: bool, params: array, final_ch: string,
+                        intermediate: string, grid: map, modes: map,
+                        master_fd: int) -> map {
+  let handled = false
+  let response = ""
+
+  if final_ch == "n" && is_private == false {
+    // DSR — Device Status Report
+    let ps = params[0]
+    if ps == 6 {
+      // CPR — Cursor Position Report
+      response = dsr_cursor_position(grid)
+      handled = true
+    } else if ps == 5 {
+      // Operating status
+      response = dsr_status_ok()
+      handled = true
+    }
+  } else if final_ch == "c" {
+    if is_private == false {
+      // DA1 — Primary Device Attributes
+      let ps = params[0]
+      if ps == 0 {
+        response = da1_response()
+        handled = true
+      }
+    }
+  } else if final_ch == "q" && intermediate == " " {
+    // DECSCUSR — Set Cursor Style (CSI Ps SP q)
+    let ps = params[0]
+    modes = apply_cursor_style(modes, ps)
+    handled = true
+  } else if final_ch == "h" && is_private {
+    // DECSET for extended modes
+    let ps = params[0]
+    if ps == 1 || ps == 6 || ps == 7 || ps == 12 || ps == 1004 || ps == 2004 {
+      let result = compat_set_mode(modes, grid, ps, true)
+      modes = result["modes"]
+      grid = result["grid"]
+      handled = true
+    }
+  } else if final_ch == "l" && is_private {
+    // DECRST for extended modes
+    let ps = params[0]
+    if ps == 1 || ps == 6 || ps == 7 || ps == 12 || ps == 1004 || ps == 2004 {
+      let result = compat_set_mode(modes, grid, ps, false)
+      modes = result["modes"]
+      grid = result["grid"]
+      handled = true
+    }
+  }
+
+  // Send response back through PTY if one was generated
+  if len(response) > 0 {
+    let buf = cstring(response)
+    write(master_fd, buf, len(response))
+  }
+
+  return #{"handled": handled, "response": response, "modes": modes, "grid": grid}
+}
+
+// ── Secondary DA dispatcher ──
+// Called when CSI > is detected (needs intermediate '>' tracking)
+
+pub fn dispatch_da2(params: array, master_fd: int) -> bool {
+  let ps = params[0]
+  if ps == 0 {
+    let resp = da2_response()
+    let buf = cstring(resp)
+    write(master_fd, buf, len(resp))
+    return true
+  }
+  return false
+}
+
+// ── Bracketed paste wrapper ──
+// Wraps pasted text with bracketed paste markers if mode is enabled.
+
+pub fn wrap_bracketed_paste(text: string, modes: map) -> string {
+  if modes["bracketed_paste"] {
+    return "\x1b[200~" + text + "\x1b[201~"
+  }
+  return text
+}
+
+// ── Focus event generator ──
+// Sends focus in/out events if mode is enabled.
+
+pub fn focus_in_event(modes: map) -> string {
+  if modes["focus_events"] {
+    return "\x1b[I"
+  }
+  return ""
+}
+
+pub fn focus_out_event(modes: map) -> string {
+  if modes["focus_events"] {
+    return "\x1b[O"
+  }
+  return ""
+}
+
+// ── Application cursor key translation ──
+// When DECCKM is set, cursor keys send SS3 (ESC O) instead of CSI (ESC [).
+// Normal:      ESC [ A/B/C/D
+// Application: ESC O A/B/C/D
+
+pub fn translate_cursor_key(input: string, modes: map) -> string {
+  if modes["app_cursor_keys"] == false {
+    return input
+  }
+  // Check for ESC [ A/B/C/D and translate to ESC O A/B/C/D
+  if len(input) == 3 {
+    if input[0] == "\x1b" && input[1] == "[" {
+      let ch = input[2]
+      if ch == "A" || ch == "B" || ch == "C" || ch == "D" {
+        return "\x1bO" + ch
+      }
+    }
+  }
+  return input
+}
+
+// ── Cursor style to ANSI escape ──
+// Returns the ANSI escape to set cursor style on the host terminal.
+
+pub fn cursor_style_escape(modes: map) -> string {
+  let style = modes["cursor_style"]
+  if style >= 0 && style <= 6 {
+    return "\x1b[" + str(style) + " q"
+  }
+  return ""
+}
