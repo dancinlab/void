@@ -12,6 +12,8 @@ use terminal::grid
 use terminal::vt_parser
 use terminal::mouse
 use render::ansi
+use sys::guardian
+use terminal::stream_intel
 
 // ── Additional extern declarations ──
 
@@ -51,6 +53,11 @@ let master_fd = pty_info["master"]
 let slave_fd = pty_info["slave"]
 let child_pid = pty_spawn_shell(master_fd, slave_fd)
 
+// ── Initialize guardian + stream intelligence ──
+
+guardian_watch(child_pid)
+let intel = new_stream_intel()
+
 // ── Setup terminal ──
 
 screen_alt_enter()
@@ -77,6 +84,7 @@ let resize_counter = 0
 let scroll_offset = 0
 let mouse_state = new_mouse_state()
 let mouse_info = ""
+let tick_counter = 0
 
 while running {
   // 1. Read stdin (keyboard input) → forward to PTY
@@ -148,10 +156,19 @@ while running {
   memset(read_buf, 0, 4096)
   let pty_n = read(master_fd, read_buf, 4095)
   if pty_n > 0 {
+    // Feed stream intelligence + guardian byte tracking
+    stream_feed(intel, read_buf, pty_n)
+    guardian_report_bytes(pty_n)
+
+    // Check if output is flooding — enter throttle mode
+    if stream_is_flooding(intel) {
+      if intel["throttle_active"] == false {
+        stream_enter_throttle(intel)
+      }
+    }
+
     let output = from_cstring(read_buf)
-    // Passthrough: send PTY output directly to host terminal
-    flush_to_stdout(output)
-    // Parse for internal state (title, void protocol)
+    // Parse for internal state (title, void protocol) — always parse
     let result = vt_process(parser, grid, output)
     parser = result["parser"]
     grid = result["grid"]
@@ -161,9 +178,48 @@ while running {
     if len(result["void_msg"]) > 0 {
       grid["void_last_msg"] = result["void_msg"]
     }
+
+    // Passthrough: send PTY output only if rendering is allowed
+    if stream_should_render(intel) {
+      flush_to_stdout(output)
+    }
   } else if pty_n == 0 {
     // EOF — shell exited
     running = false
+  }
+
+  // 3. Per-second tick — guardian + stream intelligence (every 100 frames at 100Hz)
+  tick_counter = tick_counter + 1
+  if tick_counter % 100 == 0 {
+    stream_tick(intel)
+    guardian_poll()
+
+    let action = guardian_check()
+    if action == 2 {
+      // Throttle (action 2) — SIGSTOP the child process
+      guardian_throttle(child_pid)
+    } else if action == 3 {
+      // Kill (action 3) — terminate runaway process
+      guardian_terminate(child_pid)
+      running = false
+    }
+
+    // Exit throttle if flood subsided
+    if intel["throttle_active"] == true {
+      if stream_is_flooding(intel) == false {
+        stream_exit_throttle(intel)
+        guardian_resume(child_pid)
+      }
+    }
+
+    // Update statusbar with stream intel status
+    let intel_status = stream_status(intel)
+    let tick_status = " VOID | " + str(grid_cols) + "x" + str(grid_rows) + " | PID:" + str(child_pid) + " | " + intel_status
+    if len(mouse_info) > 0 {
+      tick_status = tick_status + " | " + mouse_info
+    }
+    let tick_statusbar = ansi_move(term_rows, 1) + render_statusbar(tick_status, grid_cols)
+    flush_to_stdout(tick_statusbar)
   }
 
   // 5. Check for resize every 50 frames (~500ms)
@@ -188,6 +244,7 @@ while running {
 
 free(read_buf)
 free(stdin_buf)
+guardian_unwatch(child_pid)
 pty_close(master_fd, child_pid)
 mouse_disable()
 cursor_show()

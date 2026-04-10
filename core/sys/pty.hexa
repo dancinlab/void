@@ -106,18 +106,25 @@ pub fn pty_write(master_fd: int, data: string) -> int {
 
 // ── Resize (TIOCSWINSZ) ──
 // struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; } = 8 bytes
-// HEXA lacks poke_u16, so we byte-poke via memset(ptr+offset, byte, 1).
+// HEXA lacks poke_u16/ptr_offset, so we cannot pack the struct in pure hexa.
+// Workaround: system() inherits our open fds, so we call python3 to do the
+// ioctl on master_fd with a properly packed winsize struct.
 extern fn memset(s: *Void, c: int, n: int) -> *Void
+extern fn system(cmd: *Byte) -> int
 
-// pty_resize — PARTIAL: hexa-lang currently lacks byte-level pointer writes
-// (no chr/ptr_offset/poke), so we cannot construct an 8-byte winsize struct
-// in pure HEXA. Fallback: stty via exec targeting the shell's pid — works
-// because stty writes winsize to the controlling tty of the given process.
+// pty_resize — resize PTY via python3 fcntl.ioctl workaround.
+// system() fork+exec inherits file descriptors, so the python subprocess
+// can access master_fd directly. TIOCSWINSZ = 0x80087467 on macOS.
 // Returns 0 on success, nonzero on failure.
 pub fn pty_resize(master_fd: int, rows: int, cols: int) -> int {
-  // No-op stub until hexa exposes byte pokes; TIOCSWINSZ via ioctl deferred.
-  // See docs/design/hexa-blockers.md#pty_resize
-  return 0
+  // Guard: skip invalid dimensions
+  if rows <= 0 { return -1 }
+  if cols <= 0 { return -1 }
+
+  // Build python3 one-liner: fcntl.ioctl(fd, TIOCSWINSZ, pack(rows, cols, 0, 0))
+  let cmd = "python3 -c \"import fcntl,struct;fcntl.ioctl(" + str(master_fd) + ",0x80087467,struct.pack('HHHH'," + str(rows) + "," + str(cols) + ",0,0))\" 2>/dev/null"
+  let ret = system(cstring(cmd))
+  return ret
 }
 
 // ── Cleanup ──

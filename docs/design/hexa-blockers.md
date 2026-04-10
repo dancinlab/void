@@ -44,10 +44,10 @@ TIOCSWINSZ ioctl은 8바이트 `struct winsize`를 요구. hexa에는:
 - `chr(int) -> string` — 정수를 1바이트 문자열로
 
 결과: 런타임 가변 값으로 임의 바이트 시퀀스를 구성할 수단이 없음.
-**현 상태**: `pty_resize`는 `return 0` 스텁. 탭 스폰 시 PTY winsize 미설정 →
-쉘이 초기 0x0 또는 openpty 기본값으로 실행됨. `main_tabs.hexa` 첫 실행 시
-긴 줄 래핑이 잘못될 수 있음.
-**영구 해결**: hexa-lang에 다음 중 하나 추가 필요
+**현 상태**: `pty_resize` 구현 완료 (2026-04-11). `system()` + python3
+`fcntl.ioctl` 원라이너로 TIOCSWINSZ 호출. `system()` fork 시 fd 상속을
+이용해 master_fd에 직접 ioctl 수행. 순수 hexa 구조체 패킹은 여전히 불가.
+**영구 해결** (성능 개선 시): hexa-lang에 다음 중 하나 추가
 - (최소) `chr(int) -> string` + `cstring(s)`의 embedded NUL 지원
 - (권장) `poke_u8(ptr, off, byte)`, `poke_u16_le(ptr, off, val)`
 - (이상적) packed struct 리터럴

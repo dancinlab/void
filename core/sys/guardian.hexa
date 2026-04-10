@@ -1,0 +1,349 @@
+// ⛔ CORE — L0 불변식 (프로세스 가디언. 수정 전 유저 승인 필수)
+// guardian.hexa — Child process guardian / resource supervisor
+// VOID Layer 1: System
+//
+// Prevents runaway child processes from overwhelming the system.
+// Tracks CPU, RSS, and output byte rate for watched PIDs.
+
+// ── libc extern declarations ──
+
+extern fn popen(cmd: *Byte, mode: *Byte) -> *Void
+extern fn fgets(buf: *Byte, size: int, stream: *Void) -> *Byte
+extern fn pclose(stream: *Void) -> int
+extern fn kill(pid: int, sig: int) -> int
+extern fn usleep(usec: int) -> int
+extern fn malloc(size: int) -> *Void
+extern fn free(ptr: *Void)
+extern fn time(t: *Void) -> int
+
+// ── Signal constants (macOS) ──
+
+pub let sigstop = 17
+pub let sigcont = 19
+pub let sigterm = 15
+pub let sigkill = 9
+
+// ── Action codes ──
+
+pub let guardian_ok = 0
+pub let guardian_warn = 1
+pub let guardian_throttle = 2
+pub let guardian_kill = 3
+
+// ── Limits (defaults) ──
+
+pub let guardian_max_pids = 64
+pub let default_cpu_limit = 150    // percent total across all watched
+pub let default_rss_limit = 4194304  // 4 GB in KB
+
+// ── Flood detection ──
+
+pub let flood_bytes_per_sec = 1048576  // 1 MB/sec
+pub let flood_sustain_secs = 3
+
+// ── State ──
+// Single global guardian state. No heap allocation for the core arrays.
+
+let g_pids = [0; 64]
+let g_cpu = [0; 64]         // cpu percent * 10 (fixed point, one decimal)
+let g_rss = [0; 64]         // rss in KB
+let g_alive = [0; 64]       // 1 = alive, 0 = dead/empty
+let g_count = 0
+
+let g_total_cpu = 0          // sum of cpu percent * 10
+let g_total_rss = 0          // sum of rss in KB
+let g_cpu_limit = default_cpu_limit
+let g_rss_limit = default_rss_limit
+let g_over_limit = 0         // 1 if any limit exceeded
+
+// Flood tracking
+let g_bytes_this_sec = 0
+let g_bytes_prev = [0; 3]    // last 3 seconds of byte counts
+let g_flood_count = 0        // consecutive seconds over flood threshold
+let g_last_poll_time = 0
+
+// ── Watch list management ──
+
+pub fn guardian_watch(pid: int) -> int {
+  if g_count >= guardian_max_pids { return -1 }
+  // Check if already watched
+  let i = 0
+  while i < guardian_max_pids {
+    if g_alive[i] == 1 {
+      if g_pids[i] == pid { return 0 }
+    }
+    i = i + 1
+  }
+  // Find empty slot
+  i = 0
+  while i < guardian_max_pids {
+    if g_alive[i] == 0 {
+      g_pids[i] = pid
+      g_cpu[i] = 0
+      g_rss[i] = 0
+      g_alive[i] = 1
+      g_count = g_count + 1
+      return 0
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+pub fn guardian_unwatch(pid: int) -> int {
+  let i = 0
+  while i < guardian_max_pids {
+    if g_alive[i] == 1 {
+      if g_pids[i] == pid {
+        g_alive[i] = 0
+        g_pids[i] = 0
+        g_cpu[i] = 0
+        g_rss[i] = 0
+        g_count = g_count - 1
+        return 0
+      }
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+// ── Polling ──
+// Uses popen("ps ...") to read CPU% and RSS for each watched PID.
+// We batch all PIDs into one ps call for efficiency.
+
+pub fn guardian_poll() -> map {
+  let now = time(ptr_null())
+
+  // Rotate flood byte counters on second boundary
+  if now != g_last_poll_time {
+    if g_last_poll_time != 0 {
+      g_bytes_prev[2] = g_bytes_prev[1]
+      g_bytes_prev[1] = g_bytes_prev[0]
+      g_bytes_prev[0] = g_bytes_this_sec
+    }
+    g_bytes_this_sec = 0
+    g_last_poll_time = now
+  }
+
+  // Build PID list string for ps command
+  let pid_list = ""
+  let first = 1
+  let i = 0
+  while i < guardian_max_pids {
+    if g_alive[i] == 1 {
+      if first == 1 {
+        pid_list = str(g_pids[i])
+        first = 0
+      } else {
+        pid_list = pid_list + "," + str(g_pids[i])
+      }
+    }
+    i = i + 1
+  }
+
+  if g_count == 0 {
+    g_total_cpu = 0
+    g_total_rss = 0
+    g_over_limit = 0
+    return #{"total_cpu": 0, "total_rss": 0, "count": 0, "over_limit": 0}
+  }
+
+  // ps -o pid=,pcpu=,rss= -p pid1,pid2,...
+  let cmd = "ps -o pid=,pcpu=,rss= -p " + pid_list + " 2>/dev/null"
+  let fp = popen(cstring(cmd), cstring("r"))
+  if ptr_addr(fp) == 0 {
+    return #{"total_cpu": g_total_cpu, "total_rss": g_total_rss, "count": g_count, "over_limit": g_over_limit}
+  }
+
+  // Reset totals before accumulation
+  g_total_cpu = 0
+  g_total_rss = 0
+
+  // Mark all as possibly dead; ps output will confirm alive ones
+  let seen = [0; 64]
+
+  let buf = malloc(256)
+  while ptr_addr(fgets(buf, 256, fp)) != 0 {
+    let line = trim(from_cstring(buf))
+    if len(line) > 0 {
+      let parts = split(line, " ")
+      // Filter empty parts from multi-space splitting
+      let tokens = filter_empty(parts)
+      if len(tokens) >= 3 {
+        let pid = to_int(tokens[0])
+        // cpu is float like "12.3" — parse as int * 10 for fixed point
+        let cpu_f = to_float(tokens[1])
+        let cpu_10 = to_int(tokens[1])  // integer part
+        let rss = to_int(tokens[2])
+
+        // Find this PID in our table and update
+        let j = 0
+        while j < guardian_max_pids {
+          if g_alive[j] == 1 {
+            if g_pids[j] == pid {
+              g_cpu[j] = cpu_10
+              g_rss[j] = rss
+              seen[j] = 1
+              g_total_cpu = g_total_cpu + cpu_10
+              g_total_rss = g_total_rss + rss
+            }
+          }
+          j = j + 1
+        }
+      }
+    }
+  }
+  free(buf)
+  pclose(fp)
+
+  // Mark unseen PIDs as dead
+  i = 0
+  while i < guardian_max_pids {
+    if g_alive[i] == 1 {
+      if seen[i] == 0 {
+        g_alive[i] = 0
+        g_pids[i] = 0
+        g_cpu[i] = 0
+        g_rss[i] = 0
+        g_count = g_count - 1
+      }
+    }
+    i = i + 1
+  }
+
+  // Check limits
+  g_over_limit = 0
+  if g_total_cpu > g_cpu_limit { g_over_limit = 1 }
+  if g_total_rss > g_rss_limit { g_over_limit = 1 }
+
+  return #{"total_cpu": g_total_cpu, "total_rss": g_total_rss, "count": g_count, "over_limit": g_over_limit}
+}
+
+// ── Filter empty strings from split result ──
+
+fn filter_empty(parts: list) -> list {
+  let result = []
+  let i = 0
+  while i < len(parts) {
+    if len(parts[i]) > 0 {
+      result = result + [parts[i]]
+    }
+    i = i + 1
+  }
+  return result
+}
+
+// ── Check: returns action recommendation ──
+
+pub fn guardian_check() -> int {
+  if g_over_limit == 0 { return guardian_ok }
+
+  // Warn zone: CPU > limit or RSS > limit
+  let cpu_ratio = 0
+  if g_cpu_limit > 0 {
+    cpu_ratio = (g_total_cpu * 100) / g_cpu_limit
+  }
+  let rss_ratio = 0
+  if g_rss_limit > 0 {
+    rss_ratio = (g_total_rss * 100) / g_rss_limit
+  }
+
+  // Pick the higher ratio
+  let ratio = cpu_ratio
+  if rss_ratio > ratio { ratio = rss_ratio }
+
+  // 100-149%: warn, 150-199%: throttle, 200%+: kill
+  if ratio >= 200 { return guardian_kill }
+  if ratio >= 150 { return guardian_throttle }
+  return guardian_warn
+}
+
+// ── Enforcement actions ──
+
+pub fn guardian_throttle(pid: int) -> int {
+  return kill(pid, sigstop)
+}
+
+pub fn guardian_resume(pid: int) -> int {
+  return kill(pid, sigcont)
+}
+
+pub fn guardian_terminate(pid: int) -> int {
+  // SIGTERM first, give 2 seconds, then SIGKILL
+  let ret = kill(pid, sigterm)
+  if ret != 0 { return ret }
+  usleep(2000000)  // 2 seconds
+  kill(pid, sigkill)
+  return 0
+}
+
+// Terminate all watched PIDs (emergency kill)
+pub fn guardian_terminate_all() -> int {
+  let killed = 0
+  let i = 0
+  while i < guardian_max_pids {
+    if g_alive[i] == 1 {
+      kill(g_pids[i], sigterm)
+      killed = killed + 1
+    }
+    i = i + 1
+  }
+  if killed > 0 {
+    usleep(2000000)  // 2 seconds grace
+    i = 0
+    while i < guardian_max_pids {
+      if g_alive[i] == 1 {
+        kill(g_pids[i], sigkill)
+        g_alive[i] = 0
+        g_pids[i] = 0
+        g_count = g_count - 1
+      }
+      i = i + 1
+    }
+  }
+  return killed
+}
+
+// ── Output flood detection ──
+
+pub fn guardian_report_bytes(n: int) {
+  g_bytes_this_sec = g_bytes_this_sec + n
+}
+
+pub fn guardian_is_flooding() -> int {
+  // Check if current + prev 3 seconds all exceed flood threshold
+  let over = 0
+  if g_bytes_this_sec > flood_bytes_per_sec { over = over + 1 }
+  if g_bytes_prev[0] > flood_bytes_per_sec { over = over + 1 }
+  if g_bytes_prev[1] > flood_bytes_per_sec { over = over + 1 }
+  if g_bytes_prev[2] > flood_bytes_per_sec { over = over + 1 }
+
+  // Need sustained flooding for flood_sustain_secs (3) consecutive seconds
+  if over >= flood_sustain_secs { return 1 }
+  return 0
+}
+
+// ── Configuration ──
+
+pub fn guardian_set_cpu_limit(limit: int) {
+  g_cpu_limit = limit
+}
+
+pub fn guardian_set_rss_limit(limit_kb: int) {
+  g_rss_limit = limit_kb
+}
+
+// ── Query state ──
+
+pub fn guardian_count() -> int {
+  return g_count
+}
+
+pub fn guardian_total_cpu() -> int {
+  return g_total_cpu
+}
+
+pub fn guardian_total_rss() -> int {
+  return g_total_rss
+}

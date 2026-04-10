@@ -1,0 +1,524 @@
+// stream_intel.hexa — PTY stream intelligence (pattern detection, flood control)
+// VOID Layer 3: Terminal Core
+
+// Thresholds
+pub let flood_threshold = 512000    // 500KB/sec average triggers flood
+pub let throttle_render_interval = 10  // allow 1 render per N calls when throttled
+pub let ring_buf_max = 4096
+
+// ── Error pattern table ──
+
+let error_patterns = [
+  "error:", "Error:", "ERROR",
+  "panic:", "PANIC",
+  "fatal:", "FATAL",
+  "segfault", "Segmentation fault",
+  "killed", "OOM", "Cannot allocate"
+]
+
+// ── Constructor ──
+
+pub fn new_stream_intel() -> map {
+  return #{
+    // Rolling buffer of recent output for pattern matching
+    "ring_buf": "",
+    "ring_max": ring_buf_max,
+
+    // Rate tracking
+    "bytes_this_sec": 0,
+    "bytes_history": [0, 0, 0, 0, 0],
+    "history_idx": 0,
+
+    // Pattern detection results
+    "error_detected": false,
+    "error_line": "",
+    "flood_detected": false,
+    "flood_bytes_per_sec": 0,
+
+    // Throttle state
+    "throttle_active": false,
+    "throttle_counter": 0,
+    "lines_skipped": 0,
+
+    // AI context extraction
+    "last_cwd": "",
+    "last_command": "",
+    "exit_code": 0,
+
+    // Summary mode
+    "summary_mode": false,
+    "summary_lines": [],
+    "summary_max": 20
+  }
+}
+
+// ── String helpers (no stdlib) ──
+
+// Check if haystack contains needle starting at position pos
+fn str_match_at(haystack: string, pos: int, needle: string) -> bool {
+  if pos + len(needle) > len(haystack) {
+    return false
+  }
+  let i = 0
+  while i < len(needle) {
+    if haystack[pos + i] != needle[i] {
+      return false
+    }
+    i = i + 1
+  }
+  return true
+}
+
+// Check if haystack contains needle anywhere
+fn str_contains(haystack: string, needle: string) -> bool {
+  if len(needle) == 0 {
+    return true
+  }
+  if len(haystack) < len(needle) {
+    return false
+  }
+  let i = 0
+  let limit = len(haystack) - len(needle) + 1
+  while i < limit {
+    if str_match_at(haystack, i, needle) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+// Find first occurrence of needle in haystack, return index or -1
+fn str_find(haystack: string, needle: string) -> int {
+  if len(needle) == 0 {
+    return 0
+  }
+  if len(haystack) < len(needle) {
+    return -1
+  }
+  let i = 0
+  let limit = len(haystack) - len(needle) + 1
+  while i < limit {
+    if str_match_at(haystack, i, needle) {
+      return i
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+// Extract substring from start to end (exclusive)
+fn str_slice(s: string, start: int, end: int) -> string {
+  let result = ""
+  let i = start
+  if i < 0 { i = 0 }
+  if end > len(s) { end = len(s) }
+  while i < end {
+    result = result + s[i]
+    i = i + 1
+  }
+  return result
+}
+
+// Extract the line containing position pos
+fn extract_line_at(s: string, pos: int) -> string {
+  // Walk backward to find line start
+  let start = pos
+  while start > 0 && s[start - 1] != "\n" {
+    start = start - 1
+  }
+  // Walk forward to find line end
+  let end = pos
+  while end < len(s) && s[end] != "\n" {
+    end = end + 1
+  }
+  return str_slice(s, start, end)
+}
+
+// Truncate string to max length, append "..." if truncated
+fn str_truncate(s: string, max: int) -> string {
+  if len(s) <= max {
+    return s
+  }
+  return str_slice(s, 0, max - 3) + "..."
+}
+
+// Convert integer to string (positive integers, for status display)
+fn int_to_str(n: int) -> string {
+  if n == 0 {
+    return "0"
+  }
+  let result = ""
+  let v = n
+  if v < 0 { v = 0 - v }
+  while v > 0 {
+    let digit = v - (v / 10) * 10
+    if digit == 0 { result = "0" + result }
+    else if digit == 1 { result = "1" + result }
+    else if digit == 2 { result = "2" + result }
+    else if digit == 3 { result = "3" + result }
+    else if digit == 4 { result = "4" + result }
+    else if digit == 5 { result = "5" + result }
+    else if digit == 6 { result = "6" + result }
+    else if digit == 7 { result = "7" + result }
+    else if digit == 8 { result = "8" + result }
+    else if digit == 9 { result = "9" + result }
+    v = v / 10
+  }
+  return result
+}
+
+// Format bytes/sec as human readable (e.g. "2.3MB/s", "450KB/s")
+fn format_rate(bytes_per_sec: int) -> string {
+  if bytes_per_sec >= 1048576 {
+    // MB/s — integer part and one decimal
+    let mb_whole = bytes_per_sec / 1048576
+    let mb_frac = ((bytes_per_sec - mb_whole * 1048576) * 10) / 1048576
+    return int_to_str(mb_whole) + "." + int_to_str(mb_frac) + "MB/s"
+  }
+  if bytes_per_sec >= 1024 {
+    let kb_whole = bytes_per_sec / 1024
+    let kb_frac = ((bytes_per_sec - kb_whole * 1024) * 10) / 1024
+    return int_to_str(kb_whole) + "." + int_to_str(kb_frac) + "KB/s"
+  }
+  return int_to_str(bytes_per_sec) + "B/s"
+}
+
+// Format line count (e.g. "1.2K")
+fn format_lines(n: int) -> string {
+  if n >= 1000 {
+    let k_whole = n / 1000
+    let k_frac = ((n - k_whole * 1000) * 10) / 1000
+    return int_to_str(k_whole) + "." + int_to_str(k_frac) + "K"
+  }
+  return int_to_str(n)
+}
+
+// ── Feed incoming PTY data ──
+
+pub fn stream_feed(intel: map, data: string, data_len: int) -> map {
+  // Append to ring buffer
+  intel["ring_buf"] = intel["ring_buf"] + str_slice(data, 0, data_len)
+
+  // Trim front if over ring_max
+  if len(intel["ring_buf"]) > intel["ring_max"] {
+    let excess = len(intel["ring_buf"]) - intel["ring_max"]
+    intel["ring_buf"] = str_slice(intel["ring_buf"], excess, len(intel["ring_buf"]))
+  }
+
+  // Update byte counter for rate tracking
+  intel["bytes_this_sec"] = intel["bytes_this_sec"] + data_len
+
+  // Summary mode: only keep key lines
+  if intel["summary_mode"] {
+    intel = stream_feed_summary(intel, data, data_len)
+    return intel
+  }
+
+  // Scan for error patterns
+  intel = stream_check_errors(intel)
+
+  return intel
+}
+
+// ── Error pattern detection ──
+
+pub fn stream_check_errors(intel: map) -> map {
+  let buf = intel["ring_buf"]
+  let i = 0
+  while i < len(error_patterns) {
+    let pattern = error_patterns[i]
+    let pos = str_find(buf, pattern)
+    if pos >= 0 {
+      intel["error_detected"] = true
+      intel["error_line"] = str_truncate(extract_line_at(buf, pos), 200)
+      return intel
+    }
+    i = i + 1
+  }
+  // No error pattern found in current buffer
+  intel["error_detected"] = false
+  return intel
+}
+
+// ── Flood detection ──
+
+pub fn stream_tick(intel: map) -> map {
+  // Rotate current byte count into history
+  let idx = intel["history_idx"]
+  intel["bytes_history"][idx] = intel["bytes_this_sec"]
+  intel["bytes_this_sec"] = 0
+  intel["history_idx"] = idx + 1
+  if intel["history_idx"] >= 5 {
+    intel["history_idx"] = 0
+  }
+
+  // Average of last 3 seconds
+  let total = 0
+  let count = 0
+  let h = 0
+  while h < 5 && count < 3 {
+    // Walk backward from most recent
+    let check_idx = idx - count
+    if check_idx < 0 {
+      check_idx = check_idx + 5
+    }
+    total = total + intel["bytes_history"][check_idx]
+    count = count + 1
+    h = h + 1
+  }
+  let avg = total / 3
+
+  intel["flood_bytes_per_sec"] = avg
+  if avg > flood_threshold {
+    intel["flood_detected"] = true
+  } else {
+    intel["flood_detected"] = false
+    // Auto-exit throttle when flood subsides
+    if intel["throttle_active"] {
+      intel = stream_exit_throttle(intel)
+    }
+  }
+
+  return intel
+}
+
+pub fn stream_is_flooding(intel: map) -> bool {
+  return intel["flood_detected"]
+}
+
+// ── Throttle mode ──
+
+pub fn stream_enter_throttle(intel: map) -> map {
+  intel["throttle_active"] = true
+  intel["throttle_counter"] = 0
+  intel["lines_skipped"] = 0
+  return intel
+}
+
+pub fn stream_exit_throttle(intel: map) -> map {
+  intel["throttle_active"] = false
+  intel["throttle_counter"] = 0
+  return intel
+}
+
+pub fn stream_should_render(intel: map) -> bool {
+  if intel["throttle_active"] == false {
+    return true
+  }
+  intel["throttle_counter"] = intel["throttle_counter"] + 1
+  if intel["throttle_counter"] >= throttle_render_interval {
+    intel["throttle_counter"] = 0
+    return true
+  }
+  intel["lines_skipped"] = intel["lines_skipped"] + 1
+  return false
+}
+
+// ── Summary mode ──
+
+pub fn stream_enter_summary(intel: map) -> map {
+  intel["summary_mode"] = true
+  intel["summary_lines"] = []
+  return intel
+}
+
+pub fn stream_exit_summary(intel: map) -> map {
+  intel["summary_mode"] = false
+  return intel
+}
+
+fn stream_feed_summary(intel: map, data: string, data_len: int) -> map {
+  // In summary mode, only keep lines matching key patterns:
+  // error patterns, first line, last line, lines with "%" (progress)
+  let line = ""
+  let is_first = len(intel["summary_lines"]) == 0
+  let i = 0
+  while i < data_len {
+    let ch = data[i]
+    if ch == "\n" {
+      if len(line) > 0 {
+        let keep = false
+
+        // Always keep first line
+        if is_first {
+          keep = true
+          is_first = false
+        }
+
+        // Keep lines with progress indicators
+        if str_contains(line, "%") {
+          keep = true
+        }
+
+        // Keep lines matching error patterns
+        let p = 0
+        while p < len(error_patterns) {
+          if str_contains(line, error_patterns[p]) {
+            keep = true
+          }
+          p = p + 1
+        }
+
+        if keep {
+          if len(intel["summary_lines"]) < intel["summary_max"] {
+            intel["summary_lines"] = intel["summary_lines"] + [line]
+          }
+        }
+      }
+      line = ""
+    } else {
+      line = line + ch
+    }
+    i = i + 1
+  }
+
+  // Always keep the last partial line (will be replaced on next feed)
+  if len(line) > 0 {
+    // Store as pending last line — overwrite previous last if summary not empty
+    intel["_pending_last"] = line
+  }
+
+  return intel
+}
+
+pub fn stream_get_summary(intel: map) -> string {
+  let result = ""
+  let i = 0
+  while i < len(intel["summary_lines"]) {
+    if i > 0 {
+      result = result + "\n"
+    }
+    result = result + intel["summary_lines"][i]
+    i = i + 1
+  }
+  return result
+}
+
+// ── AI context extraction ──
+
+pub fn stream_extract_context(intel: map) -> map {
+  let buf = intel["ring_buf"]
+
+  // Detect shell prompt: newline followed by "$ " — extract command after it
+  let i = len(buf) - 1
+  while i > 0 {
+    if buf[i] == "$" && i + 1 < len(buf) && buf[i + 1] == " " {
+      // Check that this is at line start or after newline
+      let at_line_start = false
+      if i == 0 {
+        at_line_start = true
+      } else if buf[i - 1] == "\n" {
+        at_line_start = true
+      }
+      if at_line_start {
+        // Extract command: everything after "$ " until newline
+        let cmd = ""
+        let j = i + 2
+        while j < len(buf) && buf[j] != "\n" {
+          cmd = cmd + buf[j]
+          j = j + 1
+        }
+        if len(cmd) > 0 {
+          intel["last_command"] = cmd
+        }
+      }
+    }
+    i = i - 1
+  }
+
+  // Detect OSC 7 (cwd reporting): ESC ] 7 ; file://host/path ST
+  let osc7_marker = "7;file://"
+  let osc7_pos = str_find(buf, osc7_marker)
+  if osc7_pos >= 0 {
+    // Skip "7;file://hostname" — find the path after next /
+    let path_start = osc7_pos + len(osc7_marker)
+    // Skip hostname (until next /)
+    while path_start < len(buf) && buf[path_start] != "/" {
+      path_start = path_start + 1
+    }
+    // Extract path until BEL or ESC
+    let path = ""
+    let k = path_start
+    while k < len(buf) && buf[k] != "\x07" && buf[k] != "\x1b" {
+      path = path + buf[k]
+      k = k + 1
+    }
+    if len(path) > 0 {
+      intel["last_cwd"] = path
+    }
+  }
+
+  // Detect OSC 777;cwd;path (VOID protocol cwd)
+  let void_cwd = "777;cwd;"
+  let void_cwd_pos = str_find(buf, void_cwd)
+  if void_cwd_pos >= 0 {
+    let path = ""
+    let k = void_cwd_pos + len(void_cwd)
+    while k < len(buf) && buf[k] != "\x07" && buf[k] != "\x1b" {
+      path = path + buf[k]
+      k = k + 1
+    }
+    if len(path) > 0 {
+      intel["last_cwd"] = path
+    }
+  }
+
+  return intel
+}
+
+pub fn stream_get_context(intel: map) -> map {
+  return #{
+    "cwd": intel["last_cwd"],
+    "command": intel["last_command"],
+    "error_line": intel["error_line"],
+    "flooding": intel["flood_detected"],
+    "bytes_per_sec": intel["flood_bytes_per_sec"]
+  }
+}
+
+// ── Status line helper ──
+
+pub fn stream_status(intel: map) -> string {
+  // Summary mode takes priority
+  if intel["summary_mode"] {
+    return "[SUMMARY] " + int_to_str(len(intel["summary_lines"])) + " key lines captured"
+  }
+
+  // Flooding status
+  if intel["flood_detected"] {
+    let rate = format_rate(intel["flood_bytes_per_sec"])
+    let skipped = format_lines(intel["lines_skipped"])
+    return "[FLOOD " + rate + "] " + skipped + " lines skipped"
+  }
+
+  // Error status
+  if intel["error_detected"] {
+    return "[ERR] " + str_truncate(intel["error_line"], 60)
+  }
+
+  // Normal — empty string
+  return ""
+}
+
+// ── Reset ──
+
+pub fn stream_reset(intel: map) -> map {
+  intel["ring_buf"] = ""
+  intel["bytes_this_sec"] = 0
+  intel["bytes_history"] = [0, 0, 0, 0, 0]
+  intel["history_idx"] = 0
+  intel["error_detected"] = false
+  intel["error_line"] = ""
+  intel["flood_detected"] = false
+  intel["flood_bytes_per_sec"] = 0
+  intel["throttle_active"] = false
+  intel["throttle_counter"] = 0
+  intel["lines_skipped"] = 0
+  intel["last_cwd"] = ""
+  intel["last_command"] = ""
+  intel["exit_code"] = 0
+  intel["summary_mode"] = false
+  intel["summary_lines"] = []
+  return intel
+}

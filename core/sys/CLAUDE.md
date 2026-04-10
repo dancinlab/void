@@ -6,5 +6,5 @@ pty.hexa      openpty,fork,execvp,ioctl — PTY 생성/스폰/리사이즈
 term.hexa     raw mode,커서,색상,시그널 제어 (tcgetattr/tcsetattr)
 signal.hexa   SIGWINCH,SIGTERM 핸들러
 
-블로커: pty_resize stub (hexa에 chr(int) 필요)
+pty_resize: system()+python3 fcntl.ioctl 워크어라운드로 구현 완료
 의존: libc only. 최하위 레이어.
