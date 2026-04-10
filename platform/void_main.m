@@ -1094,16 +1094,18 @@ int main(int argc, char *argv[]) {
             setenv("TERM", "xterm-256color", 1);
             setenv("COLORTERM", "truecolor", 1);
             setenv("LANG", "en_US.UTF-8", 1);
-            // Ensure homebrew + standard paths are available (GUI apps don't inherit shell PATH)
-            setenv("PATH", "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/ghost/.hx/bin", 1);
 
             // Set window size
             struct winsize ws = { .ws_row = g_rows, .ws_col = g_cols };
             ioctl(STDIN_FILENO, TIOCSWINSZ, &ws);
 
-            const char *shell = getenv("SHELL");
-            if (!shell) shell = "/bin/zsh";
-            execl(shell, shell, "-l", NULL);
+            // Use login(1) for proper macOS environment setup (same as Terminal.app)
+            // This runs /etc/zprofile → path_helper → user .zprofile/.zshrc
+            // so homebrew PATH and all user config are picked up correctly
+            const char *user = getenv("USER");
+            if (!user) user = getenv("LOGNAME");
+            if (!user) user = "ghost";
+            execl("/usr/bin/login", "login", "-fp", user, NULL);
             _exit(1);
         }
 

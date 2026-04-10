@@ -82,6 +82,50 @@ static float backing_scale = 2.0; // Retina scale factor
 static CTFontRef mono_font = NULL;
 static int needs_upload = 1;
 
+// ── Mouse selection state ──
+static int sel_active = 0;       // selection in progress
+static int sel_start_row = 0, sel_start_col = 0;
+static int sel_end_row = 0, sel_end_col = 0;
+static int sel_valid = 0;        // selection exists (for rendering highlight)
+
+static void mouse_to_cell(NSView *view, NSEvent *event, int *row, int *col) {
+    NSPoint p = [view convertPoint:[event locationInWindow] fromView:nil];
+    *col = (int)(p.x / cell_width);
+    *row = (int)(([view frame].size.height - p.y) / cell_height);
+    if (*col < 0) *col = 0;
+    if (*col >= grid_cols) *col = grid_cols - 1;
+    if (*row < 0) *row = 0;
+    if (*row >= grid_rows) *row = grid_rows - 1;
+}
+
+static NSString *extract_selection_text(void) {
+    int r0 = sel_start_row, c0 = sel_start_col;
+    int r1 = sel_end_row, c1 = sel_end_col;
+    // Normalize: ensure start <= end
+    if (r0 > r1 || (r0 == r1 && c0 > c1)) {
+        int tr = r0, tc = c0; r0 = r1; c0 = c1; r1 = tr; c1 = tc;
+    }
+    NSMutableString *text = [NSMutableString string];
+    for (int r = r0; r <= r1; r++) {
+        int start_c = (r == r0) ? c0 : 0;
+        int end_c = (r == r1) ? c1 : grid_cols - 1;
+        NSMutableString *line = [NSMutableString string];
+        for (int c = start_c; c <= end_c; c++) {
+            int idx = r * grid_cols + c;
+            uint32_t ch_idx = cpuCells[idx].ch_index;
+            unichar uch = (ch_idx < 95) ? (unichar)(32 + ch_idx) : ' ';
+            [line appendFormat:@"%C", uch];
+        }
+        // Trim trailing spaces on each line
+        while ([line hasSuffix:@" "] && line.length > 0) {
+            [line deleteCharactersInRange:NSMakeRange(line.length - 1, 1)];
+        }
+        [text appendString:line];
+        if (r < r1) [text appendString:@"\n"];
+    }
+    return text;
+}
+
 // Glyph-to-atlas mapping: for a given unichar, what atlas index?
 // ASCII 32..126 → indices 0..94
 // Box drawing 0x2500..0x257F → indices 96..223
@@ -548,6 +592,41 @@ static VoidMetalRenderer *renderer = nil;
                 key_buf_push(seq, (int)strlen(seq));
                 return;
             }
+            // Cmd+C → copy visible grid to clipboard
+            if (ch == 'c') {
+                NSMutableString *text = [NSMutableString string];
+                for (int r = 0; r < grid_rows; r++) {
+                    NSMutableString *line = [NSMutableString string];
+                    for (int c = 0; c < grid_cols; c++) {
+                        int idx = r * grid_cols + c;
+                        uint32_t ch_idx = cpuCells[idx].ch_index;
+                        unichar uch = (ch_idx < 95) ? (unichar)(32 + ch_idx) : ' ';
+                        [line appendFormat:@"%C", uch];
+                    }
+                    // Trim trailing spaces
+                    NSString *trimmed = [line stringByTrimmingCharactersInSet:
+                        [NSCharacterSet characterSetWithCharactersInString:@" "]];
+                    // But preserve empty lines
+                    [text appendString:trimmed];
+                    if (r < grid_rows - 1) [text appendString:@"\n"];
+                }
+                // Remove trailing empty lines
+                while ([text hasSuffix:@"\n\n"]) {
+                    [text deleteCharactersInRange:NSMakeRange(text.length - 1, 1)];
+                }
+                [[NSPasteboard generalPasteboard] clearContents];
+                [[NSPasteboard generalPasteboard] setString:text forType:NSPasteboardTypeString];
+                return;
+            }
+            // Cmd+V → paste from clipboard to PTY
+            if (ch == 'v') {
+                NSString *text = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString];
+                if (text) {
+                    const char *utf8 = [text UTF8String];
+                    key_buf_push(utf8, (int)strlen(utf8));
+                }
+                return;
+            }
             // Cmd+Q handled by menu / NSApp terminate
             if (ch == 'q') {
                 [NSApp terminate:nil];
@@ -615,6 +694,47 @@ static VoidMetalRenderer *renderer = nil;
 
 - (void)flagsChanged:(NSEvent *)event {
     // Ignore modifier-only events
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    int r, c;
+    mouse_to_cell(self, event, &r, &c);
+    sel_start_row = r; sel_start_col = c;
+    sel_end_row = r; sel_end_col = c;
+    sel_active = 1;
+    sel_valid = 0;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+    if (!sel_active) return;
+    int r, c;
+    mouse_to_cell(self, event, &r, &c);
+    sel_end_row = r; sel_end_col = c;
+    sel_valid = 1;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    if (!sel_active) return;
+    sel_active = 0;
+    int r, c;
+    mouse_to_cell(self, event, &r, &c);
+    sel_end_row = r; sel_end_col = c;
+    // If dragged at least 1 cell, copy to clipboard
+    if (sel_start_row != sel_end_row || sel_start_col != sel_end_col) {
+        sel_valid = 1;
+        @autoreleasepool {
+            NSString *text = extract_selection_text();
+            if (text.length > 0) {
+                [[NSPasteboard generalPasteboard] clearContents];
+                [[NSPasteboard generalPasteboard] setString:text forType:NSPasteboardTypeString];
+            }
+        }
+    } else {
+        sel_valid = 0;
+    }
+    [self setNeedsDisplay:YES];
 }
 
 - (BOOL)performKeyEquivalent:(NSEvent *)event {
@@ -858,8 +978,24 @@ void void_app_set_cursor(int row, int col, int visible) {
 
 void void_app_flush(void) {
     @autoreleasepool {
+        // Apply selection highlight: invert fg/bg for selected cells
+        if (sel_valid) {
+            int r0 = sel_start_row, c0 = sel_start_col;
+            int r1 = sel_end_row, c1 = sel_end_col;
+            if (r0 > r1 || (r0 == r1 && c0 > c1)) {
+                int tr = r0, tc = c0; r0 = r1; c0 = c1; r1 = tr; c1 = tc;
+            }
+            for (int r = r0; r <= r1 && r < grid_rows; r++) {
+                int sc = (r == r0) ? c0 : 0;
+                int ec = (r == r1) ? c1 : grid_cols - 1;
+                for (int c = sc; c <= ec && c < grid_cols; c++) {
+                    int idx = r * grid_cols + c;
+                    cpuCells[idx].flags |= 8; // inverse flag
+                }
+            }
+            needs_upload = 1;
+        }
         [mtkView setNeedsDisplay:YES];
-        // Force immediate draw so we don't wait for next run loop iteration
         [mtkView display];
     }
 }
