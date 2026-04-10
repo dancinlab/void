@@ -76,8 +76,9 @@ static int grid_cols = 80;
 static int cursor_row = 0;
 static int cursor_col = 0;
 static int cursor_visible = 1;
-static float cell_width = 0;
-static float cell_height = 0;
+static float cell_width = 0;   // in points (1x)
+static float cell_height = 0;  // in points (1x)
+static float backing_scale = 2.0; // Retina scale factor
 static CTFontRef mono_font = NULL;
 static int needs_upload = 1;
 
@@ -301,6 +302,7 @@ fragment float4 fragment_main(\n\
 // ── Glyph atlas creation ──
 
 static void create_glyph_atlas(int cell_w, int cell_h) {
+    // cell_w/cell_h are in Retina pixels (e.g., 2x on Retina)
     int tex_w = ATLAS_COLS * cell_w;
     int tex_h = ATLAS_ROWS_TOTAL * cell_h;
 
@@ -318,9 +320,12 @@ static void create_glyph_atlas(int cell_w, int cell_h) {
         return;
     }
 
+    // Scale context for Retina — draw at 2x
+    CGContextScaleCTM(ctx, backing_scale, backing_scale);
+
     // White text on black background for alpha extraction
     CGContextSetGrayFillColor(ctx, 0.0, 1.0); // black bg
-    CGContextFillRect(ctx, CGRectMake(0, 0, tex_w, tex_h));
+    CGContextFillRect(ctx, CGRectMake(0, 0, tex_w / backing_scale, tex_h / backing_scale));
     CGContextSetGrayFillColor(ctx, 1.0, 1.0); // white text
 
     // Enable antialiasing
@@ -329,17 +334,21 @@ static void create_glyph_atlas(int cell_w, int cell_h) {
 
     CGFloat ascent = CTFontGetAscent(mono_font);
     CGFloat descent = CTFontGetDescent(mono_font);
+    // Use 1x point-based cell size for glyph positioning (context is scaled)
+    float pt_cell_w = cell_w / backing_scale;
+    float pt_cell_h = cell_h / backing_scale;
 
     // Rasterize ASCII printable: 32..126 (indices 0..94)
+    // Positions in points (context is scaled for Retina)
     for (int i = 0; i < 95; i++) {
         unichar ch = (unichar)(32 + i);
-        int ax = (i % ATLAS_COLS) * cell_w;
-        int ay = (i / ATLAS_COLS) * cell_h;
+        float ax = (i % ATLAS_COLS) * pt_cell_w;
+        float ay = (i / ATLAS_COLS) * pt_cell_h;
+        float tex_h_pt = tex_h / backing_scale;
 
         // CoreGraphics has origin at bottom-left; we need to flip
         CGFloat gx = (CGFloat)ax;
-        // Bitmap row 0 is top in our mental model, but CG row 0 is bottom
-        CGFloat gy = (CGFloat)(tex_h - ay - cell_h) + descent + 1;
+        CGFloat gy = (CGFloat)(tex_h_pt - ay - pt_cell_h) + descent + 1;
 
         CFStringRef str = CFStringCreateWithCharacters(NULL, &ch, 1);
         CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(
@@ -368,11 +377,12 @@ static void create_glyph_atlas(int cell_w, int cell_h) {
     for (int i = 0; i < BOX_DRAW_COUNT; i++) {
         unichar ch = (unichar)(BOX_DRAW_START + i);
         int slot = 96 + i;
-        int ax = (slot % ATLAS_COLS) * cell_w;
-        int ay = (slot / ATLAS_COLS) * cell_h;
+        float ax = (slot % ATLAS_COLS) * pt_cell_w;
+        float ay = (slot / ATLAS_COLS) * pt_cell_h;
+        float tex_h_pt = tex_h / backing_scale;
 
         CGFloat gx = (CGFloat)ax;
-        CGFloat gy = (CGFloat)(tex_h - ay - cell_h) + descent + 1;
+        CGFloat gy = (CGFloat)(tex_h_pt - ay - pt_cell_h) + descent + 1;
 
         CFStringRef str = CFStringCreateWithCharacters(NULL, &ch, 1);
         CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(
@@ -735,8 +745,12 @@ int void_app_init(int rows, int cols, int font_size) {
         }
         commandQueue = [device newCommandQueue];
 
-        // Create glyph atlas
-        create_glyph_atlas((int)cell_width, (int)cell_height);
+        // Detect Retina scale before creating atlas
+        backing_scale = [[NSScreen mainScreen] backingScaleFactor];
+        if (backing_scale < 1.0) backing_scale = 1.0;
+
+        // Create glyph atlas at Retina resolution (2x on Retina)
+        create_glyph_atlas((int)(cell_width * backing_scale), (int)(cell_height * backing_scale));
         if (!atlasTexture) {
             NSLog(@"VOID Metal: failed to create glyph atlas");
             return -1;
