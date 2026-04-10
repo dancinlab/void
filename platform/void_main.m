@@ -33,6 +33,7 @@ extern int  void_app_poll(void);
 extern int  void_app_read_keys(char *buf, int max_len);
 extern int  void_app_get_rows(void);
 extern int  void_app_get_cols(void);
+extern void void_app_set_grid_size(int rows, int cols);
 
 // ════════════════════════════════════════════════════════════════════
 // Constants
@@ -1046,6 +1047,9 @@ static void handle_resize(int new_rows, int new_cols, pid_t pid) {
     // Clamp cursor
     cursor_r = clamp(cursor_r, 0, g_rows - 1);
     cursor_c = clamp(cursor_c, 0, g_cols - 1);
+
+    // Update bridge grid dimensions
+    void_app_set_grid_size(g_rows, g_cols);
 
     // Tell the PTY
     struct winsize ws = { .ws_row = g_rows, .ws_col = g_cols };

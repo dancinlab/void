@@ -974,6 +974,21 @@ void void_app_set_cell(int row, int col, int ch, int fg, int bg, int flags) {
     needs_upload = 1;
 }
 
+// Update grid dimensions (called on resize)
+void void_app_set_grid_size(int rows, int cols) {
+    if (rows < 1 || cols < 1 || rows > MAX_ROWS || cols > MAX_COLS) return;
+    grid_rows = rows;
+    grid_cols = cols;
+    // Clear new cells
+    int total = rows * cols;
+    for (int i = 0; i < total; i++) {
+        if (cpuCells[i].ch_index == 0 && cpuCells[i].fg == 0 && cpuCells[i].bg == 0) {
+            cpuCells[i].fg = 7; // default fg
+        }
+    }
+    needs_upload = 1;
+}
+
 void void_app_set_cursor(int row, int col, int visible) {
     cursor_row = row;
     cursor_col = col;
