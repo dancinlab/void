@@ -61,8 +61,8 @@ println("LAYER 1 System: PASS (modules loaded)")
 passes = passes + 1
 
 // ── Layer 5: Plugin ────────────────────────────────────────
-// src/plugin/ is empty — report not implemented, don't count as fail.
-println("LAYER 5 Plugin: NYI (src/plugin/ empty)")
+// plugin/ is empty — report not implemented, don't count as fail.
+println("LAYER 5 Plugin: NYI (plugin/ empty)")
 
 // ── Layer 6: AI (dashboard) ────────────────────────────────
 let dash = new_dashboard()

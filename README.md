@@ -55,7 +55,7 @@ Layer 1 — System             PTY, window, events, signals (via extern FFI)
 # https://github.com/need-singularity/hexa-lang
 
 # Run VOID
-hexa src/main.hexa
+hexa app/main.hexa
 
 # Run tests
 hexa examples/test_pty.hexa
@@ -88,12 +88,9 @@ Tier 6: VOID     — AI assist, consciousness integration
 
 ```
 void/
-  src/
+  app/
     main.hexa              Entry point
-    platform/
-      macos.hexa           Cocoa + Metal + CoreText extern bindings
-      linux.hexa           X11 + Vulkan + FreeType extern bindings
-      common.hexa          Platform abstraction layer
+  core/
     sys/
       pty.hexa             PTY management (libc extern)
       signal.hexa          Signal handling
@@ -104,19 +101,23 @@ void/
     render/
       atlas.hexa           Glyph atlas manager
       pipeline.hexa        GPU render pipeline
-    ui/
-      layout.hexa          Hive/Cell/Tab layout
-      statusbar.hexa       Status bar
-      tabbar.hexa          Tab bar
-      palette.hexa         Command palette
-      theme.hexa           Theme engine
-    plugin/
-      loader.hexa          Plugin loader
-      api.hexa             Plugin API
-      hooks.hexa           Event hook system
-    ai/
-      suggest.hexa         AI command suggestion
-      complete.hexa        3-tier autocompletion
+  ui/
+    layout.hexa            Hive/Cell/Tab layout
+    statusbar.hexa         Status bar
+    tabbar.hexa            Tab bar
+    palette.hexa           Command palette
+    theme.hexa             Theme engine
+  plugin/
+    loader.hexa            Plugin loader
+    api.hexa               Plugin API
+    hooks.hexa             Event hook system
+  ai/
+    suggest.hexa           AI command suggestion
+    complete.hexa          3-tier autocompletion
+  platform/
+    macos.hexa             Cocoa + Metal + CoreText extern bindings
+    linux.hexa             X11 + Vulkan + FreeType extern bindings
+    common.hexa            Platform abstraction layer
   themes/
     void_dark.hexa
     void_light.hexa

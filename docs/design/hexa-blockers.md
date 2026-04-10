@@ -16,19 +16,19 @@
 ## 3. 최상위 `let` 상수가 `fn` 본문 스코프 밖
 
 `pub let foo = 42` 를 파일 상단에 선언해도 같은 파일의 `fn` 안에서 `foo` 참조 불가.
-**우회**: 값 인라인 또는 함수 매개변수로 주입. `src/ai/dashboard.hexa`에서 발견.
+**우회**: 값 인라인 또는 함수 매개변수로 주입. `ai/dashboard.hexa`에서 발견.
 
 ## 4. 없는 map 키 접근 = 런타임 에러
 
 `m["missing"]`이 0/nil 반환이 아니라 `map key 'missing' not found` 런타임 에러.
 `m["k"] != 0` 식의 존재 체크 불가.
-**우회**: `has_key(m, "k")` 선행 호출. `src/plugin/plugin.hexa` 에서 발견.
+**우회**: `has_key(m, "k")` 선행 호출. `plugin/plugin.hexa` 에서 발견.
 
 ## 5. `str_at` / `char_at` extern 실패 + string 메서드는 존재
 
 `extern fn str_at(s: string, idx: int) -> string` 선언은 파싱되지만 호출 시 dlsym 실패.
 대신 string 값에 메서드 `.contains(sub)`, `.starts_with(prefix)`, `.substring(start, end)` 동작.
-**우회**: extern 제거, 메서드 사용. `src/ui/tab_bar.hexa` / `tab_input.hexa` / `tab_session.hexa`
+**우회**: extern 제거, 메서드 사용. `ui/tab_bar.hexa` / `tab_input.hexa` / `tab_session.hexa`
 에서 발견, 커밋 `dcbfc54`로 치환 완료.
 
 ## 6. 포인터 바이트 조작 빈틈 — `pty_resize` 완성 막힘

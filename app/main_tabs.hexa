@@ -8,7 +8,7 @@
 // Alt+[ / Alt+] cycles.
 //
 // main.hexa is unchanged (L0-adjacent bootstrap). This file is the Phase 5
-// tab-enabled entry point. Build with: hexa src/main_tabs.hexa
+// tab-enabled entry point. Build with: hexa app/main_tabs.hexa
 
 use sys::term
 use sys::pty
