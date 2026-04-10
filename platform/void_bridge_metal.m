@@ -783,6 +783,7 @@ int void_app_init(int rows, int cols, int font_size) {
 
         // Create MTKView
         mtkView = [[VoidMTKView alloc] initWithFrame:frame device:device];
+        mtkView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         mtkView.colorPixelFormat = MTLPixelFormatBGRA8Unorm;
         mtkView.clearColor = MTLClearColorMake(0.07, 0.07, 0.10, 1.0);
         // We drive rendering manually from void_app_flush(), not a timer
