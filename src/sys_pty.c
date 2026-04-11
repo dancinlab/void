@@ -350,17 +350,18 @@ static int g_pty_read_len = 0;
 
 // TUI startup shim — hexa VT has no alternate screen buffer, so full-
 // screen TUIs (claude, vim, htop, …) paint on top of whatever the
-// previous shell drew. Detect the "bracketed paste enable" sequence
-// \x1b[?2004h (emitted by every modern TUI the moment it takes over
-// the terminal) and INJECT \x1b[2J\x1b[1H (clear + cursor home) just
-// before it, so hexa clears before the new TUI draws. Buffer grows
-// by 8 bytes per occurrence; returns the new length.
+// previous shell drew. We need a signal that distinguishes a TUI taking
+// over the terminal from a plain shell prompt redraw.
 //
-// Why ?2004h and not ?1049h (xterm alt-screen): empirically captured
-// claude's actual startup bytes and claude does NOT emit ?1049h at all.
-// The first TUI-ish escape it writes is ?2004h. vim/htop/nvim behave
-// the same way under modern terminfo. Targeting ?2004h covers them all
-// with one rule.
+// First attempt was \x1b[?2004h (bracketed paste enable), but zsh ALSO
+// emits that on every prompt — which caused the prompt + command output
+// to be wiped on every command execution ("bash> 안 뜨고 ls 순식간 사라짐").
+//
+// Reliable signal: \x1b[?1004h (focus event reporting). Full-screen TUIs
+// enable it so the app can know when the window gains/loses focus. Plain
+// interactive shells do not. Detecting ?1004h and injecting the clear
+// right before it gives us one clear per TUI entry and zero on shell
+// prompt redraws.
 #define TUI_CLEAR "\x1b[2J\x1b[1H"
 #define TUI_CLEAR_LEN 8
 
@@ -368,13 +369,13 @@ static int alt_screen_rewrite(char *buf, int *plen, int cap) {
     int len = *plen;
     int subs = 0;
     // Walk right-to-left so insertion doesn't invalidate later indices.
-    // At each ?2004h site, memmove the tail right by 8 and memcpy the
+    // At each ?1004h site, memmove the tail right by 8 and memcpy the
     // clear sequence into the vacated slot.
     for (int i = len - 8; i >= 0; i--) {
         if (buf[i]     == '\x1b' &&
             buf[i + 1] == '['    &&
             buf[i + 2] == '?'    &&
-            buf[i + 3] == '2'    &&
+            buf[i + 3] == '1'    &&
             buf[i + 4] == '0'    &&
             buf[i + 5] == '0'    &&
             buf[i + 6] == '4'    &&
