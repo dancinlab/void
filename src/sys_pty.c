@@ -348,15 +348,26 @@ long hexa_pty_spawn_login_shell(void) {
 static char g_pty_read_buf[PTY_READ_BUF_SIZE];
 static int g_pty_read_len = 0;
 
-// Historical TUI startup shim — watched for \x1b[?1004h (focus event
-// enable, emitted by every full-screen TUI) and injected \x1b[2J\x1b[1H
-// before it to fake "clear on entry". Worked for step 1 of alt-screen
-// but did nothing for step 2 (restore on exit), and corrupts TUIs that
-// emit ?1004h for focus events but don't want a clear.
+// TUI startup shim — watched for \x1b[?1004h (focus event reporting on,
+// emitted by every full-screen TUI the moment it takes over the
+// terminal) and injects \x1b[2J\x1b[1H (clear screen + home) right
+// before it so hexa clears any previous shell output before the TUI
+// draws its UI.
 //
-// Superseded by real alt-screen support in the hexa VT parser. Left
-// compiled-out under NO_REAL_ALT_SCREEN for reference/regression escape.
-#ifdef NO_REAL_ALT_SCREEN
+// Why this coexists with the real alt-screen buffer support:
+//   - vim, htop, less, nvim use \x1b[?1049h to enter the alt-screen.
+//     Real alt-screen code in void_main.hexa handles that — and does
+//     NOT need this shim.
+//   - claude (and many React/Ink-based TUIs) skip ?1049h entirely and
+//     only emit ?2004h (bracketed paste) + ?1004h (focus events) +
+//     ?25l (cursor hide). They assume the terminal is clear when they
+//     start drawing. Without this injection, claude's welcome overlaps
+//     the previous shell's output ("cl 선택 테이블 + Claude Code 겹침").
+//
+// Targeted on ?1004h (not ?2004h) because zsh emits ?2004h on every
+// prompt redraw (empirically 346 times in 2s of idle zsh vs 0 for
+// ?1004h). Clearing on every ?2004h wiped shell output on every
+// command. ?1004h is TUI-only and fires once per takeover.
 #define TUI_CLEAR "\x1b[2J\x1b[1H"
 #define TUI_CLEAR_LEN 8
 
@@ -382,7 +393,6 @@ static int alt_screen_rewrite(char *buf, int *plen, int cap) {
     *plen = len;
     return subs;
 }
-#endif
 
 long hexa_pty_poll_read(long fd, long timeout_ms) {
     struct pollfd pfd;
@@ -398,13 +408,9 @@ long hexa_pty_poll_read(long fd, long timeout_ms) {
     if (g_pty_read_len < 0) g_pty_read_len = 0;
     g_pty_read_buf[g_pty_read_len] = '\0';
 
-#ifdef NO_REAL_ALT_SCREEN
     int subs = alt_screen_rewrite(g_pty_read_buf, &g_pty_read_len,
                                   PTY_READ_BUF_SIZE - 1);
     g_pty_read_buf[g_pty_read_len] = '\0';
-#else
-    int subs = 0;
-#endif
 
     // Debug trace — when VOID_PTY_TRACE is set, append each read to a log.
     // Used to diagnose sequences reaching hexa that shouldn't be. Off
@@ -426,7 +432,6 @@ long hexa_pty_poll_read(long fd, long timeout_ms) {
     return (long)g_pty_read_len;
 }
 
-#ifdef NO_REAL_ALT_SCREEN
 // Test entry: apply alt_screen_rewrite to caller-supplied bytes. `plen`
 // is in/out (length may grow due to injection). Returns substitution count.
 long hexa_pty_alt_screen_rewrite_test(long ptr, long plen, long cap) {
@@ -434,7 +439,6 @@ long hexa_pty_alt_screen_rewrite_test(long ptr, long plen, long cap) {
     int subs = alt_screen_rewrite((char *)(uintptr_t)ptr, &len, (int)cap);
     return ((long)subs << 32) | (long)len;
 }
-#endif
 
 long hexa_pty_read_byte(long idx) {
     if (idx < 0 || idx >= g_pty_read_len) return -1;
