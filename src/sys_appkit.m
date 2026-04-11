@@ -218,6 +218,8 @@ static TermCell *sb_line_ptr(struct VoidTab_ *tab, int logical_line);
 static void clear_active_alarm(void);
 static void update_dock_badge(void);
 static void poll_background_tabs(void);
+// Forward decl for drag-reorder helper used in HexaTermView's mouseUp.
+static void tabs_move(int from, int to);
 
 // ── Tab state ──
 typedef struct VoidTab_ {
@@ -267,6 +269,15 @@ static int g_eff_tab_bar_w_cache = -1;
 static inline int effective_tab_bar_w(void) {
     return (g_num_tabs <= 1) ? 0 : TAB_BAR_W;
 }
+
+// Tab drag-and-drop reorder state. Set by mouseDown on the tab bar,
+// read by mouseDragged / mouseUp / drawRect, cleared after the drop.
+// g_drag_active turns on once the cursor has moved past a small threshold
+// so a plain click still switches tabs without any visual churn.
+static int g_drag_source = -1;
+static int g_drag_target = -1;
+static int g_drag_active = 0;
+static NSPoint g_drag_origin;
 
 // Active tab's rendering grid (synced from hexa)
 static TermCell g_term_grid[TERM_MAX_ROWS][TERM_MAX_COLS];
@@ -420,6 +431,17 @@ static NSColor *term_color(int idx) {
                         withAttributes:bellAttrs];
             }
         }
+
+        // Drag-reorder feedback: highlight the drop slot while the user
+        // is dragging so the impending new position is obvious.
+        if (g_drag_active && g_drag_target >= 0 && g_drag_target < g_num_tabs) {
+            float ty = 4 + g_drag_target * TAB_ROW_H;
+            [[NSColor colorWithRed:0.40 green:0.60 blue:1.00 alpha:0.22] setFill];
+            NSRectFill(NSMakeRect(0, ty, eff_tbw - 1, TAB_ROW_H));
+            // Thin top bar so the insertion line is clearly readable.
+            [[NSColor colorWithRed:0.40 green:0.60 blue:1.00 alpha:0.85] setFill];
+            NSRectFill(NSMakeRect(0, ty, eff_tbw - 1, 2));
+        }
     }
 
     // ── Terminal grid (right of tab bar, or full width when tab bar hidden) ──
@@ -510,25 +532,71 @@ static NSColor *term_color(int idx) {
     int eff_tbw = effective_tab_bar_w();
     if (eff_tbw > 0 && p.x < eff_tbw) {
         int idx = (int)((p.y - 4) / TAB_ROW_H);
-        if (idx >= 0 && idx < g_num_tabs && idx != g_active_tab) {
-            // Save current grid to old tab
-            if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
-                memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
-                g_tabs[g_active_tab].cur_row = g_term_cur_row;
-                g_tabs[g_active_tab].cur_col = g_term_cur_col;
+        if (idx >= 0 && idx < g_num_tabs) {
+            // Seed drag state — a plain click still switches tabs below,
+            // and mouseDragged will flip g_drag_active once the cursor
+            // has moved past a small threshold.
+            g_drag_source = idx;
+            g_drag_target = idx;
+            g_drag_active = 0;
+            g_drag_origin = p;
+
+            if (idx != g_active_tab) {
+                // Save current grid to old tab
+                if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
+                    memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+                    g_tabs[g_active_tab].cur_row = g_term_cur_row;
+                    g_tabs[g_active_tab].cur_col = g_term_cur_col;
+                }
+                g_active_tab = idx;
+                // Load new tab's grid
+                memcpy(g_term_grid, g_tabs[idx].grid, sizeof(g_term_grid));
+                g_term_cur_row = g_tabs[idx].cur_row;
+                g_term_cur_col = g_tabs[idx].cur_col;
+                // Signal hexa to reload screen from C
+                g_tab_cmd = 3; // 3 = switched (hexa reloads)
+                g_scroll_offset = 0;
+                clear_active_alarm();
+                [self setNeedsDisplay:YES];
             }
-            g_active_tab = idx;
-            // Load new tab's grid
-            memcpy(g_term_grid, g_tabs[idx].grid, sizeof(g_term_grid));
-            g_term_cur_row = g_tabs[idx].cur_row;
-            g_term_cur_col = g_tabs[idx].cur_col;
-            // Signal hexa to reload screen from C
-            g_tab_cmd = 3; // 3 = switched (hexa reloads)
-            g_scroll_offset = 0;
-            clear_active_alarm();
-            [self setNeedsDisplay:YES];
         }
     }
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+    if (g_drag_source < 0) return;
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (!g_drag_active) {
+        CGFloat dx = p.x - g_drag_origin.x;
+        CGFloat dy = p.y - g_drag_origin.y;
+        if ((dx * dx + dy * dy) < 16.0) return; // 4px threshold
+        g_drag_active = 1;
+    }
+
+    // Compute drop slot from the current y position. Clamp to the
+    // existing tab range so dragging past the end just pins to the
+    // last slot instead of creating a phantom target.
+    int target = (int)((p.y - 4) / TAB_ROW_H);
+    if (target < 0) target = 0;
+    if (target >= g_num_tabs) target = g_num_tabs - 1;
+    if (target != g_drag_target) {
+        g_drag_target = target;
+        int eff_tbw = effective_tab_bar_w();
+        if (eff_tbw > 0)
+            [self setNeedsDisplayInRect:NSMakeRect(0, 0, eff_tbw,
+                                                   [self bounds].size.height)];
+    }
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    if (g_drag_active && g_drag_source != g_drag_target &&
+        g_drag_source >= 0 && g_drag_target >= 0) {
+        tabs_move(g_drag_source, g_drag_target);
+        [self setNeedsDisplay:YES];
+    }
+    g_drag_source = -1;
+    g_drag_target = -1;
+    g_drag_active = 0;
 }
 
 - (BOOL)performKeyEquivalent:(NSEvent *)event {
@@ -1129,6 +1197,40 @@ static void void_tabs_renumber_profiles(void) {
                      g_tabs[i].profile_base, rank);
         }
     }
+}
+
+// Move a tab from slot `from` to slot `to`, shifting the tabs in between.
+// Used by the drag-reorder gesture. VoidTab is struct-copied, so pty_fd,
+// grid, and scrollback section pointers travel with the tab — the shell
+// keeps running on the same fd, only the array index changes. The active
+// tab index is adjusted so the focus follows the moved tab if it was
+// the one being dragged, or stays on the same logical tab otherwise.
+static void tabs_move(int from, int to) {
+    if (from == to) return;
+    if (from < 0 || from >= g_num_tabs) return;
+    if (to < 0 || to >= g_num_tabs) return;
+
+    int prev_active = g_active_tab;
+    VoidTab tmp = g_tabs[from];
+    if (from < to) {
+        for (int i = from; i < to; i++) g_tabs[i] = g_tabs[i + 1];
+    } else {
+        for (int i = from; i > to; i--) g_tabs[i] = g_tabs[i - 1];
+    }
+    g_tabs[to] = tmp;
+
+    if (prev_active == from) {
+        g_active_tab = to;
+    } else if (from < to) {
+        if (prev_active > from && prev_active <= to) g_active_tab = prev_active - 1;
+    } else {
+        if (prev_active < from && prev_active >= to) g_active_tab = prev_active + 1;
+    }
+
+    // Profile sibling numbering depends on tab order — e.g. dragging
+    // "nexus (2)" above "nexus (1)" should reassign the ranks.
+    void_tabs_renumber_profiles();
+    g_full_redraw = 1;
 }
 
 // Convert a blank tab to a live profile (or plain shell) tab in place.
