@@ -220,6 +220,8 @@ static void update_dock_badge(void);
 static void poll_background_tabs(void);
 // Forward decl for drag-reorder helper used in HexaTermView's mouseUp.
 static void tabs_move(int from, int to);
+// Forward decl — defined after HexaTermView but read from tab_become_profile.
+static int g_resized;
 
 // ── Tab state ──
 typedef struct VoidTab_ {
@@ -1273,6 +1275,14 @@ static int tab_become_profile(int idx, VoidProfile *vp) {
     }
 
     void_tabs_renumber_profiles();
+    // Clear the rendering grid and force hexa to rebuild its VT screen
+    // buffer. Without this the newly-spawned shell draws on top of the
+    // blank state that hexa's scr buffer still holds, producing ghost
+    // overlays like "top table at 80 cols, bottom at full width".
+    tab_clear_grid(g_term_grid);
+    g_term_cur_row = 0;
+    g_term_cur_col = 0;
+    g_resized = 1;        // triggers scr_init + vt_reset_state + pty_resize
     g_full_redraw = 1;
     return 0;
 }
