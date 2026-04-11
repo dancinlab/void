@@ -926,12 +926,20 @@ static void search_close(void) {
 
 // ANSI color
 static NSColor *term_color(int idx) {
-    // Terminal.app Basic dark palette
+    // macOS Terminal.app Basic palette — the actual NeXTSTEP-lineage
+    // values Apple ships, NOT the Windows Terminal Campbell values we
+    // had before. These are the same 16 slots xterm-256color and
+    // urxvt advertise as "default VGA", matching what zsh/vim/claude
+    // render when TERM=xterm-256color in macOS Terminal.app.
+    //
+    //   0 Black   1 Red     2 Green   3 Yellow
+    //   4 Blue    5 Magenta 6 Cyan    7 White (= light gray)
+    //   8-15 bright variants
     static const uint32_t a16[] = {
-        0x000000,0xC33720,0x00BC12,0xC7BC09,
-        0x0037DA,0xBB3FC6,0x00BBBB,0xBFBFBF,
-        0x686868,0xED4E39,0x2DE636,0xD9D326,
-        0x2B78E4,0xD256DE,0x33D7D7,0xE5E5E5
+        0x000000, 0x990000, 0x00A600, 0x999900,
+        0x0000B2, 0xB200B2, 0x00A6B2, 0xBFBFBF,
+        0x666666, 0xE50000, 0x00D900, 0xE5E500,
+        0x0000FF, 0xE500E5, 0x00E5E5, 0xE5E5E5
     };
     if (idx < 0) idx = 7;
     if (idx < 16) {
@@ -1360,127 +1368,15 @@ static NSColor *term_color(int idx) {
               withAttributes:ca];
     }
 
-    // ── Floating toolbar (bottom-right) ──
-    // Two always-visible buttons:
-    //   [▦] grid-mode toggle (equivalent to Cmd+G)
-    //   [⟳] cycle to next tab
-    // Placed at bottom-right so they're reachable even when the tab bar
-    // is hidden (1 tab) or the user is in grid mode. Mouse hit-tests
-    // against the same rects in mouseDown.
-    {
-        const float BTN_W = 28, BTN_H = 28, BTN_PAD = 8, BTN_GAP = 4;
-        float by = bounds.size.height - BTN_H - BTN_PAD;
-        float bx_cycle = bounds.size.width - BTN_W - BTN_PAD;
-        float bx_grid  = bx_cycle - BTN_W - BTN_GAP;
-        NSRect r_grid  = NSMakeRect(bx_grid,  by, BTN_W, BTN_H);
-        NSRect r_cycle = NSMakeRect(bx_cycle, by, BTN_W, BTN_H);
-
-        // Background plate — semi-transparent so terminal content
-        // underneath is still partially visible.
-        NSColor *plate = [NSColor colorWithRed:0.13 green:0.13 blue:0.15 alpha:0.85];
-        NSColor *border = [NSColor colorWithRed:0.30 green:0.30 blue:0.35 alpha:0.9];
-        NSColor *ink = [NSColor colorWithWhite:0.85 alpha:1.0];
-        NSColor *ink_active = [NSColor colorWithRed:0.4 green:0.65 blue:1.0 alpha:1.0];
-
-        for (int i = 0; i < 2; i++) {
-            NSRect r = i == 0 ? r_grid : r_cycle;
-            NSBezierPath *bp = [NSBezierPath bezierPathWithRoundedRect:r xRadius:5 yRadius:5];
-            [plate setFill];
-            [bp fill];
-            [border setStroke];
-            [bp setLineWidth:1.0];
-            [bp stroke];
-        }
-
-        // Grid icon — 2x2 squares
-        {
-            int active = (g_layout_mode == LAYOUT_GRID);
-            NSColor *c = active ? ink_active : ink;
-            [c setFill];
-            float cx = r_grid.origin.x + 6;
-            float cy = r_grid.origin.y + 6;
-            NSRectFill(NSMakeRect(cx,       cy,       6, 6));
-            NSRectFill(NSMakeRect(cx + 8,   cy,       6, 6));
-            NSRectFill(NSMakeRect(cx,       cy + 8,   6, 6));
-            NSRectFill(NSMakeRect(cx + 8,   cy + 8,   6, 6));
-        }
-
-        // Cycle icon — right-pointing chevron
-        {
-            [ink setStroke];
-            NSBezierPath *chev = [NSBezierPath bezierPath];
-            float cx = r_cycle.origin.x + BTN_W / 2;
-            float cy = r_cycle.origin.y + BTN_H / 2;
-            [chev moveToPoint:NSMakePoint(cx - 5, cy - 6)];
-            [chev lineToPoint:NSMakePoint(cx + 4, cy)];
-            [chev lineToPoint:NSMakePoint(cx - 5, cy + 6)];
-            [chev setLineWidth:2.0];
-            [chev setLineCapStyle:NSLineCapStyleRound];
-            [chev setLineJoinStyle:NSLineJoinStyleRound];
-            [chev stroke];
-        }
-    }
+    // Floating toolbar removed — 그리드/탭 전환은 메뉴 "보기" 서브메뉴로
+    // 이동했고 (Cmd+G 단축키 유지), 우측 하단 버튼은 화면 공간 낭비라
+    // 폐기했다. 복원이 필요하면 이 블록과 mouseDown의 toolbar_button_at
+    // 호출을 git으로 되돌리면 됨.
     } // @autoreleasepool
-}
-
-// Toolbar button hit-test — shared by mouseDown. Returns 1 if (p) is
-// on the grid toggle, 2 if on the cycle button, 0 otherwise.
-static int toolbar_button_at(NSPoint p, NSRect bounds) {
-    const float BTN_W = 28, BTN_H = 28, BTN_PAD = 8, BTN_GAP = 4;
-    float by = bounds.size.height - BTN_H - BTN_PAD;
-    float bx_cycle = bounds.size.width - BTN_W - BTN_PAD;
-    float bx_grid  = bx_cycle - BTN_W - BTN_GAP;
-    NSRect r_grid  = NSMakeRect(bx_grid,  by, BTN_W, BTN_H);
-    NSRect r_cycle = NSMakeRect(bx_cycle, by, BTN_W, BTN_H);
-    if (NSPointInRect(p, r_grid))  return 1;
-    if (NSPointInRect(p, r_cycle)) return 2;
-    return 0;
 }
 
 - (void)mouseDown:(NSEvent *)event {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
-    NSRect selfBounds = [self bounds];
-
-    // Floating toolbar hit-test first — these rects live above every
-    // other region so they work in both stacked and grid modes and
-    // regardless of tab count.
-    int btn = toolbar_button_at(p, selfBounds);
-    if (btn == 1) {
-        // Grid toggle — same behavior as Cmd+G.
-        if (g_num_tabs >= 1 && g_num_tabs <= 9)
-            g_layout_mode = (g_layout_mode == LAYOUT_GRID)
-                ? LAYOUT_STACKED : LAYOUT_GRID;
-        else
-            g_layout_mode = LAYOUT_STACKED;
-        g_layout_dirty = 1;
-        g_full_redraw = 1;
-        g_eff_tab_bar_w_cache = -1;
-        [[NSUserDefaults standardUserDefaults]
-            setInteger:(NSInteger)g_layout_mode forKey:@"voidLayoutMode"];
-        [self setNeedsDisplay:YES];
-        return;
-    }
-    if (btn == 2) {
-        // Cycle to next tab.
-        if (g_num_tabs > 1) {
-            int next = (g_active_tab + 1) % g_num_tabs;
-            if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
-                memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
-                g_tabs[g_active_tab].cur_row = g_term_cur_row;
-                g_tabs[g_active_tab].cur_col = g_term_cur_col;
-            }
-            g_active_tab = next;
-            memcpy(g_term_grid, g_tabs[next].grid, sizeof(g_term_grid));
-            g_term_cur_row = g_tabs[next].cur_row;
-            g_term_cur_col = g_tabs[next].cur_col;
-            g_scroll_offset = 0;
-            g_tab_cmd = 3;
-            g_full_redraw = 1;
-            clear_active_alarm();
-            [self setNeedsDisplay:YES];
-        }
-        return;
-    }
 
     // Grid mode: hit-test against all tiles and switch to the one under
     // the click. Tab bar + drag-reorder are disabled in grid mode (the
