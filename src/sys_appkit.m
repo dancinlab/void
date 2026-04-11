@@ -214,6 +214,10 @@ typedef struct {
 // Forward decl: needed by drawRect, defined after VoidTab.
 struct VoidTab_;
 static TermCell *sb_line_ptr(struct VoidTab_ *tab, int logical_line);
+// Forward decl for alarm helpers used in HexaTermView (defined much later).
+static void clear_active_alarm(void);
+static void update_dock_badge(void);
+static void poll_background_tabs(void);
 
 // ── Tab state ──
 typedef struct VoidTab_ {
@@ -230,6 +234,10 @@ typedef struct VoidTab_ {
     int sb_total;       // total lines across all live sections
     // OSC 7 cwd (file://host/path) — updated by shell for autocomplete
     char cwd[1024];
+    // Background activity indicator: set when the tab (while NOT active)
+    // received any PTY output. Cleared when the tab is activated. Drives
+    // the bell glyph in the tab bar and the Dock icon badge count.
+    int has_alarm;
 } VoidTab;
 
 static VoidTab g_tabs[MAX_TABS];
@@ -370,6 +378,21 @@ static NSColor *term_color(int idx) {
                     : [NSColor colorWithRed:0.45 green:0.45 blue:0.45 alpha:1.0]
         };
         [title drawAtPoint:NSMakePoint(10, ty + 6) withAttributes:attrs];
+
+        // Activity bell: matches Terminal.app's inactive-tab indicator.
+        // Shown when a background tab received output since the user last
+        // looked at it. Cleared on activation via clear_active_alarm().
+        if (g_tabs[t].has_alarm && t != g_active_tab) {
+            NSDictionary *bellAttrs = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:11],
+                NSForegroundColorAttributeName:
+                    [NSColor colorWithRed:1.0 green:0.55 blue:0.15 alpha:1.0]
+            };
+            // U+1F514 is too heavy; U+2022 bullet or "●" works cleaner.
+            // Use a simple filled dot to stay legible at 11pt.
+            [@"\u25CF" drawAtPoint:NSMakePoint(TAB_BAR_W - 18, ty + 6)
+                    withAttributes:bellAttrs];
+        }
     }
 
     // ── Terminal grid (right of tab bar) ──
@@ -474,6 +497,7 @@ static NSColor *term_color(int idx) {
             // Signal hexa to reload screen from C
             g_tab_cmd = 3; // 3 = switched (hexa reloads)
             g_scroll_offset = 0;
+            clear_active_alarm();
             [self setNeedsDisplay:YES];
         }
     }
@@ -490,9 +514,11 @@ static NSColor *term_color(int idx) {
     if (ch == 't') { g_tab_cmd = 1; return YES; } // Cmd+T new tab
     if (ch == 'w') { g_tab_cmd = 2; return YES; } // Cmd+W close tab
     if (ch == 'q') { g_term_quit = 1; return YES; } // Cmd+Q quit
-    // Cmd+1~9: switch to tab N-1
-    if (ch >= '1' && ch <= '9') {
-        int target = ch - '1';
+    // Cmd+1~9 → tab 1..9, Cmd+0 → tab 10
+    int target = -1;
+    if (ch >= '1' && ch <= '9') target = ch - '1';
+    else if (ch == '0')          target = 9;
+    if (target >= 0) {
         if (target < g_num_tabs && target != g_active_tab) {
             if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
                 memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
@@ -505,6 +531,7 @@ static NSColor *term_color(int idx) {
             g_term_cur_col = g_tabs[target].cur_col;
             g_tab_cmd = 3; // signal hexa to reload
             g_scroll_offset = 0;
+            clear_active_alarm();
             [self setNeedsDisplay:YES];
         }
         return YES;
@@ -639,7 +666,7 @@ static HexaTermDelegate *g_term_delegate = nil;
 
 #define MAX_PROFILES 16
 typedef struct {
-    char key[4];     // "1".."9"
+    char key[4];     // "0".."9"
     char title[64];
     char path[512];
     char cmd[512];
@@ -700,7 +727,8 @@ static void load_profiles(void) {
                 "    { \"key\": \"6\", \"title\": \"prism-manager\", \"path\": \"~/mango/prism-manager\",  \"cmd\": \"cl\" },\n"
                 "    { \"key\": \"7\", \"title\": \"void\",          \"path\": \"~/Dev/void\",             \"cmd\": \"cl\" },\n"
                 "    { \"key\": \"8\", \"title\": \"airgenome\",     \"path\": \"~/Dev/airgenome\",        \"cmd\": \"cl\" },\n"
-                "    { \"key\": \"9\", \"title\": \"hexa-lang\",     \"path\": \"~/Dev/hexa-lang\",        \"cmd\": \"cl\" }\n"
+                "    { \"key\": \"9\", \"title\": \"hexa-lang\",     \"path\": \"~/Dev/hexa-lang\",        \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"0\", \"title\": \"home\",          \"path\": \"~\",                      \"cmd\": \"\" }\n"
                 "  ]\n"
                 "}\n";
             [tpl writeToFile:pathNS atomically:YES encoding:NSUTF8StringEncoding error:NULL];
@@ -748,7 +776,7 @@ static void load_profiles(void) {
     }
 }
 
-// Find profile by single-digit key ("1".."9"). NULL if no match.
+// Find profile by single-digit key ("0".."9"). NULL if no match.
 static VoidProfile *profile_by_key(char ch) {
     char key[2] = { ch, 0 };
     for (int i = 0; i < g_num_profiles; i++) {
@@ -1039,6 +1067,7 @@ long hexa_tab_new(void) {
     g_tabs[idx].sb_head = 0;
     g_tabs[idx].sb_num = 0;
     g_tabs[idx].sb_total = 0;
+    g_tabs[idx].has_alarm = 0;
 
     g_num_tabs++;
     g_active_tab = idx;
@@ -1261,8 +1290,8 @@ long hexa_appkit_term_poll(void) {
                         unichar ch = [raw characterAtIndex:0];
                         int with_ctrl = (mods & NSEventModifierFlagControl) != 0;
 
-                        // Cmd+Ctrl+1~9 → profile-based new tab
-                        if (with_ctrl && ch >= '1' && ch <= '9') {
+                        // Cmd+Ctrl+0~9 → profile-based new tab (10 slots)
+                        if (with_ctrl && ch >= '0' && ch <= '9') {
                             VoidProfile *vp = profile_by_key((char)ch);
                             if (vp) {
                                 g_pending_profile = vp;
@@ -1275,8 +1304,11 @@ long hexa_appkit_term_poll(void) {
                         if (ch == 't') { g_tab_cmd = 1; continue; }
                         if (ch == 'w') { g_tab_cmd = 2; continue; }
                         if (ch == 'q') { g_term_quit = 1; continue; }
-                        if (ch >= '1' && ch <= '9') {
-                            int target = ch - '1';
+                        // Cmd+1~9 → tab 1..9, Cmd+0 → tab 10
+                        int target = -1;
+                        if (ch >= '1' && ch <= '9') target = ch - '1';
+                        else if (ch == '0')          target = 9;
+                        if (target >= 0) {
                             if (target < g_num_tabs && target != g_active_tab) {
                                 if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
                                     memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
@@ -1290,6 +1322,7 @@ long hexa_appkit_term_poll(void) {
                                 g_scroll_offset = 0;
                                 g_tab_cmd = 3;
                                 g_full_redraw = 1;
+                                clear_active_alarm();
                                 if (g_window)
                                     [[g_window contentView] setNeedsDisplay:YES];
                             }
@@ -1329,6 +1362,9 @@ long hexa_appkit_term_poll(void) {
                 }
             }
         }
+        // Drain background tabs so their shells don't stall, and flag
+        // alarm / update Dock badge as Terminal.app does.
+        poll_background_tabs();
     }
     return g_term_quit;
 }
@@ -1337,6 +1373,74 @@ long hexa_appkit_term_poll(void) {
 long hexa_appkit_term_check_resize(void) {
     if (g_resized) { g_resized = 0; return 1; }
     return 0;
+}
+
+// ── Background tab activity polling (alarm + dock badge) ──
+//
+// Why: the hexa main loop only reads the ACTIVE tab's PTY, so background
+// tabs' shells will stall once the kernel PTY buffer fills (~16 KB).
+// This polls all non-active tabs each loop tick, drains their PTY into
+// a discard buffer (so the shell doesn't block), and flags `has_alarm`
+// so the tab bar and Dock icon can show a pending indicator like
+// Terminal.app's bell/badge.
+//
+// Trade-off: background tab output is currently discarded. Switching to
+// a background tab shows the prompt but not the history between switches.
+// A follow-up milestone will store background bytes in a per-tab raw
+// ring buffer and replay them through the VT parser on activation.
+
+static int g_last_badge = -1;
+
+static void update_dock_badge(void) {
+    int count = 0;
+    for (int i = 0; i < g_num_tabs; i++)
+        if (g_tabs[i].used && g_tabs[i].has_alarm) count++;
+    if (count == g_last_badge) return;
+    g_last_badge = count;
+    @autoreleasepool {
+        NSDockTile *dock = [NSApp dockTile];
+        if (count > 0)
+            [dock setBadgeLabel:[NSString stringWithFormat:@"%d", count]];
+        else
+            [dock setBadgeLabel:nil];
+    }
+}
+
+static void poll_background_tabs(void) {
+    if (g_num_tabs < 2) return;
+    char discard[4096];
+    int changed = 0;
+    for (int i = 0; i < g_num_tabs; i++) {
+        if (i == g_active_tab) continue;
+        VoidTab *tab = &g_tabs[i];
+        if (!tab->used || tab->pty_fd < 0) continue;
+        // Drain non-blocking (fd is already O_NONBLOCK from spawn).
+        ssize_t total = 0;
+        while (1) {
+            ssize_t n = read(tab->pty_fd, discard, sizeof(discard));
+            if (n <= 0) break;
+            total += n;
+            if (total > 65536) break; // stay bounded per tick
+        }
+        if (total > 0 && !tab->has_alarm) {
+            tab->has_alarm = 1;
+            changed = 1;
+        }
+    }
+    if (changed) {
+        update_dock_badge();
+        if (g_window) [[g_window contentView] setNeedsDisplayInRect:
+                      NSMakeRect(0, 0, TAB_BAR_W, [[g_window contentView] bounds].size.height)];
+    }
+}
+
+// Clear alarm on the now-active tab. Called from every tab-switch path.
+static void clear_active_alarm(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
+    if (g_tabs[g_active_tab].has_alarm) {
+        g_tabs[g_active_tab].has_alarm = 0;
+        update_dock_badge();
+    }
 }
 
 // Get current terminal dimensions
@@ -1383,6 +1487,84 @@ void hexa_appkit_term_title_apply(void) {
         NSString *t = [NSString stringWithFormat:@"VOID — %s", g_term_title_buf];
         [g_window setTitle:t];
     }
+}
+
+// ── OSC 7 CWD handlers ──
+// Shell emits `ESC ] 7 ; file://host/path ST` on prompt. hexa VT parser
+// strips the OSC 7 payload and feeds it byte-by-byte through these
+// functions. We parse the URL into a plain filesystem path stored on
+// the active VoidTab, which is then the anchor for future file-completion.
+static char g_cwd_buf[1024];
+static int g_cwd_len = 0;
+
+void hexa_appkit_cwd_reset(void) {
+    g_cwd_len = 0;
+    g_cwd_buf[0] = '\0';
+}
+
+void hexa_appkit_cwd_push(long b) {
+    if (g_cwd_len < (int)sizeof(g_cwd_buf) - 1) {
+        g_cwd_buf[g_cwd_len++] = (char)b;
+        g_cwd_buf[g_cwd_len] = '\0';
+    }
+}
+
+// Decode a single percent-escape (%XX) hex pair. Returns the byte value
+// and advances `*i` past the escape if valid, else returns -1 and leaves
+// `*i` unchanged.
+static int url_unhex(const char *s, int *i, int len) {
+    if (*i + 2 >= len) return -1;
+    char h = s[*i + 1], l = s[*i + 2];
+    int hv, lv;
+    if      (h >= '0' && h <= '9') hv = h - '0';
+    else if (h >= 'a' && h <= 'f') hv = 10 + (h - 'a');
+    else if (h >= 'A' && h <= 'F') hv = 10 + (h - 'A');
+    else return -1;
+    if      (l >= '0' && l <= '9') lv = l - '0';
+    else if (l >= 'a' && l <= 'f') lv = 10 + (l - 'a');
+    else if (l >= 'A' && l <= 'F') lv = 10 + (l - 'A');
+    else return -1;
+    *i += 3;
+    return (hv << 4) | lv;
+}
+
+void hexa_appkit_cwd_apply(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
+    // OSC 7 payload format: "file://<host>/<path>"
+    // Skip the scheme and host to get the path.
+    const char *p = g_cwd_buf;
+    if (g_cwd_len >= 7 && strncmp(p, "file://", 7) == 0) {
+        p += 7;
+        // Skip host (up to next '/')
+        while (*p && *p != '/') p++;
+    }
+    if (!*p) return;
+
+    // URL-decode the path into the tab's cwd field.
+    VoidTab *tab = &g_tabs[g_active_tab];
+    char *out = tab->cwd;
+    size_t cap = sizeof(tab->cwd) - 1;
+    size_t o = 0;
+    int plen = (int)strlen(p);
+    int i = 0;
+    while (i < plen && o < cap) {
+        if (p[i] == '%') {
+            int dec = url_unhex(p, &i, plen);
+            if (dec < 0) { out[o++] = p[i++]; }
+            else         { out[o++] = (char)dec; }
+        } else {
+            out[o++] = p[i++];
+        }
+    }
+    out[o] = '\0';
+}
+
+// Accessor used by future autocomplete code (C-internal).
+// Returns NULL if no active tab or cwd unknown.
+const char *hexa_tab_cwd(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return NULL;
+    const char *c = g_tabs[g_active_tab].cwd;
+    return c[0] ? c : NULL;
 }
 
 // ── Section-based scrollback ──

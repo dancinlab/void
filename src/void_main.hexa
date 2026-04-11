@@ -48,6 +48,9 @@ extern fn hexa_pty_resize(fd: int, rows: int, cols: int) -> int
 extern fn hexa_appkit_term_title_reset()
 extern fn hexa_appkit_term_title_push(b: int)
 extern fn hexa_appkit_term_title_apply()
+extern fn hexa_appkit_cwd_reset()
+extern fn hexa_appkit_cwd_push(b: int)
+extern fn hexa_appkit_cwd_apply()
 extern fn hexa_scrollback_push_begin() -> int
 extern fn hexa_scrollback_push_cell(ch: int, fg: int, bg: int, flags: int) -> int
 extern fn hexa_scrollback_push_end() -> int
@@ -769,7 +772,7 @@ fn scr_feed_byte(b) {
     // State 4: OSC string
     if vt_state == 4 {
         if b == 7 {
-            // BEL — terminate OSC, apply title
+            // BEL — terminate OSC, apply title or cwd
             if osc_num <= 2 {
                 let _ = hexa_appkit_term_title_reset()
                 let mut i = 0
@@ -778,6 +781,15 @@ fn scr_feed_byte(b) {
                     i = i + 1
                 }
                 let _ = hexa_appkit_term_title_apply()
+            }
+            if osc_num == 7 {
+                let _ = hexa_appkit_cwd_reset()
+                let mut i = 0
+                while i < len(osc_title_bytes) {
+                    let _ = hexa_appkit_cwd_push(osc_title_bytes[i])
+                    i = i + 1
+                }
+                let _ = hexa_appkit_cwd_apply()
             }
             vt_state = 0
             return 0
@@ -793,10 +805,22 @@ fn scr_feed_byte(b) {
                 }
                 let _ = hexa_appkit_term_title_apply()
             }
+            if osc_num == 7 {
+                let _ = hexa_appkit_cwd_reset()
+                let mut i = 0
+                while i < len(osc_title_bytes) {
+                    let _ = hexa_appkit_cwd_push(osc_title_bytes[i])
+                    i = i + 1
+                }
+                let _ = hexa_appkit_cwd_apply()
+            }
             vt_state = 0
             return 0
         }
         if osc_num <= 2 {
+            osc_title_bytes = osc_title_bytes.push(b)
+        }
+        if osc_num == 7 {
             osc_title_bytes = osc_title_bytes.push(b)
         }
         return 0
