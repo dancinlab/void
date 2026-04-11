@@ -361,6 +361,36 @@ long hexa_pty_poll_read(long fd, long timeout_ms) {
     g_pty_read_len = (int)read((int)fd, g_pty_read_buf, PTY_READ_BUF_SIZE - 1);
     if (g_pty_read_len < 0) g_pty_read_len = 0;
     g_pty_read_buf[g_pty_read_len] = '\0';
+
+    // Alternate-screen workaround — hexa's VT parser doesn't implement
+    // xterm's alt screen buffer (\x1b[?1049h/l and ?1047h/l), so full-
+    // screen TUIs like `claude`, vim, htop paint on top of the previous
+    // shell's output, causing the "Claude Code welcome overlapping the
+    // cl selection table" ghosting the user hit. Rewrite the switch
+    // sequences in place with a clear-screen + cursor-home so the TUI
+    // starts from a blank canvas. Both are 8 bytes, same length, so the
+    // rewrite is a straight memcpy with no length change.
+    //   \x1b[?1049h  → \x1b[2J\x1b[1H
+    //   \x1b[?1049l  → \x1b[2J\x1b[1H
+    //   \x1b[?1047h  → \x1b[2J\x1b[1H
+    //   \x1b[?1047l  → \x1b[2J\x1b[1H
+    // A sequence split across two read() calls is not handled; hexa's
+    // VT parser will eat the unknown CSI and the next read's payload
+    // may land on the old buffer for one frame.
+    for (int i = 0; i + 7 < g_pty_read_len; i++) {
+        if (g_pty_read_buf[i]     == '\x1b' &&
+            g_pty_read_buf[i + 1] == '['    &&
+            g_pty_read_buf[i + 2] == '?'    &&
+            g_pty_read_buf[i + 3] == '1'    &&
+            g_pty_read_buf[i + 4] == '0'    &&
+            g_pty_read_buf[i + 5] == '4'    &&
+            (g_pty_read_buf[i + 6] == '9' || g_pty_read_buf[i + 6] == '7') &&
+            (g_pty_read_buf[i + 7] == 'h' || g_pty_read_buf[i + 7] == 'l')) {
+            memcpy(&g_pty_read_buf[i], "\x1b[2J\x1b[1H", 8);
+            i += 7; // skip past the replacement (loop increments to 8)
+        }
+    }
+
     return (long)g_pty_read_len;
 }
 
