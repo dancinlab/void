@@ -220,6 +220,11 @@ static void update_dock_badge(void);
 static void poll_background_tabs(void);
 // Forward decl for drag-reorder helper used in HexaTermView's mouseUp.
 static void tabs_move(int from, int to);
+// Forward decl for clipboard helpers used in HexaTermView's
+// performKeyEquivalent fallback (defined further down next to
+// hexa_appkit_term_flush).
+static void copy_selection_to_clipboard(void);
+static void paste_from_clipboard(void);
 // Forward decl — defined after HexaTermView but read from tab_become_profile.
 static int g_resized;
 
@@ -285,6 +290,49 @@ static int g_drag_source = -1;
 static int g_drag_target = -1;
 static int g_drag_active = 0;
 static NSPoint g_drag_origin;
+
+// ── Mouse text selection state ───────────────────────────────────────
+// Set by mouseDown inside the grid area, extended by mouseDragged,
+// finalized by mouseUp. drawRect shades every cell in the range with a
+// translucent blue overlay BEFORE drawing the glyph. Cmd+C copies the
+// text via NSPasteboard. ESC or any new keystroke clears the selection.
+//
+// Coordinates are in grid cells (row, col) anchored to g_term_grid —
+// normalization (start <= end in row-major order) happens inline where
+// it's needed so we can preserve the raw anchor if we ever want to
+// stretch in either direction after the initial drag.
+static int g_sel_start_row = -1, g_sel_start_col = -1;
+static int g_sel_end_row = -1, g_sel_end_col = -1;
+static int g_sel_active = 0;        // 1 once the user has dragged past the click origin
+static int g_sel_anchor_in_grid = 0; // 1 if mouseDown landed inside the terminal grid
+// Triple-click / double-click handling — NSEvent's clickCount already
+// reports 2 for double, 3 for triple, but we need to know if a drag
+// beyond the initial selection should override word/line mode.
+static int g_sel_click_count = 0;
+
+// Clear selection — used by ESC, keystrokes, scrollback transitions.
+static inline void clear_selection(void) {
+    if (g_sel_start_row < 0 && g_sel_end_row < 0) return;
+    g_sel_start_row = g_sel_start_col = -1;
+    g_sel_end_row = g_sel_end_col = -1;
+    g_sel_active = 0;
+    g_sel_anchor_in_grid = 0;
+    g_sel_click_count = 0;
+}
+
+// Normalize a selection so (start_row, start_col) <= (end_row, end_col)
+// in row-major order. Writes the normalized pair into *o_* output args.
+// Returns 0 if the selection is empty / inactive.
+static int normalize_selection(int *o_sr, int *o_sc, int *o_er, int *o_ec) {
+    if (g_sel_start_row < 0 || g_sel_end_row < 0) return 0;
+    int sr = g_sel_start_row, sc = g_sel_start_col;
+    int er = g_sel_end_row,   ec = g_sel_end_col;
+    if (sr > er || (sr == er && sc > ec)) {
+        int tr = sr, tc = sc; sr = er; sc = ec; er = tr; ec = tc;
+    }
+    *o_sr = sr; *o_sc = sc; *o_er = er; *o_ec = ec;
+    return 1;
+}
 
 // Forward-declare file-scope globals that the hot-swap serializer needs
 // to touch. These are tentative definitions — the initialised version
@@ -736,6 +784,28 @@ static NSColor *term_color(int idx) {
             [as release]; // MRR — was leaking ~1920 objs/frame
         }
     }
+    // ── Selection overlay ── translucent blue shade painted ON TOP of the
+    // glyph layer so both background and foreground remain visible through
+    // the highlight. Only active in live view (no scrollback) — dragging
+    // into scrollback is a future milestone.
+    if (g_scroll_offset == 0) {
+        int ssr, ssc, ser, sec;
+        if (normalize_selection(&ssr, &ssc, &ser, &sec)) {
+            [[NSColor colorWithRed:0.2 green:0.35 blue:0.6 alpha:0.5] setFill];
+            for (int r = ssr; r <= ser && r < g_term_rows; r++) {
+                int c0 = (r == ssr) ? ssc : 0;
+                int c1 = (r == ser) ? sec : (g_term_cols - 1);
+                if (c0 < 0) c0 = 0;
+                if (c1 >= g_term_cols) c1 = g_term_cols - 1;
+                if (c0 > c1) continue;
+                float rx = ox + c0 * g_term_cw;
+                float ry = r * g_term_ch;
+                float rw = (c1 - c0 + 1) * g_term_cw;
+                NSRectFillUsingOperation(NSMakeRect(rx, ry, rw, g_term_ch),
+                                         NSCompositingOperationSourceOver);
+            }
+        }
+    }
     // Cursor — only visible in live view
     if (g_scroll_offset == 0 && g_term_cur_vis &&
         g_term_cur_row < g_term_rows && g_term_cur_col < g_term_cols) {
@@ -788,46 +858,147 @@ static NSColor *term_color(int idx) {
                 g_tab_cmd = 3; // 3 = switched (hexa reloads)
                 g_scroll_offset = 0;
                 clear_active_alarm();
+                // Switching tabs invalidates any ongoing selection.
+                clear_selection();
                 [self setNeedsDisplay:YES];
             }
         }
+        return;
     }
+    // ── Mouse selection start (terminal grid area) ──
+    if (g_term_cw <= 0 || g_term_ch <= 0) return;
+    int col = (int)((p.x - eff_tbw) / g_term_cw);
+    int row = (int)(p.y / g_term_ch);
+    if (col < 0) col = 0;
+    if (row < 0) row = 0;
+    if (col >= g_term_cols) col = g_term_cols - 1;
+    if (row >= g_term_rows) row = g_term_rows - 1;
+
+    // Remember the click was in the grid area so mouseDragged extends
+    // the selection rather than triggering tab drag reorder.
+    g_sel_anchor_in_grid = 1;
+    g_drag_source = -1; // ensure tab-drag path stays disabled
+    g_drag_target = -1;
+    g_drag_active = 0;
+    g_drag_origin = p;
+    g_sel_click_count = (int)[event clickCount];
+
+    if (g_sel_click_count >= 3) {
+        // Triple-click: select whole line.
+        g_sel_start_row = row;
+        g_sel_start_col = 0;
+        g_sel_end_row = row;
+        g_sel_end_col = (g_term_cols > 0) ? g_term_cols - 1 : 0;
+        g_sel_active = 1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (g_sel_click_count == 2) {
+        // Double-click: select the word under the cursor (contiguous
+        // run of non-space glyphs). Uses the LIVE grid only — matches
+        // macOS Terminal.app behavior in scrollback.
+        int c0 = col, c1 = col;
+        if (row >= 0 && row < g_term_rows) {
+            TermCell *rowp = g_term_grid[row];
+            // If the clicked cell itself is blank, we still produce a
+            // single-column selection so the user has visual feedback.
+            if (rowp[col].ch > ' ') {
+                while (c0 > 0 && rowp[c0 - 1].ch > ' ') c0--;
+                while (c1 < g_term_cols - 1 && rowp[c1 + 1].ch > ' ') c1++;
+            }
+        }
+        g_sel_start_row = row;
+        g_sel_start_col = c0;
+        g_sel_end_row = row;
+        g_sel_end_col = c1;
+        g_sel_active = 1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    // Single click: seed an inert selection. Becomes active once the
+    // user drags past the origin; plain clicks just clear the previous
+    // selection (if any) without leaving a stray highlight.
+    g_sel_start_row = row;
+    g_sel_start_col = col;
+    g_sel_end_row = row;
+    g_sel_end_col = col;
+    g_sel_active = 0;
+    [self setNeedsDisplay:YES];
 }
 
 - (void)mouseDragged:(NSEvent *)event {
-    if (g_drag_source < 0) return;
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
-    if (!g_drag_active) {
-        CGFloat dx = p.x - g_drag_origin.x;
-        CGFloat dy = p.y - g_drag_origin.y;
-        if ((dx * dx + dy * dy) < 16.0) return; // 4px threshold
-        g_drag_active = 1;
+
+    // ── Tab-bar drag reorder path ──
+    if (g_drag_source >= 0) {
+        if (!g_drag_active) {
+            CGFloat dx = p.x - g_drag_origin.x;
+            CGFloat dy = p.y - g_drag_origin.y;
+            if ((dx * dx + dy * dy) < 16.0) return; // 4px threshold
+            g_drag_active = 1;
+        }
+
+        // Compute drop slot from the current y position. Clamp to the
+        // existing tab range so dragging past the end just pins to the
+        // last slot instead of creating a phantom target.
+        int target = (int)((p.y - 4) / TAB_ROW_H);
+        if (target < 0) target = 0;
+        if (target >= g_num_tabs) target = g_num_tabs - 1;
+        if (target != g_drag_target) {
+            g_drag_target = target;
+            int eff_tbw = effective_tab_bar_w();
+            if (eff_tbw > 0)
+                [self setNeedsDisplayInRect:NSMakeRect(0, 0, eff_tbw,
+                                                       [self bounds].size.height)];
+        }
+        return;
     }
 
-    // Compute drop slot from the current y position. Clamp to the
-    // existing tab range so dragging past the end just pins to the
-    // last slot instead of creating a phantom target.
-    int target = (int)((p.y - 4) / TAB_ROW_H);
-    if (target < 0) target = 0;
-    if (target >= g_num_tabs) target = g_num_tabs - 1;
-    if (target != g_drag_target) {
-        g_drag_target = target;
-        int eff_tbw = effective_tab_bar_w();
-        if (eff_tbw > 0)
-            [self setNeedsDisplayInRect:NSMakeRect(0, 0, eff_tbw,
-                                                   [self bounds].size.height)];
+    // ── Terminal grid selection path ──
+    if (!g_sel_anchor_in_grid) return;
+    if (g_term_cw <= 0 || g_term_ch <= 0) return;
+    int eff_tbw = effective_tab_bar_w();
+    int col = (int)((p.x - eff_tbw) / g_term_cw);
+    int row = (int)(p.y / g_term_ch);
+    if (col < 0) col = 0;
+    if (row < 0) row = 0;
+    if (col >= g_term_cols) col = g_term_cols - 1;
+    if (row >= g_term_rows) row = g_term_rows - 1;
+
+    // Only arm the selection once the cursor actually moves to a
+    // different cell — matches Terminal.app: a click-without-drag
+    // doesn't leave a stray highlight.
+    if (!g_sel_active) {
+        if (row != g_sel_start_row || col != g_sel_start_col) {
+            g_sel_active = 1;
+        }
     }
+    g_sel_end_row = row;
+    g_sel_end_col = col;
+    [self setNeedsDisplay:YES];
 }
 
 - (void)mouseUp:(NSEvent *)event {
-    if (g_drag_active && g_drag_source != g_drag_target &&
-        g_drag_source >= 0 && g_drag_target >= 0) {
-        tabs_move(g_drag_source, g_drag_target);
+    if (g_drag_source >= 0) {
+        if (g_drag_active && g_drag_source != g_drag_target &&
+            g_drag_target >= 0) {
+            tabs_move(g_drag_source, g_drag_target);
+            [self setNeedsDisplay:YES];
+        }
+        g_drag_source = -1;
+        g_drag_target = -1;
+        g_drag_active = 0;
+        return;
+    }
+    // Terminal grid selection: nothing to finalize — state stays live
+    // until ESC, a keystroke, or a fresh click. If we never armed the
+    // selection (plain click, no drag), collapse it so there's no
+    // residual highlight painted next frame.
+    if (g_sel_anchor_in_grid && !g_sel_active) {
+        clear_selection();
         [self setNeedsDisplay:YES];
     }
-    g_drag_source = -1;
-    g_drag_target = -1;
-    g_drag_active = 0;
+    g_sel_anchor_in_grid = 0;
 }
 
 - (BOOL)performKeyEquivalent:(NSEvent *)event {
@@ -837,10 +1008,24 @@ static NSColor *term_color(int idx) {
     NSString *raw = [event charactersIgnoringModifiers];
     if (!raw.length) return [super performKeyEquivalent:event];
     unichar ch = [raw characterAtIndex:0];
+    int with_ctrl = (mods & NSEventModifierFlagControl) != 0;
 
     if (ch == 't') { g_tab_cmd = 1; return YES; } // Cmd+T new tab
     if (ch == 'w') { g_tab_cmd = 2; return YES; } // Cmd+W close tab
     if (ch == 'q') { g_term_quit = 1; return YES; } // Cmd+Q quit
+    // Cmd+C / Cmd+V clipboard — Ctrl+C must still pass through as SIGINT
+    // so we guard on !with_ctrl.
+    if (ch == 'c' && !with_ctrl) {
+        copy_selection_to_clipboard();
+        return YES;
+    }
+    if (ch == 'v' && !with_ctrl) {
+        paste_from_clipboard();
+        if (g_scroll_offset > 0) { g_scroll_offset = 0; g_full_redraw = 1; }
+        clear_selection();
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
     // Cmd+1~9 → tab 1..9, Cmd+0 → tab 10
     int target = -1;
     if (ch >= '1' && ch <= '9') target = ch - '1';
@@ -897,6 +1082,14 @@ static NSColor *term_color(int idx) {
     // Any PTY-bound key resets scrollback to live view
     if (g_scroll_offset > 0) {
         g_scroll_offset = 0;
+        [self setNeedsDisplay:YES];
+    }
+
+    // Any PTY-bound keystroke (including ESC) clears the selection —
+    // mirrors macOS Terminal.app so the highlight doesn't linger while
+    // you're typing the next command.
+    if (g_sel_start_row >= 0) {
+        clear_selection();
         [self setNeedsDisplay:YES];
     }
 
@@ -2127,6 +2320,111 @@ static void perform_hot_swap(void) {
     _exit(0);
 }
 
+// ── Clipboard helpers (copy / paste) ─────────────────────────────────
+// selection_build_text builds a UTF-8 NSString from the currently
+// selected cell range; if no selection is active it falls back to the
+// whole visible grid (matches macOS Terminal.app's "Edit → Select All"
+// via Cmd+A behavior, but we trigger it implicitly on empty-Cmd+C).
+// copy_selection_to_clipboard writes that text to the general pasteboard.
+// paste_from_clipboard reads the pasteboard and writes UTF-8 bytes
+// directly into the active tab's PTY wrapped with bracketed-paste
+// markers so programs like zsh/bash/vim see it as a single block.
+
+static NSString *selection_build_text(void) {
+    int sr, sc, er, ec;
+    int have_sel = normalize_selection(&sr, &sc, &er, &ec);
+    int full_copy = 0;
+    if (!have_sel) {
+        // Empty selection → copy the whole visible grid.
+        if (g_term_rows <= 0 || g_term_cols <= 0) return @"";
+        sr = 0; sc = 0;
+        er = g_term_rows - 1;
+        ec = g_term_cols - 1;
+        full_copy = 1;
+    }
+
+    NSMutableString *out = [NSMutableString stringWithCapacity:256];
+    for (int r = sr; r <= er && r < g_term_rows; r++) {
+        int c0 = (r == sr && !full_copy) ? sc : 0;
+        int c1 = (r == er && !full_copy) ? ec : (g_term_cols - 1);
+        if (c0 < 0) c0 = 0;
+        if (c1 >= g_term_cols) c1 = g_term_cols - 1;
+
+        // Gather cells into a temp row buffer so we can trim trailing
+        // spaces cleanly. Width up to TERM_MAX_COLS.
+        unichar rowbuf[TERM_MAX_COLS];
+        int rowlen = 0;
+        for (int c = c0; c <= c1; c++) {
+            TermCell *cell = &g_term_grid[r][c];
+            // Wide-char continuation slot — glyph was already emitted
+            // by the head cell one column earlier.
+            if (cell->flags & 0x20000) continue;
+            unichar ch = cell->ch;
+            // 0 bytes from never-written cells should appear as spaces
+            // so trailing trim still works consistently.
+            if (ch == 0) ch = ' ';
+            if (rowlen < TERM_MAX_COLS) rowbuf[rowlen++] = ch;
+        }
+        // Trim trailing spaces — terminals pad rows with spaces for
+        // cursor positioning but users don't want them in the paste.
+        while (rowlen > 0 && (rowbuf[rowlen - 1] == ' ' || rowbuf[rowlen - 1] == 0))
+            rowlen--;
+        if (rowlen > 0) {
+            NSString *line = [[NSString alloc] initWithCharacters:rowbuf length:rowlen];
+            [out appendString:line];
+            [line release];
+        }
+        // Row separator — skip after the final row so the pasted
+        // text doesn't end with a spurious newline.
+        if (r < er) [out appendString:@"\n"];
+    }
+    return out;
+}
+
+static void copy_selection_to_clipboard(void) {
+    @autoreleasepool {
+        NSString *s = selection_build_text();
+        if (!s || s.length == 0) return;
+        NSPasteboard *pb = [NSPasteboard generalPasteboard];
+        [pb clearContents];
+        [pb setString:s forType:NSPasteboardTypeString];
+    }
+}
+
+static void paste_from_clipboard(void) {
+    @autoreleasepool {
+        if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
+        VoidTab *tab = &g_tabs[g_active_tab];
+        if (!tab->used || tab->pty_fd < 0) return;
+
+        NSPasteboard *pb = [NSPasteboard generalPasteboard];
+        NSString *s = [pb stringForType:NSPasteboardTypeString];
+        if (!s || s.length == 0) return;
+
+        const char *utf8 = [s UTF8String];
+        if (!utf8) return;
+        size_t n = strlen(utf8);
+        if (n == 0) return;
+
+        // Bracketed paste — modern shells (zsh, bash, vim, nano) treat
+        // `\x1b[200~ ... \x1b[201~` as a single pasted block so the
+        // user's autoindent/smartindent/quotes don't mangle it. Shells
+        // that haven't enabled the mode will print the ESC sequences
+        // literally — acceptable tradeoff since DEC escape query is
+        // far more intrusive than a one-line oddity on legacy shells.
+        static const char START[] = "\x1b[200~";
+        static const char END[]   = "\x1b[201~";
+        (void)write(tab->pty_fd, START, sizeof(START) - 1);
+        size_t off = 0;
+        while (off < n) {
+            ssize_t w = write(tab->pty_fd, utf8 + off, n - off);
+            if (w <= 0) break;
+            off += (size_t)w;
+        }
+        (void)write(tab->pty_fd, END, sizeof(END) - 1);
+    }
+}
+
 void hexa_appkit_term_flush(void) {
     @autoreleasepool {
         NSView *v = [g_window contentView];
@@ -2263,6 +2561,26 @@ long hexa_appkit_term_poll(void) {
                         }
                         if (ch == 'w') { g_tab_cmd = 2; continue; }
                         if (ch == 'q') { g_term_quit = 1; continue; }
+                        // Cmd+C → copy selection to clipboard. Only
+                        // intercept plain Cmd+C; Ctrl+C must still pass
+                        // through as SIGINT so programs can be killed.
+                        if (ch == 'c' && !with_ctrl) {
+                            copy_selection_to_clipboard();
+                            continue;
+                        }
+                        // Cmd+V → paste clipboard into active PTY with
+                        // bracketed-paste markers.
+                        if (ch == 'v' && !with_ctrl) {
+                            paste_from_clipboard();
+                            if (g_scroll_offset > 0) {
+                                g_scroll_offset = 0;
+                                g_full_redraw = 1;
+                            }
+                            clear_selection();
+                            if (g_window)
+                                [[g_window contentView] setNeedsDisplay:YES];
+                            continue;
+                        }
                         // Cmd+1~9 → tab 1..9. Cmd+0 is handled above as
                         // font-reset, so tab 10 has no keyboard shortcut.
                         int target = -1;
