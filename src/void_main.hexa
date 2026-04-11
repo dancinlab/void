@@ -48,6 +48,9 @@ extern fn hexa_pty_resize(fd: int, rows: int, cols: int) -> int
 extern fn hexa_appkit_term_title_reset()
 extern fn hexa_appkit_term_title_push(b: int)
 extern fn hexa_appkit_term_title_apply()
+extern fn hexa_scrollback_push_begin() -> int
+extern fn hexa_scrollback_push_cell(ch: int, fg: int, bg: int, flags: int) -> int
+extern fn hexa_scrollback_push_end() -> int
 
 // ═══════════════════════════════════════════════════════════════
 // SCREEN BUFFER — flat arrays (VP-04 compatible)
@@ -86,6 +89,16 @@ fn scr_init() {
 }
 
 fn scr_scroll_up() {
+    // Save evicted top row to scrollback (only when scrolling from screen top)
+    if scr_scroll_top == 0 {
+        let _ = hexa_scrollback_push_begin()
+        let mut sc = 0
+        while sc < COLS {
+            let _ = hexa_scrollback_push_cell(scr_cells[sc], scr_fg[sc], scr_bg[sc], scr_flags[sc])
+            sc = sc + 1
+        }
+        let _ = hexa_scrollback_push_end()
+    }
     // Shift rows within scroll region up by 1
     let mut r = scr_scroll_top
     while r < scr_scroll_bot {
@@ -1118,6 +1131,182 @@ fn self_test() {
     // Cleanup remaining tabs
     let _ = hexa_tab_close(0)
     let _ = hexa_tab_close(0)
+
+    // ── Test 13: CUU/CUD/CUF/CUB cursor movement ──
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Place cursor at (5,5) via CUP: ESC[6;6H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(72)
+    // CUU 2: ESC[2A → row 5→3
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(65)
+    // CUF 3: ESC[3C → col 5→8
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(67)
+    // CUD 1: ESC[1B → row 3→4
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(66)
+    // CUB 4: ESC[4D → col 8→4
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(68)
+    if scr_cur_y == 4 {
+        if scr_cur_x == 4 {
+            println("[void-test] T13 PASS CUU/CUD/CUF/CUB (5,5)→(4,4)")
+            pass = pass + 1
+        } else { println("[void-test] T13 FAIL  cur_x=", scr_cur_x, " expected 4"); fail = fail + 1 }
+    } else { println("[void-test] T13 FAIL  cur_y=", scr_cur_y, " expected 4"); fail = fail + 1 }
+
+    // ── Test 14: Save/restore cursor (CSI s / CSI u) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Move to (3,7): ESC[4;8H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(72)
+    // Save: ESC[s
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(115)
+    // Move somewhere else: ESC[1;1H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(72)
+    // Restore: ESC[u
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(117)
+    if scr_cur_y == 3 {
+        if scr_cur_x == 7 {
+            println("[void-test] T14 PASS save/restore cursor (3,7)")
+            pass = pass + 1
+        } else { println("[void-test] T14 FAIL  cur_x=", scr_cur_x, " expected 7"); fail = fail + 1 }
+    } else { println("[void-test] T14 FAIL  cur_y=", scr_cur_y, " expected 3"); fail = fail + 1 }
+
+    // ── Test 15: DECSTBM scroll region ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Set scroll region rows 3~6: ESC[3;6r
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(114)
+    // Put 'A' at row 2 (0-indexed) via CUP ESC[3;1H then 'A'
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(72)
+    let _ = scr_feed_byte(65)
+    // Put marker 'Z' on row 0 (outside region)
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(72)
+    let _ = scr_feed_byte(90)
+    // Move to bottom of region and force scroll: CUP row 6 col 1, write, LF
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(72)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(10)
+    // Row 0 'Z' should survive (outside scroll region)
+    if scr_cells[0] == 90 {
+        if scr_scroll_top == 2 {
+            if scr_scroll_bot == 5 {
+                println("[void-test] T15 PASS DECSTBM scroll region (row 0 intact)")
+                pass = pass + 1
+            } else { println("[void-test] T15 FAIL  scroll_bot=", scr_scroll_bot); fail = fail + 1 }
+        } else { println("[void-test] T15 FAIL  scroll_top=", scr_scroll_top); fail = fail + 1 }
+    } else { println("[void-test] T15 FAIL  row0[0]=", scr_cells[0], " expected 90 (Z)"); fail = fail + 1 }
+
+    // ── Test 16: IL insert line ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Write "AB" on row 0
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    // Move to row 0: ESC[1;1H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(72)
+    // Insert 1 line: ESC[L
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(76)
+    // Row 0 should be blank, row 1 should have 'A','B'
+    if scr_cells[0] == 32 {
+        let r1 = 1 * COLS
+        if scr_cells[r1] == 65 {
+            if scr_cells[r1 + 1] == 66 {
+                println("[void-test] T16 PASS IL insert line (AB pushed to row 1)")
+                pass = pass + 1
+            } else { println("[void-test] T16 FAIL  row1[1]=", scr_cells[r1 + 1]); fail = fail + 1 }
+        } else { println("[void-test] T16 FAIL  row1[0]=", scr_cells[r1]); fail = fail + 1 }
+    } else { println("[void-test] T16 FAIL  row0[0]=", scr_cells[0], " expected 32"); fail = fail + 1 }
+
+    // ── Test 17: DCH delete character ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Write "ABCDE"
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    let _ = scr_feed_byte(68)
+    let _ = scr_feed_byte(69)
+    // Move to col 1: ESC[1;2H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(72)
+    // Delete 2 chars: ESC[2P
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(80)
+    // Should be: A D E _ _  (B,C deleted, D,E shift left)
+    if scr_cells[0] == 65 {
+        if scr_cells[1] == 68 {
+            if scr_cells[2] == 69 {
+                println("[void-test] T17 PASS DCH delete 2 chars (ABCDE→ADE)")
+                pass = pass + 1
+            } else { println("[void-test] T17 FAIL  cell[2]=", scr_cells[2], " expected 69(E)"); fail = fail + 1 }
+        } else { println("[void-test] T17 FAIL  cell[1]=", scr_cells[1], " expected 68(D)"); fail = fail + 1 }
+    } else { println("[void-test] T17 FAIL  cell[0]=", scr_cells[0], " expected 65(A)"); fail = fail + 1 }
 
     // ── Summary ──
     println("")

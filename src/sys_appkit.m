@@ -187,6 +187,7 @@ long hexa_appkit_set_title(void) {
 #define TERM_MAX_ROWS 200
 #define TERM_MAX_COLS 400
 #define MAX_TABS 20
+#define SCROLLBACK_LINES 1000
 #define TAB_BAR_W 140
 #define TAB_ROW_H 28
 
@@ -203,6 +204,10 @@ typedef struct {
     TermCell grid[TERM_MAX_ROWS][TERM_MAX_COLS];
     int cur_row, cur_col;
     char title[128];
+    // Scrollback ring buffer (heap-allocated on first push)
+    TermCell *scrollback;   // SCROLLBACK_LINES * TERM_MAX_COLS cells
+    int sb_head;            // next write position in ring
+    int sb_count;           // lines stored (max SCROLLBACK_LINES)
 } VoidTab;
 
 static VoidTab g_tabs[MAX_TABS];
@@ -220,7 +225,11 @@ static int g_term_cur_vis = 1;
 static float g_term_cw = 0;
 static float g_term_ch = 0;
 static CTFontRef g_term_font = NULL;
+static CTFontRef g_term_font_bold = NULL;
+static NSColor *g_term_color_cache[16] = {0}; // retained ANSI palette
 static int g_term_quit = 0;
+static int g_scroll_offset = 0;    // 0 = live view, >0 = lines scrolled back
+static int g_sb_push_col = 0;      // temp column index during row push
 
 // Key ring buffer
 #define TERM_KEY_SIZE 4096
@@ -238,7 +247,7 @@ static void term_key_push(const char *data, int len) {
 // ANSI color
 static NSColor *term_color(int idx) {
     // Terminal.app Basic dark palette
-    static uint32_t a16[] = {
+    static const uint32_t a16[] = {
         0x000000,0xC33720,0x00BC12,0xC7BC09,
         0x0037DA,0xBB3FC6,0x00BBBB,0xBFBFBF,
         0x686868,0xED4E39,0x2DE636,0xD9D326,
@@ -246,10 +255,16 @@ static NSColor *term_color(int idx) {
     };
     if (idx < 0) idx = 7;
     if (idx < 16) {
-        uint32_t c = a16[idx];
-        return [NSColor colorWithRed:((c>>16)&0xFF)/255.0
-                               green:((c>>8)&0xFF)/255.0
-                                blue:(c&0xFF)/255.0 alpha:1.0];
+        // Cache hot path: 16 ANSI colors are retained at first access,
+        // never released. Avoids ~3840 NSColor allocs per drawRect.
+        if (!g_term_color_cache[idx]) {
+            uint32_t c = a16[idx];
+            g_term_color_cache[idx] = [[NSColor colorWithRed:((c>>16)&0xFF)/255.0
+                                                       green:((c>>8)&0xFF)/255.0
+                                                        blue:(c&0xFF)/255.0
+                                                       alpha:1.0] retain];
+        }
+        return g_term_color_cache[idx];
     }
     if (idx < 232) {
         int v = idx - 16;
@@ -280,6 +295,10 @@ static NSColor *term_color(int idx) {
 
 - (void)drawRect:(NSRect)dirtyRect {
     if (!g_term_font) return;
+    // Wrap entire draw in pool — drains transient autoreleased objects
+    // (NSString, NSAttributedString, NSDictionary) per frame instead of
+    // letting them accumulate in the outer event-loop pool.
+    @autoreleasepool {
     NSRect bounds = [self bounds];
 
     // ── Tab bar (left panel) ──
@@ -324,13 +343,38 @@ static NSColor *term_color(int idx) {
     [[NSColor blackColor] setFill];
     NSRectFill(NSMakeRect(ox, 0, bounds.size.width - ox, bounds.size.height));
 
+    VoidTab *atab = (g_active_tab >= 0 && g_active_tab < g_num_tabs) ? &g_tabs[g_active_tab] : NULL;
+
+    // Reusable mutable attribute dict — built once, mutated per cell.
+    // Avoids 1920+ NSMutableDictionary allocs per frame.
+    NSMutableDictionary *attrBuf = [NSMutableDictionary dictionaryWithCapacity:3];
+    NSNumber *underlineNum = @(NSUnderlineStyleSingle);
+
     for (int r = 0; r < g_term_rows; r++) {
         float y = r * g_term_ch;
         if (y + g_term_ch < dirtyRect.origin.y ||
             y > dirtyRect.origin.y + dirtyRect.size.height) continue;
+
+        // Determine cell source: scrollback ring or live grid
+        TermCell *cell_row = NULL;
+        if (g_scroll_offset > 0 && atab) {
+            int sb_n = atab->sb_count;
+            int vline = sb_n - g_scroll_offset + r;
+            if (vline >= 0 && vline < sb_n && atab->scrollback) {
+                int ring = (atab->sb_head - sb_n + vline + SCROLLBACK_LINES) % SCROLLBACK_LINES;
+                cell_row = &atab->scrollback[ring * TERM_MAX_COLS];
+            } else if (vline >= sb_n) {
+                int sr = vline - sb_n;
+                if (sr >= 0 && sr < TERM_MAX_ROWS) cell_row = g_term_grid[sr];
+            }
+        } else {
+            cell_row = g_term_grid[r];
+        }
+        if (!cell_row) continue;
+
         for (int c = 0; c < g_term_cols; c++) {
             float x = ox + c * g_term_cw;
-            TermCell *cell = &g_term_grid[r][c];
+            TermCell *cell = &cell_row[c];
             int bg = cell->bg, fg = cell->fg;
             if (cell->flags & 8) { int t = bg; bg = fg; fg = t; }
             if (bg != 0) {
@@ -339,30 +383,43 @@ static NSColor *term_color(int idx) {
             }
             if (cell->ch <= ' ') continue;
 
-            NSMutableDictionary *a = [NSMutableDictionary dictionary];
-            CTFontRef df = g_term_font;
-            if (cell->flags & 1) {
-                CTFontRef bf = CTFontCreateCopyWithSymbolicTraits(
-                    g_term_font, 0, NULL, kCTFontBoldTrait, kCTFontBoldTrait);
-                if (bf) df = bf;
-            }
-            a[(id)kCTFontAttributeName] = (__bridge id)df;
-            a[(id)kCTForegroundColorAttributeName] = (__bridge id)[term_color(fg) CGColor];
-            if (cell->flags & 4) a[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleSingle);
+            // Use cached fonts and cached colors — no per-cell CFCreate.
+            CTFontRef df = (cell->flags & 1) ? g_term_font_bold : g_term_font;
+            [attrBuf removeAllObjects];
+            // CTFont is toll-free bridged to NSFont — NSFontAttributeName accepts it
+            attrBuf[NSFontAttributeName] = (__bridge id)df;
+            // NSForegroundColorAttributeName takes NSColor — no CGColor
+            // bridging hazard. term_color() returns a retained cached object.
+            attrBuf[NSForegroundColorAttributeName] = term_color(fg);
+            if (cell->flags & 4) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
 
             unichar uch = cell->ch;
             NSString *s = [NSString stringWithCharacters:&uch length:1];
-            NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:a];
+            NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
             [as drawAtPoint:NSMakePoint(x, y + 2)];
-            if (df != g_term_font) CFRelease(df);
+            [as release]; // MRR — was leaking ~1920 objs/frame
         }
     }
-    // Cursor
-    if (g_term_cur_vis && g_term_cur_row < g_term_rows && g_term_cur_col < g_term_cols) {
+    // Cursor — only visible in live view
+    if (g_scroll_offset == 0 && g_term_cur_vis &&
+        g_term_cur_row < g_term_rows && g_term_cur_col < g_term_cols) {
         [[NSColor colorWithRed:0.6 green:0.6 blue:0.6 alpha:0.5] setFill];
         NSRectFill(NSMakeRect(ox + g_term_cur_col * g_term_cw,
                               g_term_cur_row * g_term_ch, g_term_cw, g_term_ch));
     }
+    // Scrollback indicator
+    if (g_scroll_offset > 0) {
+        NSString *ind = [NSString stringWithFormat:@"[%d/%d]",
+                         g_scroll_offset, atab ? atab->sb_count : 0];
+        NSDictionary *ia = @{
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular],
+            NSForegroundColorAttributeName:
+                [NSColor colorWithRed:0.6 green:0.6 blue:0.6 alpha:0.7]
+        };
+        NSSize isz = [ind sizeWithAttributes:ia];
+        [ind drawAtPoint:NSMakePoint(bounds.size.width - isz.width - 6, 4) withAttributes:ia];
+    }
+    } // @autoreleasepool
 }
 
 - (void)mouseDown:(NSEvent *)event {
@@ -383,60 +440,99 @@ static NSColor *term_color(int idx) {
             g_term_cur_col = g_tabs[idx].cur_col;
             // Signal hexa to reload screen from C
             g_tab_cmd = 3; // 3 = switched (hexa reloads)
+            g_scroll_offset = 0;
             [self setNeedsDisplay:YES];
         }
     }
 }
 
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    NSEventModifierFlags mods = [event modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask;
+    if (!(mods & NSEventModifierFlagCommand)) return [super performKeyEquivalent:event];
+
+    NSString *raw = [event charactersIgnoringModifiers];
+    if (!raw.length) return [super performKeyEquivalent:event];
+    unichar ch = [raw characterAtIndex:0];
+
+    if (ch == 't') { g_tab_cmd = 1; return YES; } // Cmd+T new tab
+    if (ch == 'w') { g_tab_cmd = 2; return YES; } // Cmd+W close tab
+    if (ch == 'q') { g_term_quit = 1; return YES; } // Cmd+Q quit
+    // Cmd+1~9: switch to tab N-1
+    if (ch >= '1' && ch <= '9') {
+        int target = ch - '1';
+        if (target < g_num_tabs && target != g_active_tab) {
+            if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
+                memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+                g_tabs[g_active_tab].cur_row = g_term_cur_row;
+                g_tabs[g_active_tab].cur_col = g_term_cur_col;
+            }
+            g_active_tab = target;
+            memcpy(g_term_grid, g_tabs[target].grid, sizeof(g_term_grid));
+            g_term_cur_row = g_tabs[target].cur_row;
+            g_term_cur_col = g_tabs[target].cur_col;
+            g_tab_cmd = 3; // signal hexa to reload
+            g_scroll_offset = 0;
+            [self setNeedsDisplay:YES];
+        }
+        return YES;
+    }
+    return [super performKeyEquivalent:event];
+}
+
 - (void)keyDown:(NSEvent *)event {
     NSEventModifierFlags mods = [event modifierFlags];
 
-    // Cmd+key shortcuts — check BEFORE characters (Cmd+digit may have empty characters)
-    if (mods & NSEventModifierFlagCommand) {
-        NSString *raw = [event charactersIgnoringModifiers];
-        if (raw.length > 0) {
-            unichar ch = [raw characterAtIndex:0];
-            if (ch == 't') { g_tab_cmd = 1; return; } // Cmd+T new tab
-            if (ch == 'w') { g_tab_cmd = 2; return; } // Cmd+W close tab
-            if (ch == 'q') { g_term_quit = 1; return; } // Cmd+Q quit
-            // Cmd+1~9: switch to tab N-1
-            if (ch >= '1' && ch <= '9') {
-                int target = ch - '1';
-                if (target < g_num_tabs && target != g_active_tab) {
-                    if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
-                        memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
-                        g_tabs[g_active_tab].cur_row = g_term_cur_row;
-                        g_tabs[g_active_tab].cur_col = g_term_cur_col;
-                    }
-                    g_active_tab = target;
-                    memcpy(g_term_grid, g_tabs[target].grid, sizeof(g_term_grid));
-                    g_term_cur_row = g_tabs[target].cur_row;
-                    g_term_cur_col = g_tabs[target].cur_col;
-                    g_tab_cmd = 3; // signal hexa to reload
-                }
-                return;
-            }
-        }
-        return; // Don't send other Cmd+ combos to PTY
-    }
+    // Cmd+key already handled by performKeyEquivalent
+    if (mods & NSEventModifierFlagCommand) return;
 
     NSString *chars = [event characters];
     if (!chars.length) return;
+    unichar ch = [chars characterAtIndex:0];
+
+    // Shift+PageUp/Down: scrollback navigation (don't send to PTY)
+    if (mods & NSEventModifierFlagShift) {
+        if (ch == NSPageUpFunctionKey) {
+            VoidTab *tab = (g_active_tab >= 0 && g_active_tab < g_num_tabs) ? &g_tabs[g_active_tab] : NULL;
+            g_scroll_offset += g_term_rows;
+            int max_sb = (tab && tab->scrollback) ? tab->sb_count : 0;
+            if (g_scroll_offset > max_sb) g_scroll_offset = max_sb;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (ch == NSPageDownFunctionKey) {
+            g_scroll_offset -= g_term_rows;
+            if (g_scroll_offset < 0) g_scroll_offset = 0;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+
+    // Any PTY-bound key resets scrollback to live view
+    if (g_scroll_offset > 0) {
+        g_scroll_offset = 0;
+        [self setNeedsDisplay:YES];
+    }
+
+    // Ctrl+Backspace: kill line (send Ctrl+U)
+    if ((mods & NSEventModifierFlagControl) && ch == 0x7f) {
+        char ctrl_u = 0x15;
+        term_key_push(&ctrl_u, 1);
+        return;
+    }
 
     // Ctrl+key
     if (mods & NSEventModifierFlagControl) {
         NSString *raw = [event charactersIgnoringModifiers];
         if (raw.length > 0) {
-            unichar ch = [raw characterAtIndex:0];
-            if (ch >= 'a' && ch <= 'z') {
-                char ctrl = ch - 'a' + 1;
+            unichar rch = [raw characterAtIndex:0];
+            if (rch >= 'a' && rch <= 'z') {
+                char ctrl = rch - 'a' + 1;
                 term_key_push(&ctrl, 1);
                 return;
             }
         }
     }
 
-    unichar ch = [chars characterAtIndex:0];
     switch (ch) {
         case NSUpArrowFunctionKey:    term_key_push("\033[A", 3); return;
         case NSDownArrowFunctionKey:  term_key_push("\033[B", 3); return;
@@ -450,6 +546,31 @@ static NSColor *term_color(int idx) {
     }
     const char *utf8 = [chars UTF8String];
     term_key_push(utf8, (int)strlen(utf8));
+}
+- (void)scrollWheel:(NSEvent *)event {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
+    VoidTab *tab = &g_tabs[g_active_tab];
+    float dy = [event scrollingDeltaY];
+    if ([event hasPreciseScrollingDeltas]) {
+        // Trackpad: accumulate sub-line deltas
+        static float accum = 0;
+        accum += dy;
+        if (accum > g_term_ch / 2) {
+            g_scroll_offset += (int)(accum / (g_term_ch / 2));
+            accum = fmodf(accum, g_term_ch / 2);
+        } else if (accum < -(g_term_ch / 2)) {
+            g_scroll_offset += (int)(accum / (g_term_ch / 2));
+            accum = fmodf(accum, g_term_ch / 2);
+        }
+    } else {
+        // Mouse wheel: discrete lines
+        if (dy > 0) g_scroll_offset += 3;
+        else if (dy < 0) g_scroll_offset -= 3;
+    }
+    if (g_scroll_offset < 0) g_scroll_offset = 0;
+    int max_sb = (tab->scrollback) ? tab->sb_count : 0;
+    if (g_scroll_offset > max_sb) g_scroll_offset = max_sb;
+    [self setNeedsDisplay:YES];
 }
 - (void)flagsChanged:(NSEvent *)e {}
 @end
@@ -543,6 +664,13 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         g_term_font = CTFontCreateWithName(CFSTR("SFMono-Regular"), fs, NULL);
         if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Menlo-Regular"), fs, NULL);
         if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Monaco"), fs, NULL);
+
+        // Cache bold variant ONCE at startup. Creating it per-cell-per-frame
+        // (CTFontCreateCopyWithSymbolicTraits) thrashes CGFont cache and
+        // crashed Terminal.app via CGFontStrikeRelease → free_tiny.
+        g_term_font_bold = CTFontCreateCopyWithSymbolicTraits(
+            g_term_font, 0, NULL, kCTFontBoldTrait, kCTFontBoldTrait);
+        if (!g_term_font_bold) g_term_font_bold = (CTFontRef)CFRetain(g_term_font);
 
         UniChar mc = 'M';
         CGGlyph gl;
@@ -646,6 +774,9 @@ long hexa_tab_new(void) {
     tab_clear_grid(g_tabs[idx].grid);
     g_tabs[idx].cur_row = 0;
     g_tabs[idx].cur_col = 0;
+    g_tabs[idx].scrollback = NULL;
+    g_tabs[idx].sb_head = 0;
+    g_tabs[idx].sb_count = 0;
 
     g_num_tabs++;
     g_active_tab = idx;
@@ -674,11 +805,24 @@ long hexa_tab_close(long idx) {
     }
     g_tabs[idx].used = 0;
 
+    // Free scrollback before shift
+    if (g_tabs[idx].scrollback) {
+        free(g_tabs[idx].scrollback);
+        g_tabs[idx].scrollback = NULL;
+    }
+
     // Shift tabs down
     for (int i = (int)idx; i < g_num_tabs - 1; i++) {
         g_tabs[i] = g_tabs[i + 1];
     }
     g_num_tabs--;
+    // NULL dead slot to prevent double-free (shift copies pointer)
+    if (g_num_tabs < MAX_TABS) {
+        g_tabs[g_num_tabs].scrollback = NULL;
+        g_tabs[g_num_tabs].sb_head = 0;
+        g_tabs[g_num_tabs].sb_count = 0;
+    }
+    g_scroll_offset = 0;
 
     if (g_num_tabs == 0) {
         g_active_tab = -1;
@@ -781,6 +925,43 @@ long hexa_appkit_term_poll(void) {
                                               inMode:NSDefaultRunLoopMode
                                              dequeue:YES];
             if (!ev) break;
+
+            // Intercept Cmd+key BEFORE sendEvent: — prevents macOS
+            // menu/system from stealing Cmd+T/W/Q/1~9.
+            if ([ev type] == NSEventTypeKeyDown) {
+                NSEventModifierFlags mods = [ev modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask;
+                if (mods & NSEventModifierFlagCommand) {
+                    NSString *raw = [ev charactersIgnoringModifiers];
+                    if (raw.length > 0) {
+                        unichar ch = [raw characterAtIndex:0];
+                        if (ch >= 'A' && ch <= 'Z') ch += 32; // tolower
+                        if (ch == 't') { g_tab_cmd = 1; continue; }
+                        if (ch == 'w') { g_tab_cmd = 2; continue; }
+                        if (ch == 'q') { g_term_quit = 1; continue; }
+                        if (ch >= '1' && ch <= '9') {
+                            int target = ch - '1';
+                            if (target < g_num_tabs && target != g_active_tab) {
+                                if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
+                                    memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+                                    g_tabs[g_active_tab].cur_row = g_term_cur_row;
+                                    g_tabs[g_active_tab].cur_col = g_term_cur_col;
+                                }
+                                g_active_tab = target;
+                                memcpy(g_term_grid, g_tabs[target].grid, sizeof(g_term_grid));
+                                g_term_cur_row = g_tabs[target].cur_row;
+                                g_term_cur_col = g_tabs[target].cur_col;
+                                g_scroll_offset = 0;
+                                g_tab_cmd = 3;
+                                if (g_window)
+                                    [[g_window contentView] setNeedsDisplay:YES];
+                            }
+                            continue;
+                        }
+                    }
+                    continue; // swallow unknown Cmd combos
+                }
+            }
+
             [app sendEvent:ev];
             [app updateWindows];
         }
@@ -797,6 +978,7 @@ long hexa_appkit_term_poll(void) {
                 g_term_cols = new_cols;
                 g_term_rows = new_rows;
                 g_resized = 1;
+                g_scroll_offset = 0;
                 // Notify ALL tabs' PTYs of new size
                 struct winsize ws;
                 ws.ws_row = (unsigned short)new_rows;
@@ -863,4 +1045,53 @@ void hexa_appkit_term_title_apply(void) {
         NSString *t = [NSString stringWithFormat:@"VOID — %s", g_term_title_buf];
         [g_window setTitle:t];
     }
+}
+
+// ── Scrollback ring buffer ──
+
+long hexa_scrollback_push_begin(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
+    VoidTab *tab = &g_tabs[g_active_tab];
+    if (!tab->scrollback) {
+        tab->scrollback = calloc((size_t)SCROLLBACK_LINES * TERM_MAX_COLS, sizeof(TermCell));
+        if (!tab->scrollback) return -1;
+    }
+    g_sb_push_col = 0;
+    return 0;
+}
+
+long hexa_scrollback_push_cell(long ch, long fg, long bg, long flags) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
+    VoidTab *tab = &g_tabs[g_active_tab];
+    if (!tab->scrollback || g_sb_push_col >= TERM_MAX_COLS) return -1;
+    int off = tab->sb_head * TERM_MAX_COLS + g_sb_push_col;
+    tab->scrollback[off].ch = (unichar)ch;
+    tab->scrollback[off].fg = (int)fg;
+    tab->scrollback[off].bg = (int)bg;
+    tab->scrollback[off].flags = (int)flags;
+    g_sb_push_col++;
+    return 0;
+}
+
+long hexa_scrollback_push_end(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
+    VoidTab *tab = &g_tabs[g_active_tab];
+    if (!tab->scrollback) return -1;
+    // Pad remaining columns with spaces
+    while (g_sb_push_col < TERM_MAX_COLS) {
+        int off = tab->sb_head * TERM_MAX_COLS + g_sb_push_col;
+        tab->scrollback[off].ch = ' ';
+        tab->scrollback[off].fg = 7;
+        tab->scrollback[off].bg = 0;
+        tab->scrollback[off].flags = 0;
+        g_sb_push_col++;
+    }
+    tab->sb_head = (tab->sb_head + 1) % SCROLLBACK_LINES;
+    if (tab->sb_count < SCROLLBACK_LINES) tab->sb_count++;
+    return 0;
+}
+
+long hexa_scrollback_count(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return 0;
+    return (long)g_tabs[g_active_tab].sb_count;
 }
