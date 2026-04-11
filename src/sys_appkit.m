@@ -341,10 +341,16 @@ typedef struct {
     char title[128];
     char profile_base[64];
     char cwd[1024];
-    int  was_profile;   // 1 → push pending_profile on reopen
+    int  was_profile;     // 1 → push pending_profile on reopen
+    int  original_idx;    // tab slot the closed tab lived at — reopen
+                          // reinserts here via tabs_move after creation
 } ClosedTabSnapshot;
 static ClosedTabSnapshot g_closed_stack[CLOSED_STACK_MAX];
 static int g_closed_count = 0;
+// Deferred target slot for the next tab created via tab_reopen_last —
+// set right before we flip g_tab_cmd=1; hexa_tab_new tails it back via
+// tabs_move so the reopened tab lands exactly where it was closed.
+static int g_reopen_target_idx = -1;
 
 // ── Mouse text selection state ───────────────────────────────────────
 // Set by mouseDown inside the grid area, extended by mouseDragged,
@@ -1353,11 +1359,126 @@ static NSColor *term_color(int idx) {
         [counter drawAtPoint:NSMakePoint(bounds.size.width - csz.width - 10, ty)
               withAttributes:ca];
     }
+
+    // ── Floating toolbar (bottom-right) ──
+    // Two always-visible buttons:
+    //   [▦] grid-mode toggle (equivalent to Cmd+G)
+    //   [⟳] cycle to next tab
+    // Placed at bottom-right so they're reachable even when the tab bar
+    // is hidden (1 tab) or the user is in grid mode. Mouse hit-tests
+    // against the same rects in mouseDown.
+    {
+        const float BTN_W = 28, BTN_H = 28, BTN_PAD = 8, BTN_GAP = 4;
+        float by = bounds.size.height - BTN_H - BTN_PAD;
+        float bx_cycle = bounds.size.width - BTN_W - BTN_PAD;
+        float bx_grid  = bx_cycle - BTN_W - BTN_GAP;
+        NSRect r_grid  = NSMakeRect(bx_grid,  by, BTN_W, BTN_H);
+        NSRect r_cycle = NSMakeRect(bx_cycle, by, BTN_W, BTN_H);
+
+        // Background plate — semi-transparent so terminal content
+        // underneath is still partially visible.
+        NSColor *plate = [NSColor colorWithRed:0.13 green:0.13 blue:0.15 alpha:0.85];
+        NSColor *border = [NSColor colorWithRed:0.30 green:0.30 blue:0.35 alpha:0.9];
+        NSColor *ink = [NSColor colorWithWhite:0.85 alpha:1.0];
+        NSColor *ink_active = [NSColor colorWithRed:0.4 green:0.65 blue:1.0 alpha:1.0];
+
+        for (int i = 0; i < 2; i++) {
+            NSRect r = i == 0 ? r_grid : r_cycle;
+            NSBezierPath *bp = [NSBezierPath bezierPathWithRoundedRect:r xRadius:5 yRadius:5];
+            [plate setFill];
+            [bp fill];
+            [border setStroke];
+            [bp setLineWidth:1.0];
+            [bp stroke];
+        }
+
+        // Grid icon — 2x2 squares
+        {
+            int active = (g_layout_mode == LAYOUT_GRID);
+            NSColor *c = active ? ink_active : ink;
+            [c setFill];
+            float cx = r_grid.origin.x + 6;
+            float cy = r_grid.origin.y + 6;
+            NSRectFill(NSMakeRect(cx,       cy,       6, 6));
+            NSRectFill(NSMakeRect(cx + 8,   cy,       6, 6));
+            NSRectFill(NSMakeRect(cx,       cy + 8,   6, 6));
+            NSRectFill(NSMakeRect(cx + 8,   cy + 8,   6, 6));
+        }
+
+        // Cycle icon — right-pointing chevron
+        {
+            [ink setStroke];
+            NSBezierPath *chev = [NSBezierPath bezierPath];
+            float cx = r_cycle.origin.x + BTN_W / 2;
+            float cy = r_cycle.origin.y + BTN_H / 2;
+            [chev moveToPoint:NSMakePoint(cx - 5, cy - 6)];
+            [chev lineToPoint:NSMakePoint(cx + 4, cy)];
+            [chev lineToPoint:NSMakePoint(cx - 5, cy + 6)];
+            [chev setLineWidth:2.0];
+            [chev setLineCapStyle:NSLineCapStyleRound];
+            [chev setLineJoinStyle:NSLineJoinStyleRound];
+            [chev stroke];
+        }
+    }
     } // @autoreleasepool
+}
+
+// Toolbar button hit-test — shared by mouseDown. Returns 1 if (p) is
+// on the grid toggle, 2 if on the cycle button, 0 otherwise.
+static int toolbar_button_at(NSPoint p, NSRect bounds) {
+    const float BTN_W = 28, BTN_H = 28, BTN_PAD = 8, BTN_GAP = 4;
+    float by = bounds.size.height - BTN_H - BTN_PAD;
+    float bx_cycle = bounds.size.width - BTN_W - BTN_PAD;
+    float bx_grid  = bx_cycle - BTN_W - BTN_GAP;
+    NSRect r_grid  = NSMakeRect(bx_grid,  by, BTN_W, BTN_H);
+    NSRect r_cycle = NSMakeRect(bx_cycle, by, BTN_W, BTN_H);
+    if (NSPointInRect(p, r_grid))  return 1;
+    if (NSPointInRect(p, r_cycle)) return 2;
+    return 0;
 }
 
 - (void)mouseDown:(NSEvent *)event {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSRect selfBounds = [self bounds];
+
+    // Floating toolbar hit-test first — these rects live above every
+    // other region so they work in both stacked and grid modes and
+    // regardless of tab count.
+    int btn = toolbar_button_at(p, selfBounds);
+    if (btn == 1) {
+        // Grid toggle — same behavior as Cmd+G.
+        if (g_num_tabs >= 1 && g_num_tabs <= 9)
+            g_layout_mode = (g_layout_mode == LAYOUT_GRID)
+                ? LAYOUT_STACKED : LAYOUT_GRID;
+        else
+            g_layout_mode = LAYOUT_STACKED;
+        g_layout_dirty = 1;
+        g_full_redraw = 1;
+        g_eff_tab_bar_w_cache = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (btn == 2) {
+        // Cycle to next tab.
+        if (g_num_tabs > 1) {
+            int next = (g_active_tab + 1) % g_num_tabs;
+            if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
+                memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+                g_tabs[g_active_tab].cur_row = g_term_cur_row;
+                g_tabs[g_active_tab].cur_col = g_term_cur_col;
+            }
+            g_active_tab = next;
+            memcpy(g_term_grid, g_tabs[next].grid, sizeof(g_term_grid));
+            g_term_cur_row = g_tabs[next].cur_row;
+            g_term_cur_col = g_tabs[next].cur_col;
+            g_scroll_offset = 0;
+            g_tab_cmd = 3;
+            g_full_redraw = 1;
+            clear_active_alarm();
+            [self setNeedsDisplay:YES];
+        }
+        return;
+    }
 
     // Grid mode: hit-test against all tiles and switch to the one under
     // the click. Tab bar + drag-reorder are disabled in grid mode (the
@@ -1955,21 +2076,19 @@ static VoidProfile *profile_by_title(const char *title) {
 // Cmd+Z handler. The new tab is a FRESH spawn — the shell/PTY and
 // whatever was running in the old tab are gone; only the profile
 // config (title, path, cmd) is restored. Like Chrome's Cmd+Shift+T.
+// After creation, the tab is moved back to its original slot via
+// g_reopen_target_idx / tabs_move so the order is preserved.
 static void tab_reopen_last(void) {
     if (g_closed_count <= 0) return;
     g_closed_count--;
     ClosedTabSnapshot *snap = &g_closed_stack[g_closed_count];
 
-    // Static scratch so the VoidProfile storage outlives this function;
-    // hexa_tab_new reads g_pending_profile on the next main-loop tick.
     static VoidProfile scratch;
     memset(&scratch, 0, sizeof(scratch));
     const char *label = snap->profile_base[0] ? snap->profile_base : snap->title;
     snprintf(scratch.title, sizeof(scratch.title), "%s", label);
     snprintf(scratch.path,  sizeof(scratch.path),  "%s", snap->cwd);
 
-    // If the label matches a configured profile, reuse its cmd+key so
-    // `cl` fires again. Otherwise reopen as a plain shell in the cwd.
     VoidProfile *p = profile_by_title(label);
     if (p) {
         snprintf(scratch.cmd, sizeof(scratch.cmd), "%s", p->cmd);
@@ -1979,6 +2098,14 @@ static void tab_reopen_last(void) {
         scratch.rl_nofile  = p->rl_nofile;
         scratch.rl_nice    = p->rl_nice;
     }
+
+    // Record where the tab should end up. Clamp to current tab count
+    // so we don't request an impossible slot when tabs have been
+    // closed in between.
+    int target = snap->original_idx;
+    if (target < 0) target = 0;
+    if (target > g_num_tabs) target = g_num_tabs; // will become new end
+    g_reopen_target_idx = target;
 
     g_pending_profile = &scratch;
     g_tab_cmd = 1;
@@ -2742,6 +2869,15 @@ long hexa_tab_new(void) {
     // Renumber profile group now that the new sibling is in place.
     void_tabs_renumber_profiles();
 
+    // Cmd+Z position restore — if tab_reopen_last set a target slot,
+    // shift the freshly-created tab from the end into that slot so the
+    // reopened tab lands exactly where it was closed.
+    if (g_reopen_target_idx >= 0 &&
+        g_reopen_target_idx < g_num_tabs - 1) {
+        tabs_move(g_num_tabs - 1, g_reopen_target_idx);
+    }
+    g_reopen_target_idx = -1;
+
     // Clear active rendering grid for new tab
     tab_clear_grid(g_term_grid);
     g_term_cur_row = 0;
@@ -2770,7 +2906,9 @@ long hexa_tab_close(long idx) {
 
     // Push a snapshot onto the undo-close stack so Cmd+Z can respawn
     // the same profile. We only save identity (title + profile_base +
-    // cwd), not live shell state — the PTY is about to die.
+    // cwd + original_idx), not live shell state — the PTY is about to
+    // die. The idx is used at reopen time to slot the fresh tab back
+    // into its original position via tabs_move.
     {
         if (g_closed_count >= CLOSED_STACK_MAX) {
             // Stack full — drop the oldest.
@@ -2787,6 +2925,7 @@ long hexa_tab_close(long idx) {
         snprintf(snap->cwd,          sizeof(snap->cwd),
                  "%s", g_tabs[idx].cwd);
         snap->was_profile = g_tabs[idx].profile_base[0] ? 1 : 0;
+        snap->original_idx = (int)idx;
     }
 
     // Kill PTY
