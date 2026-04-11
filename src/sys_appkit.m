@@ -1455,6 +1455,8 @@ static int toolbar_button_at(NSPoint p, NSRect bounds) {
         g_layout_dirty = 1;
         g_full_redraw = 1;
         g_eff_tab_bar_w_cache = -1;
+        [[NSUserDefaults standardUserDefaults]
+            setInteger:(NSInteger)g_layout_mode forKey:@"voidLayoutMode"];
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1730,6 +1732,11 @@ static int toolbar_button_at(NSPoint p, NSRect bounds) {
         g_layout_dirty = 1;
         g_full_redraw = 1;
         g_eff_tab_bar_w_cache = -1;
+        // Persist across restarts.
+        @autoreleasepool {
+            [[NSUserDefaults standardUserDefaults]
+                setInteger:(NSInteger)g_layout_mode forKey:@"voidLayoutMode"];
+        }
         [self setNeedsDisplay:YES];
         return YES;
     }
@@ -1913,11 +1920,113 @@ static int toolbar_button_at(NSPoint p, NSRect bounds) {
 
 // ── App delegate ──
 @interface HexaTermDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+// Menu bar action targets — thin wrappers over the same flags the
+// Cmd-intercept path uses.
+- (void)menuNewTab:(id)sender;
+- (void)menuCloseTab:(id)sender;
+- (void)menuUndoClose:(id)sender;
+- (void)menuCopy:(id)sender;
+- (void)menuPaste:(id)sender;
+- (void)menuFind:(id)sender;
+- (void)menuZoomIn:(id)sender;
+- (void)menuZoomOut:(id)sender;
+- (void)menuZoomReset:(id)sender;
+- (void)menuLayoutStacked:(id)sender;
+- (void)menuLayoutGrid:(id)sender;
+- (void)menuCycleNext:(id)sender;
 @end
 @implementation HexaTermDelegate
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)s { return YES; }
 - (void)applicationWillTerminate:(NSNotification *)n { g_term_quit = 1; }
 - (void)windowWillClose:(NSNotification *)n { g_term_quit = 1; }
+
+// Menu actions — each mirrors the equivalent Cmd-intercept branch so
+// a menu click produces the same state transition as the keyboard
+// shortcut. All of them request a redraw on the main window.
+- (void)menuNewTab:(id)sender  { (void)sender; g_tab_cmd = 1; }
+- (void)menuCloseTab:(id)sender { (void)sender; g_tab_cmd = 2; }
+- (void)menuUndoClose:(id)sender {
+    (void)sender;
+    tab_reopen_last();
+}
+- (void)menuCopy:(id)sender     { (void)sender; copy_selection_to_clipboard(); }
+- (void)menuPaste:(id)sender {
+    (void)sender;
+    paste_from_clipboard();
+    if (g_scroll_offset > 0) { g_scroll_offset = 0; g_full_redraw = 1; }
+    clear_selection();
+    if (g_window) [[g_window contentView] setNeedsDisplay:YES];
+}
+- (void)menuFind:(id)sender {
+    (void)sender;
+    if (g_search_active) search_close();
+    else                 search_open();
+    if (g_window) [[g_window contentView] setNeedsDisplay:YES];
+}
+- (void)menuZoomIn:(id)sender {
+    (void)sender;
+    set_font_size(g_font_size + 1);
+    g_eff_tab_bar_w_cache = -1;
+    g_resized = 1;
+    g_full_redraw = 1;
+    if (g_window) [[g_window contentView] setNeedsDisplay:YES];
+}
+- (void)menuZoomOut:(id)sender {
+    (void)sender;
+    set_font_size(g_font_size - 1);
+    g_eff_tab_bar_w_cache = -1;
+    g_resized = 1;
+    g_full_redraw = 1;
+    if (g_window) [[g_window contentView] setNeedsDisplay:YES];
+}
+- (void)menuZoomReset:(id)sender {
+    (void)sender;
+    set_font_size(13);
+    g_eff_tab_bar_w_cache = -1;
+    g_resized = 1;
+    g_full_redraw = 1;
+    if (g_window) [[g_window contentView] setNeedsDisplay:YES];
+}
+- (void)menuLayoutStacked:(id)sender {
+    (void)sender;
+    g_layout_mode = LAYOUT_STACKED;
+    g_layout_dirty = 1;
+    g_full_redraw = 1;
+    g_eff_tab_bar_w_cache = -1;
+    [[NSUserDefaults standardUserDefaults]
+        setInteger:(NSInteger)g_layout_mode forKey:@"voidLayoutMode"];
+    if (g_window) [[g_window contentView] setNeedsDisplay:YES];
+}
+- (void)menuLayoutGrid:(id)sender {
+    (void)sender;
+    if (g_num_tabs >= 1 && g_num_tabs <= 9) g_layout_mode = LAYOUT_GRID;
+    else                                     g_layout_mode = LAYOUT_STACKED;
+    g_layout_dirty = 1;
+    g_full_redraw = 1;
+    g_eff_tab_bar_w_cache = -1;
+    [[NSUserDefaults standardUserDefaults]
+        setInteger:(NSInteger)g_layout_mode forKey:@"voidLayoutMode"];
+    if (g_window) [[g_window contentView] setNeedsDisplay:YES];
+}
+- (void)menuCycleNext:(id)sender {
+    (void)sender;
+    if (g_num_tabs <= 1) return;
+    int next = (g_active_tab + 1) % g_num_tabs;
+    if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
+        memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+        g_tabs[g_active_tab].cur_row = g_term_cur_row;
+        g_tabs[g_active_tab].cur_col = g_term_cur_col;
+    }
+    g_active_tab = next;
+    memcpy(g_term_grid, g_tabs[next].grid, sizeof(g_term_grid));
+    g_term_cur_row = g_tabs[next].cur_row;
+    g_term_cur_col = g_tabs[next].cur_col;
+    g_scroll_offset = 0;
+    g_tab_cmd = 3;
+    g_full_redraw = 1;
+    clear_active_alarm();
+    if (g_window) [[g_window contentView] setNeedsDisplay:YES];
+}
 @end
 
 static HexaTermDelegate *g_term_delegate = nil;
@@ -2325,7 +2434,154 @@ static int void_server_detach(const char id[32]) {
     if (vs_write_exact(g_server_sock, id, 32) < 0) goto fail;
     uint32_t rhdr[3];
     if (vs_read_exact(g_server_sock, rhdr, sizeof(rhdr)) < 0) goto fail;
+    // Drain body if any
+    uint32_t body_len = rhdr[2];
+    if (body_len > 0 && body_len < 1 << 20) {
+        char skip[4096];
+        uint32_t left = body_len;
+        while (left > 0) {
+            uint32_t chunk = left > sizeof(skip) ? sizeof(skip) : left;
+            if (vs_read_exact(g_server_sock, skip, chunk) < 0) goto fail;
+            left -= chunk;
+        }
+    }
     return 0;
+fail:
+    if (g_server_sock >= 0) { close(g_server_sock); g_server_sock = -1; }
+    return -1;
+}
+
+// ── LIST + ATTACH client helpers ─────────────────────────────────────
+
+typedef struct {
+    char id[32];
+    char label[64];
+    char cwd[256];
+    char processes[1024];
+    int  proc_count;
+} VsSessionEntry;
+
+#define VS_LIST_MAX 64
+static VsSessionEntry g_vs_list[VS_LIST_MAX];
+static int g_vs_list_count = 0;
+
+// Query the server for all live sessions. Fills g_vs_list. Returns the
+// count or -1 on error.
+static int void_server_list(void) {
+    if (void_server_ensure() != 0) return -1;
+    uint32_t hdr[3] = { VS_MAGIC_CLIENT, VS_CMD_LIST, 0 };
+    if (vs_write_exact(g_server_sock, hdr, sizeof(hdr)) < 0) goto fail;
+
+    uint32_t rhdr[3];
+    if (vs_read_exact(g_server_sock, rhdr, sizeof(rhdr)) < 0) goto fail;
+    if (rhdr[0] != VS_MAGIC_CLIENT) goto fail;
+    uint32_t blen = rhdr[2];
+    if (blen < 4 || blen > (1 << 20)) { g_vs_list_count = 0; return 0; }
+
+    char *buf = (char *)malloc(blen);
+    if (!buf) goto fail;
+    if (vs_read_exact(g_server_sock, buf, blen) < 0) { free(buf); goto fail; }
+
+    uint32_t n = 0;
+    memcpy(&n, buf, 4);
+    if (n > VS_LIST_MAX) n = VS_LIST_MAX;
+    // Layout per entry must match void_server.c handle_list:
+    //   id[32] label[64] cwd[256] uint32 proc_count names[32*32]
+    const size_t each = 32 + 64 + 256 + 4 + 32 * 32;
+    char *p = buf + 4;
+    for (uint32_t i = 0; i < n; i++) {
+        if ((size_t)(p - buf) + each > blen) break;
+        memcpy(g_vs_list[i].id,    p,               32);
+        memcpy(g_vs_list[i].label, p + 32,          64);
+        memcpy(g_vs_list[i].cwd,   p + 32 + 64,     256);
+        uint32_t pc = 0;
+        memcpy(&pc, p + 32 + 64 + 256, 4);
+        g_vs_list[i].proc_count = (int)pc;
+        snprintf(g_vs_list[i].processes, sizeof(g_vs_list[i].processes),
+                 "%s", p + 32 + 64 + 256 + 4);
+        // Null-terminate fixed-size char arrays just in case
+        g_vs_list[i].id[31] = 0;
+        g_vs_list[i].label[63] = 0;
+        g_vs_list[i].cwd[255] = 0;
+        p += each;
+    }
+    free(buf);
+    g_vs_list_count = (int)n;
+    return (int)n;
+
+fail:
+    if (g_server_sock >= 0) { close(g_server_sock); g_server_sock = -1; }
+    return -1;
+}
+
+// Attach to an existing session. On success writes the fd via SCM_RIGHTS
+// into *out_fd and fills out_rows/out_cols from the server's reply. The
+// grid payload that the server sends is read into a scratch buffer and
+// discarded here — the client will let the reattached shell redraw
+// itself (claude et al. redraw on SIGWINCH / focus in).
+static int void_server_attach(const char id[32], int *out_fd,
+                              int *out_rows, int *out_cols) {
+    if (void_server_ensure() != 0) return -1;
+    uint32_t hdr[3] = { VS_MAGIC_CLIENT, VS_CMD_ATTACH, 32 };
+    if (vs_write_exact(g_server_sock, hdr, sizeof(hdr)) < 0) goto fail;
+    if (vs_write_exact(g_server_sock, id, 32) < 0) goto fail;
+
+    uint32_t rhdr[3];
+    struct msghdr msg = {0};
+    struct iovec iov = { rhdr, sizeof(rhdr) };
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    char ctrl[CMSG_SPACE(sizeof(int))];
+    memset(ctrl, 0, sizeof(ctrl));
+    msg.msg_control = ctrl;
+    msg.msg_controllen = sizeof(ctrl);
+    ssize_t r = recvmsg(g_server_sock, &msg, 0);
+    if (r < (ssize_t)sizeof(rhdr)) goto fail;
+    if (rhdr[0] != VS_MAGIC_CLIENT) goto fail;
+    uint32_t status = rhdr[1];
+    uint32_t blen = rhdr[2];
+    // status 0 = live session w/ fd, status 3 = tombstone (no fd)
+    if (status != 0) {
+        if (blen > 0 && blen < (1 << 20)) {
+            char *skip = (char *)malloc(blen);
+            vs_read_exact(g_server_sock, skip, blen);
+            free(skip);
+        }
+        return -1;
+    }
+
+    int got_fd = -1;
+    struct cmsghdr *cm = CMSG_FIRSTHDR(&msg);
+    while (cm) {
+        if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_RIGHTS) {
+            memcpy(&got_fd, CMSG_DATA(cm), sizeof(int));
+            break;
+        }
+        cm = CMSG_NXTHDR(&msg, cm);
+    }
+    if (got_fd < 0) return -1;
+
+    // Body: rows16 cols16 uint32 grid_bytes + grid_data
+    if (blen >= 8) {
+        uint16_t rows = 0, cols = 0;
+        if (vs_read_exact(g_server_sock, &rows, 2) < 0) { close(got_fd); goto fail; }
+        if (vs_read_exact(g_server_sock, &cols, 2) < 0) { close(got_fd); goto fail; }
+        uint32_t gb = 0;
+        if (vs_read_exact(g_server_sock, &gb,   4) < 0) { close(got_fd); goto fail; }
+        if (out_rows) *out_rows = rows;
+        if (out_cols) *out_cols = cols;
+        // Skip grid payload — we rely on the shell to redraw.
+        if (gb > 0 && gb < (1 << 20)) {
+            char *skip = (char *)malloc(gb);
+            vs_read_exact(g_server_sock, skip, gb);
+            free(skip);
+        }
+    }
+    int fl = fcntl(got_fd, F_GETFL, 0);
+    fcntl(got_fd, F_SETFL, fl | O_NONBLOCK);
+    *out_fd = got_fd;
+    return 0;
+
 fail:
     if (g_server_sock >= 0) { close(g_server_sock); g_server_sock = -1; }
     return -1;
@@ -2457,6 +2713,16 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
     }
     // Load profile config (~/.void/profiles.json) — creates default if missing
     load_profiles();
+
+    // Restore persisted layout mode (Cmd+G state) from NSUserDefaults so
+    // the grid/stacked choice survives restarts.
+    @autoreleasepool {
+        NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+        NSInteger saved = [ud integerForKey:@"voidLayoutMode"];
+        if (saved == LAYOUT_GRID) g_layout_mode = LAYOUT_GRID;
+        else                      g_layout_mode = LAYOUT_STACKED;
+        g_layout_dirty = 1;
+    }
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
         [app setActivationPolicy:NSApplicationActivationPolicyRegular];
@@ -2522,14 +2788,101 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             [g_window makeKeyAndOrderFront:nil];
         }
 
-        // Menu bar
+        // ── Menu bar ──
+        // Full menu with File / Edit / View / Window so the user can
+        // reach every action via the mouse. Each item targets
+        // g_term_delegate so the menu dispatch ends up in the same
+        // mutable globals that the Cmd-intercept path touches.
         NSMenu *mb = [[NSMenu alloc] init];
-        NSMenuItem *mi = [[NSMenuItem alloc] init];
-        [mb addItem:mi];
         [app setMainMenu:mb];
-        NSMenu *am = [[NSMenu alloc] init];
-        [am addItemWithTitle:@"Quit VOID" action:@selector(terminate:) keyEquivalent:@"q"];
-        [mi setSubmenu:am];
+        id D = g_term_delegate;
+
+        // Helper macro — adds a menu item with title, selector and
+        // keyEquivalent (pass @"" for no shortcut). Key-equivalent
+        // modifiers default to Cmd.
+        #define MI(menu, title, sel, key) do { \
+            NSMenuItem *_it = [[NSMenuItem alloc] initWithTitle:(title) \
+                                                         action:(sel) \
+                                                  keyEquivalent:(key)]; \
+            [_it setTarget:D]; \
+            [menu addItem:_it]; \
+        } while (0)
+
+        // Application menu (leftmost — shows the app name)
+        {
+            NSMenuItem *mi = [[NSMenuItem alloc] init];
+            [mb addItem:mi];
+            NSMenu *am = [[NSMenu alloc] initWithTitle:@"VOID"];
+            [mi setSubmenu:am];
+            [am addItemWithTitle:@"VOID 정보" action:nil keyEquivalent:@""];
+            [am addItem:[NSMenuItem separatorItem]];
+            NSMenuItem *hide = [[NSMenuItem alloc]
+                initWithTitle:@"VOID 숨기기"
+                       action:@selector(hide:)
+                keyEquivalent:@"h"];
+            [am addItem:hide];
+            [am addItem:[NSMenuItem separatorItem]];
+            [am addItemWithTitle:@"VOID 종료"
+                          action:@selector(terminate:)
+                   keyEquivalent:@"q"];
+        }
+
+        // File menu — tab lifecycle
+        {
+            NSMenuItem *mi = [[NSMenuItem alloc] init];
+            [mb addItem:mi];
+            NSMenu *fm = [[NSMenu alloc] initWithTitle:@"파일"];
+            [mi setSubmenu:fm];
+            MI(fm, @"새 탭",        @selector(menuNewTab:),     @"t");
+            MI(fm, @"탭 닫기",      @selector(menuCloseTab:),   @"w");
+            [fm addItem:[NSMenuItem separatorItem]];
+            MI(fm, @"닫은 탭 다시 열기", @selector(menuUndoClose:), @"z");
+        }
+
+        // Edit menu — clipboard + search
+        {
+            NSMenuItem *mi = [[NSMenuItem alloc] init];
+            [mb addItem:mi];
+            NSMenu *em = [[NSMenu alloc] initWithTitle:@"편집"];
+            [mi setSubmenu:em];
+            MI(em, @"복사",         @selector(menuCopy:),       @"c");
+            MI(em, @"붙여넣기",     @selector(menuPaste:),      @"v");
+            [em addItem:[NSMenuItem separatorItem]];
+            MI(em, @"찾기",         @selector(menuFind:),       @"f");
+        }
+
+        // View menu — layout + zoom
+        {
+            NSMenuItem *mi = [[NSMenuItem alloc] init];
+            [mb addItem:mi];
+            NSMenu *vm = [[NSMenu alloc] initWithTitle:@"보기"];
+            [mi setSubmenu:vm];
+            MI(vm, @"탭",           @selector(menuLayoutStacked:), @"");
+            MI(vm, @"그리드",       @selector(menuLayoutGrid:),    @"g");
+            [vm addItem:[NSMenuItem separatorItem]];
+            MI(vm, @"다음 탭",      @selector(menuCycleNext:),     @"");
+            [vm addItem:[NSMenuItem separatorItem]];
+            MI(vm, @"확대",         @selector(menuZoomIn:),        @"=");
+            MI(vm, @"축소",         @selector(menuZoomOut:),       @"-");
+            MI(vm, @"원래 크기",    @selector(menuZoomReset:),     @"0");
+        }
+
+        // Window menu — macOS populates standard window items here
+        {
+            NSMenuItem *mi = [[NSMenuItem alloc] init];
+            [mb addItem:mi];
+            NSMenu *wm = [[NSMenu alloc] initWithTitle:@"윈도우"];
+            [mi setSubmenu:wm];
+            [wm addItemWithTitle:@"최소화"
+                          action:@selector(performMiniaturize:)
+                   keyEquivalent:@"m"];
+            [wm addItemWithTitle:@"확대/축소"
+                          action:@selector(performZoom:)
+                   keyEquivalent:@""];
+            [app setWindowsMenu:wm];
+        }
+
+        #undef MI
 
         // App icon — monochrome "V" on a rounded-square plate.
         //
@@ -2899,19 +3252,20 @@ long hexa_tab_new(void) {
 // for the single new-tab request immediately following the keypress.
 VoidProfile *g_pending_profile = NULL;
 
-// Close a tab. Kills PTY. Returns new active tab index (or -1 if last tab closed).
+// Close a tab. For server-backed sessions (session_id[0] != 0) this
+// sends DETACH so the server keeps the shell alive for later reattach;
+// the local PTY fd is closed but the kernel refcount stays nonzero
+// because the server holds its own copy of the fd. For direct-spawn
+// tabs the PTY is killed like before.
 long hexa_tab_close(long idx) {
     if (idx < 0 || idx >= g_num_tabs) return g_active_tab;
     if (!g_tabs[idx].used) return g_active_tab;
 
     // Push a snapshot onto the undo-close stack so Cmd+Z can respawn
     // the same profile. We only save identity (title + profile_base +
-    // cwd + original_idx), not live shell state — the PTY is about to
-    // die. The idx is used at reopen time to slot the fresh tab back
-    // into its original position via tabs_move.
+    // cwd + original_idx), not live shell state.
     {
         if (g_closed_count >= CLOSED_STACK_MAX) {
-            // Stack full — drop the oldest.
             for (int k = 1; k < CLOSED_STACK_MAX; k++)
                 g_closed_stack[k - 1] = g_closed_stack[k];
             g_closed_count = CLOSED_STACK_MAX - 1;
@@ -2928,6 +3282,22 @@ long hexa_tab_close(long idx) {
         snap->original_idx = (int)idx;
     }
 
+    // Server-backed? → DETACH (session survives on server side) and
+    // close the local fd without killing the shell. The server still
+    // holds its own copy of the PTY master so the kernel refcount
+    // doesn't drop to zero and no SIGHUP fires on the slave.
+    int server_backed = (g_tabs[idx].session_id[0] != 0);
+    if (server_backed) {
+        void_server_detach(g_tabs[idx].session_id);
+        if (g_tabs[idx].pty_fd >= 0) {
+            close(g_tabs[idx].pty_fd);
+            g_tabs[idx].pty_fd = -1;
+        }
+        // Do NOT kill pid — the server owns the shell process now.
+        g_tabs[idx].pid = 0;
+        goto close_bookkeeping;
+    }
+
     // Kill PTY
     if (g_tabs[idx].pty_fd >= 0) {
         close(g_tabs[idx].pty_fd);
@@ -2937,7 +3307,10 @@ long hexa_tab_close(long idx) {
         kill(g_tabs[idx].pid, SIGTERM);
         waitpid(g_tabs[idx].pid, NULL, WNOHANG);
     }
+
+close_bookkeeping:
     g_tabs[idx].used = 0;
+    g_tabs[idx].session_id[0] = 0;
 
     // Free scrollback sections before shift
     for (int s = 0; s < SB_MAX_SECTIONS; s++) {
