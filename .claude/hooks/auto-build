@@ -1,9 +1,11 @@
 #!/bin/bash
 # auto-build: PostToolUse hook for the void project.
 # After any Write/Edit on a file under ~/Dev/void/src/*.m,c,hexa, rebuild
-# void_term, reinstall both VOID.app locations, and run VOID_TEST.
-# This runs MID-TURN so compile errors surface before Claude finishes
-# responding. Commit/push is the Stop hook's job (auto-ship), not ours.
+# void_term and install to /Applications/VOID.app/Contents/MacOS/. Only
+# the canonical /Applications bundle is used as a runtime target — the
+# ~/Dev/void/VOID.app directory is git-tracked for Info.plist / icon
+# source but not installed to, to avoid LaunchServices registering the
+# two paths as distinct instances (duplicate Dock tile).
 # Silent on success; emits a Claude systemMessage on failure.
 set -uo pipefail
 
@@ -42,8 +44,18 @@ trap 'rm -f "$LOG"' EXIT
     set -e
     clang -O2 -w -ObjC /tmp/void_main.c src/sys_pty.c src/sys_appkit.m \
         -framework Cocoa -o void_term
-    cp void_term VOID.app/Contents/MacOS/void_term
-    cp void_term /Applications/VOID.app/Contents/MacOS/void_term 2>/dev/null || true
+    if [ -f src/void_server.c ]; then
+        clang -O2 -w src/void_server.c -o void_server
+    fi
+    # Install to /Applications ONLY (canonical launch target). Keeping
+    # ~/Dev/void/VOID.app clean prevents LaunchServices from allocating
+    # a second Dock tile for the same CFBundleIdentifier.
+    if [ -d /Applications/VOID.app/Contents/MacOS ]; then
+        cp void_term /Applications/VOID.app/Contents/MacOS/void_term
+        if [ -f void_server ]; then
+            cp void_server /Applications/VOID.app/Contents/MacOS/void_server
+        fi
+    fi
     VOID_TEST=1 ./void_term 2>&1 | tail -3
 ) > "$LOG" 2>&1
 

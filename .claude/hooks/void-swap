@@ -1,12 +1,12 @@
 #!/bin/bash
-# void-swap: speculative hot-reload helper.
+# void-swap: build + launch helper for the void terminal.
 #
-# Builds void_term from ~/Dev/void/src, installs to both VOID.app bundles,
-# then sends SIGUSR1 to any running void_term. The running process forks
-# a shadow child that execs the new binary, adopts the current PTY fds
-# (claude sessions and all), shows its window, and the old parent exits.
-# claude conversation history is preserved because the PTY master fds
-# survive the fork+execv unchanged.
+# Canonical bundle path is /Applications/VOID.app. We install the fresh
+# binary there ONLY — the ~/Dev/void/VOID.app bundle is kept in git for
+# Info.plist and AppIcon.icns tracking, but is NOT a runtime launch
+# target. Two separately-launchable bundles would make LaunchServices
+# register them as distinct apps and produce two Dock tiles for the
+# same CFBundleIdentifier.
 #
 # Usage: void-swap [--build-only|--signal-only]
 #
@@ -28,8 +28,20 @@ if [ "$mode" != "--signal-only" ]; then
         set -e
         clang -O2 -w -ObjC /tmp/void_main.c src/sys_pty.c src/sys_appkit.m \
             -framework Cocoa -o void_term
-        cp void_term VOID.app/Contents/MacOS/void_term
-        cp void_term /Applications/VOID.app/Contents/MacOS/void_term 2>/dev/null || true
+        # Build the server too when present. Missing source = skip.
+        if [ -f src/void_server.c ]; then
+            clang -O2 -w src/void_server.c -o void_server
+        fi
+        # Canonical install target: /Applications/VOID.app only.
+        # ~/Dev/void/VOID.app is for source control of Info.plist/icns,
+        # not a launch target — installing a binary there creates the
+        # duplicate Dock tile issue.
+        if [ -d /Applications/VOID.app/Contents/MacOS ]; then
+            cp void_term /Applications/VOID.app/Contents/MacOS/void_term
+            if [ -f void_server ]; then
+                cp void_server /Applications/VOID.app/Contents/MacOS/void_server
+            fi
+        fi
         VOID_TEST=1 ./void_term 2>&1 | tail -3
     ) > "$LOG" 2>&1
     rc=$?
@@ -44,12 +56,12 @@ if [ "$mode" = "--build-only" ]; then
     exit 0
 fi
 
-# Find and signal all running void_term processes (there should only be
-# one, but be defensive). pgrep -x matches the basename exactly.
+# Find and signal running void_term processes.
 pids=$(pgrep -x void_term 2>/dev/null || true)
 if [ -z "$pids" ]; then
-    # Nothing to swap — either first launch or app closed. Just start it.
-    open ~/Dev/void/VOID.app 2>/dev/null || true
+    # Nothing running — launch via LaunchServices so the Dock tile
+    # inherits the bundle identity (single icon, not a bare-exec tile).
+    open /Applications/VOID.app 2>/dev/null || true
     exit 0
 fi
 
