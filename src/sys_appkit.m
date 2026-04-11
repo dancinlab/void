@@ -1012,47 +1012,49 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
 
         // App icon — monochrome "V" on a rounded-square plate.
         //
-        // Sized to Apple HIG for macOS Big Sur+ (1024×1024 canvas, content
-        // kept inside the ~80% safe area, corner radius ≈ 22.5% of canvas).
-        // Rendered at 1024 for retina quality and handed to NSImage at the
-        // same size — AppKit scales it down for the Dock / switcher.
+        // Follows Apple's official macOS Big Sur+ icon template:
+        //   canvas       1024 × 1024
+        //   plate        824 × 824, centered (exactly 100px gutter)
+        //   corner r     185.4 (≈22.5% of 824) — the squircle shape
+        //   content      inside the plate
         //
-        // macOS does NOT apply rounded corners automatically (unlike iOS),
-        // so we fill a NSBezierPath manually. Palette stays monochrome:
-        // charcoal background + light-gray glyph, no color channels.
+        // macOS does NOT apply rounded corners automatically on .app icons
+        // (unlike iOS), so we fill a NSBezierPath manually. Palette stays
+        // monochrome: charcoal plate + light-gray glyph, no color channels.
         {
-            CGFloat S = 1024.0;          // canvas
-            CGFloat R = S * 0.2237;      // Big Sur corner radius (~229 on 1024)
-            CGFloat inset = S * 0.10;    // 10% safe-area margin per HIG
+            CGFloat S = 1024.0;         // full canvas
+            CGFloat GUTTER = 100.0;     // Apple-official 100px gutter
+            CGFloat PS = S - GUTTER * 2;   // plate size = 824
+            CGFloat PR = 185.4;         // plate corner radius per template
             NSImage *icon = [[NSImage alloc] initWithSize:NSMakeSize(S, S)];
             [icon lockFocus];
 
-            // Fully transparent canvas so macOS composites the rounded
-            // plate over the Dock background.
+            // Transparent canvas so the Dock background shows through the
+            // gutter — Apple icons "float" on the dock, they don't fill it.
             [[NSColor clearColor] set];
             NSRectFill(NSMakeRect(0, 0, S, S));
 
-            // Rounded-square plate — dark charcoal, not pure black, so it
-            // reads on both light and dark Docks.
+            // Centered 824×824 rounded-square plate — charcoal (not pure
+            // black) so it reads on both light and dark Docks.
+            NSRect plateRect = NSMakeRect(GUTTER, GUTTER, PS, PS);
             NSBezierPath *plate = [NSBezierPath
-                bezierPathWithRoundedRect:NSMakeRect(0, 0, S, S)
-                                  xRadius:R yRadius:R];
+                bezierPathWithRoundedRect:plateRect
+                                  xRadius:PR yRadius:PR];
             [[NSColor colorWithWhite:0.08 alpha:1.0] setFill];
             [plate fill];
 
-            // Thin inner highlight for depth — still greyscale.
+            // Thin inner hairline for depth — still greyscale.
             NSBezierPath *inner = [NSBezierPath
-                bezierPathWithRoundedRect:NSMakeRect(6, 6, S - 12, S - 12)
-                                  xRadius:R - 6 yRadius:R - 6];
+                bezierPathWithRoundedRect:NSInsetRect(plateRect, 5, 5)
+                                  xRadius:PR - 5 yRadius:PR - 5];
             [[NSColor colorWithWhite:0.14 alpha:1.0] setStroke];
             [inner setLineWidth:2.0];
             [inner stroke];
 
-            // "V" glyph centered inside the safe area. Point size tuned so
-            // the glyph fills the safe box vertically without touching the
+            // "V" glyph centered inside the plate, sized to fill ~60% of
+            // the plate height — leaves optical breathing room inside the
             // rounded corners.
-            CGFloat glyphBox = S - inset * 2;   // ~819
-            NSFont *gfont = [NSFont boldSystemFontOfSize:glyphBox * 0.82];
+            NSFont *gfont = [NSFont boldSystemFontOfSize:PS * 0.62];
             NSDictionary *gattrs = @{
                 NSFontAttributeName: gfont,
                 NSForegroundColorAttributeName:
@@ -1060,8 +1062,8 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             };
             NSString *glyph = @"V";
             NSSize gs = [glyph sizeWithAttributes:gattrs];
-            CGFloat gx = (S - gs.width) / 2.0;
-            CGFloat gy = (S - gs.height) / 2.0 - S * 0.02; // slight optical nudge
+            CGFloat gx = GUTTER + (PS - gs.width) / 2.0;
+            CGFloat gy = GUTTER + (PS - gs.height) / 2.0 - PS * 0.02;
             [glyph drawAtPoint:NSMakePoint(gx, gy) withAttributes:gattrs];
 
             [icon unlockFocus];
