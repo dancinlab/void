@@ -1,0 +1,141 @@
+// examples/vt_smoke.hexa — minimal VT100/xterm escape parser (pure hexa).
+// Terminal 선행작업 #6.
+//
+// State machine:
+//   GROUND (0) — printable text → print events
+//   ESC    (1) — got 0x1B, next char chooses: '[' → CSI, ']' → OSC, else drop
+//   CSI    (2) — collect params + intermediates, final byte 0x40..0x7E → csi event
+//   OSC    (3) — skip until BEL (0x07), then → osc event
+//
+// Counts only (no payload capture) — enough to prove the state machine
+// is wired up correctly. Ready to grow a payload buffer for real use.
+//
+// Test fixtures (byte arrays, ESC = 27, '[' = 91, ']' = 93, BEL = 7):
+//   "abc"                   → 3 print, 0 csi, 0 osc
+//   "\x1b[31mred\x1b[0m"    → 3 print, 2 csi, 0 osc
+//   "\x1b]0;title\x07"      → 0 print, 0 csi, 1 osc
+//   "mix: \x1b[1mBOLD\x1b[0m end" → 13 print, 2 csi, 0 osc
+
+let mut vt_print_count = 0
+let mut vt_csi_count = 0
+let mut vt_osc_count = 0
+let mut vt_state = 0
+
+fn vt_reset() {
+    vt_print_count = 0
+    vt_csi_count = 0
+    vt_osc_count = 0
+    vt_state = 0
+    return 0
+}
+
+fn vt_feed_byte(b) {
+    if vt_state == 0 {
+        if b == 27 {
+            vt_state = 1
+        } else if b >= 32 {
+            if b < 127 {
+                vt_print_count = vt_print_count + 1
+            }
+        }
+        return 0
+    }
+    if vt_state == 1 {
+        if b == 91 {
+            vt_state = 2
+        } else if b == 93 {
+            vt_state = 3
+        } else {
+            vt_state = 0
+        }
+        return 0
+    }
+    if vt_state == 2 {
+        if b >= 64 {
+            if b <= 126 {
+                vt_csi_count = vt_csi_count + 1
+                vt_state = 0
+            }
+        }
+        return 0
+    }
+    if vt_state == 3 {
+        if b == 7 {
+            vt_osc_count = vt_osc_count + 1
+            vt_state = 0
+        }
+        return 0
+    }
+    return 0
+}
+
+fn vt_feed(bytes) {
+    let n = len(bytes)
+    let mut i = 0
+    while i < n {
+        let _ = vt_feed_byte(bytes[i])
+        i = i + 1
+    }
+    return 0
+}
+
+fn assert_counts(label: string, exp_print, exp_csi, exp_osc) {
+    let _ = label.len()
+    println("[vt] ", label,
+            " print=", vt_print_count,
+            " csi=", vt_csi_count,
+            " osc=", vt_osc_count)
+    if vt_print_count != exp_print {
+        println("[vt] FAIL ", label, " print expected=", exp_print)
+        return 0
+    }
+    if vt_csi_count != exp_csi {
+        println("[vt] FAIL ", label, " csi expected=", exp_csi)
+        return 0
+    }
+    if vt_osc_count != exp_osc {
+        println("[vt] FAIL ", label, " osc expected=", exp_osc)
+        return 0
+    }
+    return 1
+}
+
+fn main() {
+    let mut ok = 1
+
+    // Fixture 1: "abc" → 3 print only
+    let _ = vt_reset()
+    let f1 = [97, 98, 99]
+    let _ = vt_feed(f1)
+    if assert_counts("ascii  ", 3, 0, 0) == 0 { ok = 0 }
+
+    // Fixture 2: ESC [ 3 1 m r e d ESC [ 0 m → 3 print, 2 csi
+    let _ = vt_reset()
+    let f2 = [27, 91, 51, 49, 109, 114, 101, 100, 27, 91, 48, 109]
+    let _ = vt_feed(f2)
+    if assert_counts("sgr red", 3, 2, 0) == 0 { ok = 0 }
+
+    // Fixture 3: ESC ] 0 ; t i t l e BEL → 1 osc
+    let _ = vt_reset()
+    let f3 = [27, 93, 48, 59, 116, 105, 116, 108, 101, 7]
+    let _ = vt_feed(f3)
+    if assert_counts("osc set", 0, 0, 1) == 0 { ok = 0 }
+
+    // Fixture 4: "mix: " ESC[1m "BOLD" ESC[0m " end"
+    // printable: m,i,x,:,space,B,O,L,D,space,e,n,d = 13
+    let _ = vt_reset()
+    let f4 = [109, 105, 120, 58, 32,
+              27, 91, 49, 109,
+              66, 79, 76, 68,
+              27, 91, 48, 109,
+              32, 101, 110, 100]
+    let _ = vt_feed(f4)
+    if assert_counts("mix bld", 13, 2, 0) == 0 { ok = 0 }
+
+    if ok == 1 {
+        println("[vt] VT PARSER GROUND/ESC/CSI/OSC OK")
+        return 0
+    }
+    println("[vt] FAIL")
+    return 1
+}

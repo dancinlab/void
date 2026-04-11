@@ -1,0 +1,95 @@
+// examples/sh_smoke.hexa — PTY + termios + poll shell-loop smoke.
+// Terminal 선행작업 #3.
+//
+// Flow: forkpty /bin/sh → write canned "echo hexa-term\n" → poll()
+// master with 500ms ticks, appending reads to accumulator → stop when
+// accumulator contains "hexa-term" (or timeout after ~20 ticks) →
+// write "exit\n" → drain remainder → reap child → assert.
+//
+// This proves the minimum primitive set needed by a hexa-only
+// terminal emulator event loop: spawn, write, poll, read, reap.
+
+extern fn hexa_sh_spawn() -> int
+extern fn hexa_sh_write_canned(fd: int, idx: int) -> int
+extern fn hexa_sh_poll(fd: int, timeout_ms: int) -> int
+extern fn hexa_sh_append_read(fd: int) -> int
+extern fn hexa_sh_accum_contains(idx: int) -> int
+extern fn hexa_sh_accum_len_q() -> int
+extern fn hexa_sh_dump_accum() -> int
+extern fn hexa_sh_reset_accum() -> int
+extern fn hexa_sh_reap() -> int
+
+fn main() {
+    println("[sh_smoke] spawning /bin/sh under PTY")
+    let _ = hexa_sh_reset_accum()
+    let m = hexa_sh_spawn()
+    if m < 0 {
+        println("[sh_smoke] FAIL: spawn returned ", m)
+        return 1
+    }
+    println("[sh_smoke] shell master fd=", m)
+
+    // Canned #2 = "echo 1+1=$((1+1))\n". PTY terminal echo reflects the
+    // raw command ("echo 1+1=$((1+1))") but the shell execution output
+    // is the expanded "1+1=2". Needle #1 = "1+1=2" only matches AFTER
+    // the shell actually runs the command, so this is a strong
+    // end-to-end assertion rather than catching the echo reflection.
+    let w1 = hexa_sh_write_canned(m, 2)
+    println("[sh_smoke] wrote canned #2 (arith) bytes=", w1)
+    if w1 <= 0 {
+        println("[sh_smoke] FAIL: write returned ", w1)
+        return 2
+    }
+
+    // Poll/read loop: up to 20 × 500ms = 10s total.
+    let mut i = 0
+    let mut found = 0
+    while i < 20 {
+        let pr = hexa_sh_poll(m, 500)
+        if pr < 0 {
+            println("[sh_smoke] FAIL: poll returned ", pr)
+            return 3
+        }
+        if pr > 0 {
+            let n = hexa_sh_append_read(m)
+            if n < 0 {
+                println("[sh_smoke] FAIL: read returned ", n)
+                return 4
+            }
+            if hexa_sh_accum_contains(1) == 1 {
+                found = 1
+                i = 20
+            } else {
+                i = i + 1
+            }
+        } else {
+            i = i + 1
+        }
+    }
+
+    let _ = hexa_sh_dump_accum()
+    if found != 1 {
+        println("[sh_smoke] FAIL: '1+1=2' not seen within 10s (shell exec)")
+        return 5
+    }
+
+    // Tell the shell to exit and reap.
+    let w2 = hexa_sh_write_canned(m, 1)
+    println("[sh_smoke] wrote canned #1 (exit) bytes=", w2)
+
+    // Drain for up to 2s so the shell finishes cleanly.
+    let mut j = 0
+    while j < 4 {
+        let pr2 = hexa_sh_poll(m, 500)
+        if pr2 > 0 {
+            let _ = hexa_sh_append_read(m)
+        }
+        j = j + 1
+    }
+
+    let status = hexa_sh_reap()
+    println("[sh_smoke] shell exit status=", status)
+
+    println("[sh_smoke] SPAWN + WRITE + POLL + READ + REAP OK")
+    0
+}

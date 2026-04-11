@@ -1,0 +1,122 @@
+// smoke_utf8.hexa — UTF-8 decoder + grapheme cluster counter.
+// Terminal 선행작업 #5 (pure hexa, no FFI).
+//
+// Implements:
+//   utf8_decode(s: string) -> codepoint_array  (raw UTF-8 byte string → cp)
+//   is_combining(cp)       -> bool             (basic combining + ZWJ + VS)
+//   count_clusters(cps)    -> int              (grapheme cluster count)
+//
+// 2026-04-11 VB3 fix (self/build_c.hexa bc_caches_init): the `: string`
+// parameter annotation now survives parse→emit. `s[i]` on a string
+// returns the raw byte, `len(s)` returns strlen. No s.chars() detour.
+//
+// Test fixtures:
+//   "abc"  → 3 cp, 3 clusters
+//   "한글" → 2 cp, 2 clusters
+//   "a€b"  → 3 cp, 3 clusters  (€ = U+20AC, 3-byte UTF-8)
+//   "❤️"   → 2 cp, 1 cluster   (♥ U+2764 + VS-16 U+FE0F)
+
+fn utf8_decode(s: string) {
+    let mut out = []
+    let n = len(s)
+    let mut i = 0
+    while i < n {
+        let b0 = s[i]
+        let mut cp = 0
+        let mut adv = 1
+        if b0 < 128 {
+            cp = b0
+            adv = 1
+        } else if b0 < 192 {
+            cp = 0 - 1
+            adv = 1
+        } else if b0 < 224 {
+            let b1 = s[i + 1]
+            cp = (b0 - 192) * 64 + (b1 - 128)
+            adv = 2
+        } else if b0 < 240 {
+            let b1 = s[i + 1]
+            let b2 = s[i + 2]
+            cp = (b0 - 224) * 4096 + (b1 - 128) * 64 + (b2 - 128)
+            adv = 3
+        } else {
+            let b1 = s[i + 1]
+            let b2 = s[i + 2]
+            let b3 = s[i + 3]
+            cp = (b0 - 240) * 262144 + (b1 - 128) * 4096 + (b2 - 128) * 64 + (b3 - 128)
+            adv = 4
+        }
+        out = out.push(cp)
+        i = i + adv
+    }
+    return out
+}
+
+fn is_combining(cp) {
+    if cp >= 768 {
+        if cp <= 879 { return true }
+    }
+    if cp >= 1155 {
+        if cp <= 1161 { return true }
+    }
+    if cp >= 4448 {
+        if cp <= 4607 { return true }
+    }
+    if cp == 8204 { return true }
+    if cp == 8205 { return true }
+    if cp >= 65024 {
+        if cp <= 65039 { return true }
+    }
+    return false
+}
+
+fn count_clusters(cps) {
+    let n = len(cps)
+    let mut count = 0
+    let mut i = 0
+    while i < n {
+        count = count + 1
+        i = i + 1
+        while i < n {
+            let cp = cps[i]
+            if is_combining(cp) {
+                i = i + 1
+            } else {
+                break
+            }
+        }
+    }
+    return count
+}
+
+fn test_case(label: string, s: string, expected_cp, expected_cl) {
+    // Post-VB3: no dummy label.len() / s.chars() workaround needed.
+    let cps = utf8_decode(s)
+    let nb = len(s)
+    let nc = len(cps)
+    let ng = count_clusters(cps)
+    println("[utf8] ", label, " bytes=", nb, " cp=", nc, " clusters=", ng)
+    if nc != expected_cp {
+        println("[utf8] FAIL ", label, " expected cp=", expected_cp)
+        return 0
+    }
+    if ng != expected_cl {
+        println("[utf8] FAIL ", label, " expected clusters=", expected_cl)
+        return 0
+    }
+    return 1
+}
+
+fn main() {
+    let mut ok = 1
+    if test_case("ascii ", "abc", 3, 3) == 0 { ok = 0 }
+    if test_case("hangul", "한글", 2, 2) == 0 { ok = 0 }
+    if test_case("euro  ", "a€b", 3, 3) == 0 { ok = 0 }
+    if test_case("heart ", "❤️", 2, 1) == 0 { ok = 0 }
+    if ok == 1 {
+        println("[utf8] UTF-8 DECODE + GRAPHEME ITER OK")
+        return 0
+    }
+    println("[utf8] FAIL")
+    return 1
+}

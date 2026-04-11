@@ -1,0 +1,76 @@
+// examples/term_smoke.hexa — termios save/raw/cbreak/restore smoke.
+// Terminal 선행작업 #2 (hexa-lang termios binding).
+//
+// Pipeline: open fresh PTY → observe cooked c_lflag → save → set raw
+// → assert ICANON bit flipped off → restore → assert bit back on.
+// Proves tcgetattr/tcsetattr/cfmakeraw wiring from hexa extern.
+
+extern fn hexa_term_open_pty() -> int
+extern fn hexa_term_release_pty(master: int) -> int
+extern fn hexa_term_save(fd: int) -> int
+extern fn hexa_term_lflag(fd: int) -> int
+extern fn hexa_term_icanon_bit(fd: int) -> int
+extern fn hexa_term_set_raw(fd: int) -> int
+extern fn hexa_term_set_cbreak(fd: int) -> int
+extern fn hexa_term_restore(fd: int) -> int
+
+fn main() {
+    println("[term_smoke] opening fresh PTY")
+    let m = hexa_term_open_pty()
+    if m < 0 {
+        println("[term_smoke] FAIL: openpty returned ", m)
+        return 1
+    }
+    println("[term_smoke] master fd=", m)
+
+    let lflag0 = hexa_term_lflag(m)
+    let icanon0 = hexa_term_icanon_bit(m)
+    println("[term_smoke] initial c_lflag=", lflag0, " ICANON=", icanon0)
+
+    let s1 = hexa_term_save(m)
+    if s1 != 0 {
+        println("[term_smoke] FAIL: save returned ", s1)
+        return 2
+    }
+
+    let r1 = hexa_term_set_raw(m)
+    if r1 != 0 {
+        println("[term_smoke] FAIL: set_raw returned ", r1)
+        return 3
+    }
+    let icanon_raw = hexa_term_icanon_bit(m)
+    println("[term_smoke] after raw ICANON=", icanon_raw)
+    if icanon_raw != 0 {
+        println("[term_smoke] FAIL: raw mode did not clear ICANON")
+        return 4
+    }
+
+    let rr = hexa_term_restore(m)
+    if rr != 0 {
+        println("[term_smoke] FAIL: restore returned ", rr)
+        return 5
+    }
+    let icanon_post = hexa_term_icanon_bit(m)
+    println("[term_smoke] after restore ICANON=", icanon_post)
+    if icanon_post != icanon0 {
+        println("[term_smoke] FAIL: ICANON not restored")
+        return 6
+    }
+
+    let cb = hexa_term_set_cbreak(m)
+    if cb != 0 {
+        println("[term_smoke] FAIL: set_cbreak returned ", cb)
+        return 7
+    }
+    let icanon_cb = hexa_term_icanon_bit(m)
+    println("[term_smoke] after cbreak ICANON=", icanon_cb)
+    if icanon_cb != 0 {
+        println("[term_smoke] FAIL: cbreak did not clear ICANON")
+        return 8
+    }
+
+    let _ = hexa_term_restore(m)
+    let _ = hexa_term_release_pty(m)
+    println("[term_smoke] TERMIOS SAVE/RAW/CBREAK/RESTORE OK")
+    0
+}

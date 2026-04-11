@@ -1,0 +1,67 @@
+// examples/term_v0_smoke.hexa — hexa terminal emulator v0 smoke.
+// Terminal 선행작업 #4.
+//
+// Proves bidirectional byte forwarding between parent stdin (pipe)
+// and the PTY master, then back out through master read.
+//
+// Invocation (pipe stdin into the binary):
+//   printf "echo hello-term\nexit\n" | /tmp/term_v0_bin
+//
+// Inside:
+//   1. reset accumulator
+//   2. forkpty sh
+//   3. forward all pipe stdin bytes → master
+//   4. drain master until 500ms idle → accumulator
+//   5. strstr accumulator for "hello-term" (only from shell exec)
+//   6. waitpid reap
+//
+// Success: accumulator contains "hello-term", child exit == 0.
+
+extern fn hexa_sh_spawn() -> int
+extern fn hexa_sh_reset_accum() -> int
+extern fn hexa_sh_dump_accum() -> int
+extern fn hexa_sh_reap() -> int
+extern fn hexa_term_pipe_stdin_to_master(master: int) -> int
+extern fn hexa_term_drain_master(master: int, timeout_ms: int) -> int
+extern fn hexa_term_accum_has_hello_term() -> int
+
+fn main() {
+    println("[term_v0] bidirectional forwarding smoke")
+    let _ = hexa_sh_reset_accum()
+
+    let m = hexa_sh_spawn()
+    if m < 0 {
+        println("[term_v0] FAIL: spawn returned ", m)
+        return 1
+    }
+    println("[term_v0] spawned /bin/sh master=", m)
+
+    let n_fwd = hexa_term_pipe_stdin_to_master(m)
+    println("[term_v0] forwarded stdin bytes=", n_fwd)
+    if n_fwd < 0 {
+        println("[term_v0] FAIL: forward error")
+        return 2
+    }
+
+    let n_out = hexa_term_drain_master(m, 500)
+    println("[term_v0] drained master bytes=", n_out)
+
+    let _ = hexa_sh_dump_accum()
+
+    let has_probe = hexa_term_accum_has_hello_term()
+    println("[term_v0] accum has 'hello-term'=", has_probe)
+
+    let status = hexa_sh_reap()
+    println("[term_v0] child exit status=", status)
+
+    if has_probe != 1 {
+        println("[term_v0] FAIL: probe not found")
+        return 3
+    }
+    if status != 0 {
+        println("[term_v0] FAIL: shell exit ", status)
+        return 4
+    }
+    println("[term_v0] BIDIRECTIONAL FORWARDING OK")
+    0
+}

@@ -1,0 +1,49 @@
+// examples/appkit_smoke.hexa — minimal AppKit window open smoke.
+// Terminal 선행작업 #9.
+//
+// Pipeline:
+//   1. hexa_appkit_init    — NSApplication + activation policy
+//   2. hexa_appkit_window_open_default — create + show NSWindow
+//   3. hexa_appkit_run_for_ms — pump the event loop briefly
+//   4. hexa_appkit_window_close — cleanup
+//
+// Build: ./hexa self/build_c.hexa examples/appkit_smoke.hexa /tmp/appkit_smoke.c
+//        clang -ObjC -framework Cocoa /tmp/appkit_smoke.c \
+//              examples/appkit_helpers.m -o /tmp/appkit_smoke_bin
+//
+// Expected: an 800x600 black window titled "hexa term v1" appears
+// for ~1.5 seconds, then closes, binary exits rc=0.
+
+extern fn hexa_appkit_init() -> int
+extern fn hexa_appkit_window_open_default(w: int, h: int) -> int
+extern fn hexa_appkit_run_for_ms(ms: int) -> int
+extern fn hexa_appkit_window_close() -> int
+extern fn hexa_appkit_screen_wh_packed() -> long
+
+fn main() {
+    println("[appkit] init NSApplication")
+    let r0 = hexa_appkit_init()
+    if r0 != 0 {
+        println("[appkit] FAIL init ", r0)
+        return 1
+    }
+
+    let packed = hexa_appkit_screen_wh_packed()
+    println("[appkit] screen packed=", packed)
+
+    println("[appkit] opening 800x600 window")
+    let r1 = hexa_appkit_window_open_default(800, 600)
+    if r1 != 0 {
+        println("[appkit] FAIL window_open ", r1)
+        return 2
+    }
+
+    println("[appkit] pumping event loop for 1500ms")
+    let _ = hexa_appkit_run_for_ms(1500)
+
+    println("[appkit] closing window")
+    let _ = hexa_appkit_window_close()
+
+    println("[appkit] NSApplication + NSWindow FFI OK")
+    0
+}

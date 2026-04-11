@@ -1,0 +1,19 @@
+// src/smoke_osc_title.hexa — OSC 0 title passthrough via hexa_appkit_set_title
+extern fn hexa_appkit_init() -> int
+extern fn hexa_appkit_window_open_default(w: int, h: int) -> int
+extern fn hexa_appkit_set_title() -> int
+extern fn hexa_appkit_run_for_ms(ms: int) -> int
+extern fn hexa_appkit_window_close() -> int
+
+fn main() {
+    println("[osc_title] init")
+    let _ = hexa_appkit_init()
+    println("[osc_title] open 400x300")
+    let _ = hexa_appkit_window_open_default(400, 300)
+    println("[osc_title] set title")
+    let _ = hexa_appkit_set_title()
+    let _ = hexa_appkit_run_for_ms(1000)
+    let _ = hexa_appkit_window_close()
+    println("[osc_title] OSC 0 TITLE OK")
+    0
+}

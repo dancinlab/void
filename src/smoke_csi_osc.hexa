@@ -1,0 +1,686 @@
+// src/smoke_csi_osc.hexa — expanded VT state machine: CSI (ED/EL/cursor) + OSC 0.
+// Terminal 선행작업 #9 (pure hexa, no FFI).
+//
+// Extends smoke_screen / smoke_term_v1 VT parser with:
+//   CSI J  (ED)  — Erase Display: 0=cursor-to-end, 1=start-to-cursor, 2=whole
+//   CSI K  (EL)  — Erase Line:    0=cursor-to-EOL, 1=start-to-cursor, 2=whole
+//   CSI A  (CUU) — cursor up N
+//   CSI B  (CUD) — cursor down N
+//   CSI C  (CUF) — cursor forward N
+//   CSI D  (CUB) — cursor back N
+//   CSI H  (CUP) — cursor position (row;col)
+//   CSI f  (CUP) — same as H
+//   CSI m  (SGR) — no-op (avoid breaking on SGR sequences)
+//
+// OSC parsing:
+//   State 3: ESC ] enters OSC mode
+//   State 4: accumulate OSC param number, then ';', then title bytes
+//   Terminated by BEL (7) or ST (ESC \)
+//   OSC 0/1/2: extract title into osc_title_bytes[]
+//
+// VT states: 0=GROUND, 1=ESC, 2=CSI, 3=OSC_NUM, 4=OSC_STRING
+
+let SCREEN_COLS = 80
+let SCREEN_ROWS = 24
+let SCREEN_CELLS = 1920
+
+let mut scr_cells = []
+let mut scr_cur_x = 0
+let mut scr_cur_y = 0
+let mut scr_state = 0
+let mut scr_param = 0
+let mut scr_params = []
+let mut scr_param_started = 0
+
+// OSC state
+let mut osc_num = 0
+let mut osc_num_done = 0
+let mut osc_title_bytes = []
+
+fn scr_init() {
+    scr_cells = []
+    let mut i = 0
+    while i < SCREEN_CELLS {
+        scr_cells = scr_cells.push(32)
+        i = i + 1
+    }
+    scr_cur_x = 0
+    scr_cur_y = 0
+    scr_state = 0
+    scr_param = 0
+    scr_params = []
+    scr_param_started = 0
+    osc_num = 0
+    osc_num_done = 0
+    osc_title_bytes = []
+    return 0
+}
+
+fn scr_put(cp) {
+    if scr_cur_y >= SCREEN_ROWS { return 0 }
+    if scr_cur_y < 0 { return 0 }
+    let idx = scr_cur_y * SCREEN_COLS + scr_cur_x
+    scr_cells[idx] = cp
+    scr_cur_x = scr_cur_x + 1
+    if scr_cur_x >= SCREEN_COLS {
+        scr_cur_x = 0
+        scr_cur_y = scr_cur_y + 1
+    }
+    return 0
+}
+
+fn scr_newline() {
+    scr_cur_x = 0
+    scr_cur_y = scr_cur_y + 1
+    return 0
+}
+
+fn scr_csi_reset() {
+    scr_params = []
+    scr_param = 0
+    scr_param_started = 0
+    return 0
+}
+
+fn scr_csi_flush() {
+    if scr_param_started == 1 {
+        scr_params = scr_params.push(scr_param)
+    }
+    scr_param = 0
+    scr_param_started = 0
+    return 0
+}
+
+fn scr_csi_get(idx, default_val) {
+    if idx < len(scr_params) {
+        return scr_params[idx]
+    }
+    return default_val
+}
+
+// CUP — Cursor Position. CSI n;m H (1-indexed)
+fn scr_cup() {
+    let row1 = scr_csi_get(0, 1)
+    let col1 = scr_csi_get(1, 1)
+    let mut y = row1 - 1
+    let mut x = col1 - 1
+    if y < 0 { y = 0 }
+    if x < 0 { x = 0 }
+    if y >= SCREEN_ROWS { y = SCREEN_ROWS - 1 }
+    if x >= SCREEN_COLS { x = SCREEN_COLS - 1 }
+    scr_cur_x = x
+    scr_cur_y = y
+    return 0
+}
+
+// CUU — Cursor Up. CSI n A (default n=1)
+fn scr_cuu() {
+    let n = scr_csi_get(0, 1)
+    scr_cur_y = scr_cur_y - n
+    if scr_cur_y < 0 { scr_cur_y = 0 }
+    return 0
+}
+
+// CUD — Cursor Down. CSI n B (default n=1)
+fn scr_cud() {
+    let n = scr_csi_get(0, 1)
+    scr_cur_y = scr_cur_y + n
+    if scr_cur_y >= SCREEN_ROWS { scr_cur_y = SCREEN_ROWS - 1 }
+    return 0
+}
+
+// CUF — Cursor Forward. CSI n C (default n=1)
+fn scr_cuf() {
+    let n = scr_csi_get(0, 1)
+    scr_cur_x = scr_cur_x + n
+    if scr_cur_x >= SCREEN_COLS { scr_cur_x = SCREEN_COLS - 1 }
+    return 0
+}
+
+// CUB — Cursor Back. CSI n D (default n=1)
+fn scr_cub() {
+    let n = scr_csi_get(0, 1)
+    scr_cur_x = scr_cur_x - n
+    if scr_cur_x < 0 { scr_cur_x = 0 }
+    return 0
+}
+
+// ED — Erase Display. CSI n J
+//   0 = cursor to end of screen
+//   1 = start of screen to cursor
+//   2 = entire screen
+fn scr_ed() {
+    let mode = scr_csi_get(0, 0)
+    if mode == 0 {
+        // Erase from cursor to end of screen
+        let start = scr_cur_y * SCREEN_COLS + scr_cur_x
+        let mut i = start
+        while i < SCREEN_CELLS {
+            scr_cells[i] = 32
+            i = i + 1
+        }
+    } else if mode == 1 {
+        // Erase from start of screen to cursor (inclusive)
+        let end = scr_cur_y * SCREEN_COLS + scr_cur_x
+        let mut i = 0
+        while i <= end {
+            scr_cells[i] = 32
+            i = i + 1
+        }
+    } else if mode == 2 {
+        // Erase entire screen
+        let mut i = 0
+        while i < SCREEN_CELLS {
+            scr_cells[i] = 32
+            i = i + 1
+        }
+    }
+    return 0
+}
+
+// EL — Erase Line. CSI n K
+//   0 = cursor to end of line
+//   1 = start of line to cursor
+//   2 = entire line
+fn scr_el() {
+    let mode = scr_csi_get(0, 0)
+    let row_start = scr_cur_y * SCREEN_COLS
+    if mode == 0 {
+        // Erase from cursor to end of line
+        let mut i = row_start + scr_cur_x
+        let row_end = row_start + SCREEN_COLS
+        while i < row_end {
+            scr_cells[i] = 32
+            i = i + 1
+        }
+    } else if mode == 1 {
+        // Erase from start of line to cursor (inclusive)
+        let mut i = row_start
+        let stop = row_start + scr_cur_x
+        while i <= stop {
+            scr_cells[i] = 32
+            i = i + 1
+        }
+    } else if mode == 2 {
+        // Erase entire line
+        let mut i = row_start
+        let row_end = row_start + SCREEN_COLS
+        while i < row_end {
+            scr_cells[i] = 32
+            i = i + 1
+        }
+    }
+    return 0
+}
+
+// CSI dispatch — called when final byte (0x40..0x7E) arrives
+fn scr_csi_dispatch(b) {
+    if b == 72 {
+        // H — CUP
+        let _ = scr_cup()
+    } else if b == 102 {
+        // f — CUP (alias)
+        let _ = scr_cup()
+    } else if b == 65 {
+        // A — CUU
+        let _ = scr_cuu()
+    } else if b == 66 {
+        // B — CUD
+        let _ = scr_cud()
+    } else if b == 67 {
+        // C — CUF
+        let _ = scr_cuf()
+    } else if b == 68 {
+        // D — CUB
+        let _ = scr_cub()
+    } else if b == 74 {
+        // J — ED
+        let _ = scr_ed()
+    } else if b == 75 {
+        // K — EL
+        let _ = scr_el()
+    } else if b == 109 {
+        // m — SGR (no-op: avoid breaking on color sequences)
+        let _ = 0
+    }
+    return 0
+}
+
+fn scr_feed_byte(b) {
+    // State 0: GROUND
+    if scr_state == 0 {
+        if b == 27 {
+            scr_state = 1
+        } else if b == 10 {
+            let _ = scr_newline()
+        } else if b == 13 {
+            scr_cur_x = 0
+        } else if b >= 32 {
+            if b < 127 {
+                let _ = scr_put(b)
+            }
+        }
+        return 0
+    }
+    // State 1: ESC received
+    if scr_state == 1 {
+        if b == 91 {
+            // ESC [ → CSI
+            let _ = scr_csi_reset()
+            scr_state = 2
+        } else if b == 93 {
+            // ESC ] → OSC
+            osc_num = 0
+            osc_num_done = 0
+            osc_title_bytes = []
+            scr_state = 3
+        } else {
+            scr_state = 0
+        }
+        return 0
+    }
+    // State 2: CSI parameter collection
+    if scr_state == 2 {
+        if b >= 48 {
+            if b <= 57 {
+                scr_param = scr_param * 10 + (b - 48)
+                scr_param_started = 1
+                return 0
+            }
+        }
+        if b == 59 {
+            let _ = scr_csi_flush()
+            return 0
+        }
+        if b >= 64 {
+            if b <= 126 {
+                let _ = scr_csi_flush()
+                let _ = scr_csi_dispatch(b)
+                scr_state = 0
+                return 0
+            }
+        }
+        return 0
+    }
+    // State 3: OSC number accumulation (digits before ';')
+    if scr_state == 3 {
+        if b >= 48 {
+            if b <= 57 {
+                osc_num = osc_num * 10 + (b - 48)
+                return 0
+            }
+        }
+        if b == 59 {
+            // Semicolon: OSC number done, start collecting string
+            osc_num_done = 1
+            scr_state = 4
+            return 0
+        }
+        // BEL or other — terminate OSC with no string
+        if b == 7 {
+            scr_state = 0
+            return 0
+        }
+        // ESC might start ST (ESC \)
+        if b == 27 {
+            // Simplified: just return to ground (ESC \ ST)
+            scr_state = 0
+            return 0
+        }
+        return 0
+    }
+    // State 4: OSC string accumulation
+    if scr_state == 4 {
+        if b == 7 {
+            // BEL terminates OSC
+            scr_state = 0
+            return 0
+        }
+        if b == 27 {
+            // ESC — next should be '\' for ST; simplified: just end OSC
+            scr_state = 0
+            return 0
+        }
+        // Accumulate title bytes for OSC 0/1/2
+        if osc_num <= 2 {
+            osc_title_bytes = osc_title_bytes.push(b)
+        }
+        return 0
+    }
+    return 0
+}
+
+fn scr_feed(bytes) {
+    let n = len(bytes)
+    let mut i = 0
+    while i < n {
+        let _ = scr_feed_byte(bytes[i])
+        i = i + 1
+    }
+    return 0
+}
+
+// Helper: compare osc_title_bytes against expected byte array
+fn osc_title_matches(expected) {
+    let n = len(osc_title_bytes)
+    let en = len(expected)
+    if n != en { return 0 }
+    let mut i = 0
+    while i < n {
+        if osc_title_bytes[i] != expected[i] { return 0 }
+        i = i + 1
+    }
+    return 1
+}
+
+fn assert_eq(label: string, got, want) {
+    let _ = label.len()
+    if got != want {
+        println("  FAIL ", label, " got=", got, " want=", want)
+        return 0
+    }
+    return 1
+}
+
+fn main() {
+    let mut ok = 1
+    let mut test_n = 0
+    let mut pass_n = 0
+
+    // ══════════════════════════════════════════════════════
+    // Test 1: CSI 2J — Erase entire display
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // Write "ABC" at (0,0), then ESC[2J to clear
+    //   A=65, B=66, C=67, ESC=27, [=91, 2=50, J=74
+    let t1 = [65, 66, 67, 27, 91, 50, 74]
+    let _ = scr_feed(t1)
+    let t1_c0 = scr_cells[0]
+    let t1_c1 = scr_cells[1]
+    let t1_c2 = scr_cells[2]
+    let mut t1_ok = 1
+    if assert_eq("ED2 cell0", t1_c0, 32) == 0 { t1_ok = 0 }
+    if assert_eq("ED2 cell1", t1_c1, 32) == 0 { t1_ok = 0 }
+    if assert_eq("ED2 cell2", t1_c2, 32) == 0 { t1_ok = 0 }
+    if t1_ok == 1 {
+        println("[test 1] PASS  CSI 2J (erase display)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 1] FAIL  CSI 2J (erase display)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 2: CSI 3;5 H — CUP to row 3, col 5 → (4, 2) 0-indexed
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // ESC[3;5H   → ESC=27, [=91, 3=51, ;=59, 5=53, H=72
+    let t2 = [27, 91, 51, 59, 53, 72]
+    let _ = scr_feed(t2)
+    let mut t2_ok = 1
+    if assert_eq("CUP cur_x", scr_cur_x, 4) == 0 { t2_ok = 0 }
+    if assert_eq("CUP cur_y", scr_cur_y, 2) == 0 { t2_ok = 0 }
+    if t2_ok == 1 {
+        println("[test 2] PASS  CSI 3;5H (cursor at 4,2)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 2] FAIL  CSI 3;5H (cursor at 4,2)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 3: CSI A — Cursor Up 1 (default)
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // Move cursor to row 5 first: ESC[6;1H (row 6 → y=5, col 1 → x=0)
+    // Then ESC[A → up 1 → y=4
+    //   ESC=27, [=91, 6=54, ;=59, 1=49, H=72, ESC=27, [=91, A=65
+    let t3 = [27, 91, 54, 59, 49, 72, 27, 91, 65]
+    let _ = scr_feed(t3)
+    let mut t3_ok = 1
+    if assert_eq("CUU cur_y", scr_cur_y, 4) == 0 { t3_ok = 0 }
+    if assert_eq("CUU cur_x", scr_cur_x, 0) == 0 { t3_ok = 0 }
+    if t3_ok == 1 {
+        println("[test 3] PASS  CSI A (cursor up 1)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 3] FAIL  CSI A (cursor up 1)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 4: CSI 5C — Cursor Forward 5
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // Start at (0,0), then ESC[5C → x=5
+    //   ESC=27, [=91, 5=53, C=67
+    let t4 = [27, 91, 53, 67]
+    let _ = scr_feed(t4)
+    let mut t4_ok = 1
+    if assert_eq("CUF cur_x", scr_cur_x, 5) == 0 { t4_ok = 0 }
+    if assert_eq("CUF cur_y", scr_cur_y, 0) == 0 { t4_ok = 0 }
+    if t4_ok == 1 {
+        println("[test 4] PASS  CSI 5C (cursor forward 5)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 4] FAIL  CSI 5C (cursor forward 5)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 5: CSI K — Erase Line from cursor to EOL
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // Write "ABCDE" at row 0, then move cursor to col 2, then ESC[K
+    //   A=65, B=66, C=67, D=68, E=69
+    //   ESC[1;3H → cursor to (2, 0) (col 3 = x=2, row 1 = y=0)
+    //   ESC[K (mode 0 — erase from cursor to EOL)
+    let t5 = [65, 66, 67, 68, 69, 27, 91, 49, 59, 51, 72, 27, 91, 75]
+    let _ = scr_feed(t5)
+    let t5_c0 = scr_cells[0]
+    let t5_c1 = scr_cells[1]
+    let t5_c2 = scr_cells[2]
+    let t5_c3 = scr_cells[3]
+    let t5_c4 = scr_cells[4]
+    let mut t5_ok = 1
+    // A and B should remain (cols 0,1)
+    if assert_eq("EL A", t5_c0, 65) == 0 { t5_ok = 0 }
+    if assert_eq("EL B", t5_c1, 66) == 0 { t5_ok = 0 }
+    // C,D,E should be erased (cols 2,3,4)
+    if assert_eq("EL c2", t5_c2, 32) == 0 { t5_ok = 0 }
+    if assert_eq("EL c3", t5_c3, 32) == 0 { t5_ok = 0 }
+    if assert_eq("EL c4", t5_c4, 32) == 0 { t5_ok = 0 }
+    if t5_ok == 1 {
+        println("[test 5] PASS  CSI K (erase line from cursor)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 5] FAIL  CSI K (erase line from cursor)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 6: OSC 0 — set title "test-title" via BEL
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // ESC ] 0 ; t e s t - t i t l e BEL
+    //   27 93 48 59 116 101 115 116 45 116 105 116 108 101 7
+    let t6 = [27, 93, 48, 59, 116, 101, 115, 116, 45, 116, 105, 116, 108, 101, 7]
+    let _ = scr_feed(t6)
+    // Expected title bytes: "test-title" = [116, 101, 115, 116, 45, 116, 105, 116, 108, 101]
+    let expected_title = [116, 101, 115, 116, 45, 116, 105, 116, 108, 101]
+    let t6_match = osc_title_matches(expected_title)
+    let mut t6_ok = 1
+    if assert_eq("OSC len", len(osc_title_bytes), 10) == 0 { t6_ok = 0 }
+    if assert_eq("OSC match", t6_match, 1) == 0 { t6_ok = 0 }
+    if assert_eq("OSC num", osc_num, 0) == 0 { t6_ok = 0 }
+    if t6_ok == 1 {
+        println("[test 6] PASS  OSC 0 title (BEL terminated)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 6] FAIL  OSC 0 title (BEL terminated)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 7: CSI B — Cursor Down 3
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // ESC[3B → cursor down 3 from y=0 → y=3
+    //   ESC=27, [=91, 3=51, B=66
+    let t7 = [27, 91, 51, 66]
+    let _ = scr_feed(t7)
+    let mut t7_ok = 1
+    if assert_eq("CUD cur_y", scr_cur_y, 3) == 0 { t7_ok = 0 }
+    if assert_eq("CUD cur_x", scr_cur_x, 0) == 0 { t7_ok = 0 }
+    if t7_ok == 1 {
+        println("[test 7] PASS  CSI 3B (cursor down 3)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 7] FAIL  CSI 3B (cursor down 3)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 8: CSI 2D — Cursor Back 2
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // Move to col 10 first: ESC[1;11H (col 11 → x=10)
+    // Then ESC[2D → x=8
+    //   ESC=27, [=91, 1=49, ;=59, 1=49, 1=49, H=72
+    //   ESC=27, [=91, 2=50, D=68
+    let t8 = [27, 91, 49, 59, 49, 49, 72, 27, 91, 50, 68]
+    let _ = scr_feed(t8)
+    let mut t8_ok = 1
+    if assert_eq("CUB cur_x", scr_cur_x, 8) == 0 { t8_ok = 0 }
+    if assert_eq("CUB cur_y", scr_cur_y, 0) == 0 { t8_ok = 0 }
+    if t8_ok == 1 {
+        println("[test 8] PASS  CSI 2D (cursor back 2)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 8] FAIL  CSI 2D (cursor back 2)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 9: CSI J mode 0 — Erase from cursor to end
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // Fill first 5 cells with X (88), move cursor to col 2, then ESC[J (mode 0)
+    let t9 = [88, 88, 88, 88, 88, 27, 91, 49, 59, 51, 72, 27, 91, 74]
+    let _ = scr_feed(t9)
+    let t9_c0 = scr_cells[0]
+    let t9_c1 = scr_cells[1]
+    let t9_c2 = scr_cells[2]
+    let t9_c3 = scr_cells[3]
+    let mut t9_ok = 1
+    // Cols 0,1 should remain X (88)
+    if assert_eq("ED0 c0", t9_c0, 88) == 0 { t9_ok = 0 }
+    if assert_eq("ED0 c1", t9_c1, 88) == 0 { t9_ok = 0 }
+    // Cols 2,3 should be erased (32)
+    if assert_eq("ED0 c2", t9_c2, 32) == 0 { t9_ok = 0 }
+    if assert_eq("ED0 c3", t9_c3, 32) == 0 { t9_ok = 0 }
+    if t9_ok == 1 {
+        println("[test 9] PASS  CSI J (erase cursor to end)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 9] FAIL  CSI J (erase cursor to end)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 10: CSI 2K — Erase entire line
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // Write "HELLO" on row 0, move cursor to col 2, then ESC[2K
+    //   H=72, E=69, L=76, L=76, O=79
+    //   ESC[1;3H → (2, 0)
+    //   ESC[2K
+    //   ESC=27, [=91, 2=50, K=75
+    let t10 = [72, 69, 76, 76, 79, 27, 91, 49, 59, 51, 72, 27, 91, 50, 75]
+    let _ = scr_feed(t10)
+    let t10_c0 = scr_cells[0]
+    let t10_c1 = scr_cells[1]
+    let t10_c2 = scr_cells[2]
+    let t10_c3 = scr_cells[3]
+    let t10_c4 = scr_cells[4]
+    let mut t10_ok = 1
+    // Entire row should be erased
+    if assert_eq("EL2 c0", t10_c0, 32) == 0 { t10_ok = 0 }
+    if assert_eq("EL2 c1", t10_c1, 32) == 0 { t10_ok = 0 }
+    if assert_eq("EL2 c2", t10_c2, 32) == 0 { t10_ok = 0 }
+    if assert_eq("EL2 c3", t10_c3, 32) == 0 { t10_ok = 0 }
+    if assert_eq("EL2 c4", t10_c4, 32) == 0 { t10_ok = 0 }
+    if t10_ok == 1 {
+        println("[test 10] PASS  CSI 2K (erase entire line)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 10] FAIL  CSI 2K (erase entire line)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 11: CSI m — SGR no-op (should not crash)
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // Write "A", then ESC[31m (red), then "B" — both should land in screen
+    //   A=65, ESC=27, [=91, 3=51, 1=49, m=109, B=66
+    let t11 = [65, 27, 91, 51, 49, 109, 66]
+    let _ = scr_feed(t11)
+    let t11_c0 = scr_cells[0]
+    let t11_c1 = scr_cells[1]
+    let mut t11_ok = 1
+    if assert_eq("SGR A", t11_c0, 65) == 0 { t11_ok = 0 }
+    if assert_eq("SGR B", t11_c1, 66) == 0 { t11_ok = 0 }
+    if t11_ok == 1 {
+        println("[test 11] PASS  CSI m (SGR no-op passthrough)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 11] FAIL  CSI m (SGR no-op passthrough)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Test 12: OSC 0 via ST terminator (ESC \)
+    // ══════════════════════════════════════════════════════
+    test_n = test_n + 1
+    let _ = scr_init()
+    // ESC ] 0 ; h i ESC \
+    //   27 93 48 59 104 105 27 92
+    let t12 = [27, 93, 48, 59, 104, 105, 27, 92]
+    let _ = scr_feed(t12)
+    let expected_hi = [104, 105]
+    let t12_match = osc_title_matches(expected_hi)
+    let mut t12_ok = 1
+    if assert_eq("OSC_ST len", len(osc_title_bytes), 2) == 0 { t12_ok = 0 }
+    if assert_eq("OSC_ST match", t12_match, 1) == 0 { t12_ok = 0 }
+    if t12_ok == 1 {
+        println("[test 12] PASS  OSC 0 title (ST terminated)")
+        pass_n = pass_n + 1
+    } else {
+        println("[test 12] FAIL  OSC 0 title (ST terminated)")
+        ok = 0
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Summary
+    // ══════════════════════════════════════════════════════
+    println("")
+    println("[csi_osc] ", pass_n, "/", test_n, " tests passed")
+    if ok == 1 {
+        println("[csi_osc] VT CSI (ED/EL/CUU/CUD/CUF/CUB/CUP/SGR) + OSC 0 OK")
+        return 0
+    }
+    println("[csi_osc] FAIL")
+    return 1
+}

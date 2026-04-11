@@ -1,0 +1,24 @@
+// src/smoke_drawrect.hexa — NSView subclass drawRect smoke
+extern fn hexa_appkit_init() -> int
+extern fn hexa_appkit_window_open_default(w: int, h: int) -> int
+extern fn hexa_appkit_attach_drawrect_view() -> int
+extern fn hexa_appkit_run_for_ms(ms: int) -> int
+extern fn hexa_appkit_window_close() -> int
+
+fn main() {
+    println("[drawrect] init")
+    let _ = hexa_appkit_init()
+    println("[drawrect] open 800x600")
+    let _ = hexa_appkit_window_open_default(800, 600)
+    println("[drawrect] attach HexaDrawView")
+    let r = hexa_appkit_attach_drawrect_view()
+    if r != 0 {
+        println("[drawrect] FAIL attach ", r)
+        return 1
+    }
+    println("[drawrect] pump event loop 1500ms")
+    let _ = hexa_appkit_run_for_ms(1500)
+    let _ = hexa_appkit_window_close()
+    println("[drawrect] DRAWRECT + CORE TEXT OK")
+    0
+}

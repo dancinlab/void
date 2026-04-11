@@ -1,0 +1,35 @@
+// examples/pty_smoke.hexa — first-light PTY spawn + read smoke.
+// Terminal 선행작업 #1 (hexa-lang PTY binding).
+//
+// Pipeline:
+//   1. build_c.hexa codegen pty_smoke.hexa → pty_smoke.c
+//   2. clang pty_smoke.c + examples/pty_helpers.c → binary
+//   3. run: spawn /bin/echo under PTY, read from master, print
+//
+// Success condition: output includes "hello-from-pty".
+// This proves hexa extern fn → libc openpty/forkpty end-to-end.
+
+extern fn hexa_pty_spawn_echo() -> int
+extern fn hexa_pty_read_static(fd: int) -> int
+extern fn hexa_pty_close_fd(fd: int) -> int
+extern fn hexa_pty_puts_buf() -> int
+
+fn main() {
+    println("[pty_smoke] spawning /bin/echo under new PTY")
+    let fd = hexa_pty_spawn_echo()
+    if fd < 0 {
+        println("[pty_smoke] FAIL: forkpty returned ", fd)
+        return 1
+    }
+    println("[pty_smoke] master fd=", fd)
+    let _ = hexa_pty_read_static(fd)
+    let n = hexa_pty_puts_buf()
+    println("[pty_smoke] bytes=", n)
+    let _ = hexa_pty_close_fd(fd)
+    if n <= 0 {
+        println("[pty_smoke] FAIL: empty read")
+        return 2
+    }
+    println("[pty_smoke] LINK + FORKPTY + READ OK")
+    0
+}
