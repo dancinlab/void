@@ -265,12 +265,44 @@ typedef struct VoidTab_ {
     // for this tab). On Cmd+W, a non-empty id triggers a DETACH instead
     // of closing the PTY + killing the shell.
     char session_id[32];
+    // Per-tab terminal dimensions for grid (tiling) layout mode. In stacked
+    // mode all tabs share g_term_rows/g_term_cols; in grid mode each tile
+    // gets its own rows/cols derived from its NSRect ÷ cell metrics, and
+    // TIOCSWINSZ is sent to the PTY so the shell redraws at the right size.
+    int tile_rows;
+    int tile_cols;
+    // Background-tab plain-text cursor in grid mode. Drained bytes from the
+    // PTY are written cell-by-cell into the tab's own grid (bypassing the
+    // hexa VT parser which has single global state). This is best-effort
+    // v1 — full SGR/CSI escape sequences are stripped and only printable
+    // ASCII + LF/CR/BS/TAB are rendered. The active tab still uses the
+    // full hexa VT parser via the normal main loop read path.
+    int bg_cur_row;
+    int bg_cur_col;
+    int bg_esc_state; // 0 = normal, 1 = saw ESC, 2 = inside CSI
 } VoidTab;
 
 static VoidTab g_tabs[MAX_TABS];
 static int g_num_tabs = 0;
 static int g_active_tab = -1;
 static int g_tab_cmd = 0; // 0=none, 1=new, 2=close
+
+// ── Layout mode (tiling grid vs stacked tab bar) ──
+// Stacked: classic one-tab-at-a-time with the left tab bar (current default).
+// Grid:    tiling mode where ALL live tabs render simultaneously, sized
+//          automatically based on tab count (1=full, 2=1×2, 3=1×3, 4=2×2,
+//          5-6=2×3, 7-9=3×3, 10+=falls back to stacked).
+// Toggled by Cmd+G. When entering grid mode, per-tab tile_rows/tile_cols
+// are recomputed and TIOCSWINSZ is sent to each PTY so shells redraw at
+// their new sizes. When leaving grid mode, everyone goes back to sharing
+// g_term_rows/g_term_cols.
+typedef enum { LAYOUT_STACKED = 0, LAYOUT_GRID = 1 } LayoutMode;
+static LayoutMode g_layout_mode = LAYOUT_STACKED;
+// Invalidation flag — set when the layout mode or tab count changes so
+// the main event loop reapplies tile rects on the next tick. Separate
+// from g_resized so a plain Cmd+G toggle doesn't require a window resize
+// to trigger a reflow.
+static int g_layout_dirty = 0;
 
 // Effective tab bar width — 0 when there is only one tab (matches
 // Safari/Terminal.app: the chrome disappears so the user reclaims the pixels).
@@ -279,6 +311,9 @@ static int g_tab_cmd = 0; // 0=none, 1=new, 2=close
 // the main event loop so window columns recompute exactly once per transition.
 static int g_eff_tab_bar_w_cache = -1;
 static inline int effective_tab_bar_w(void) {
+    // Grid mode hides the tab bar entirely — tiles use the full bounds.
+    // Falls back to the stacked bar when there are >9 tabs.
+    if (g_layout_mode == LAYOUT_GRID && g_num_tabs >= 1 && g_num_tabs <= 9) return 0;
     return (g_num_tabs <= 1) ? 0 : TAB_BAR_W;
 }
 
@@ -548,7 +583,6 @@ static void set_font_size(int sz) {
     g_term_font = CTFontCreateWithName(CFSTR("SFMono-Regular"), sz, NULL);
     if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Menlo-Regular"), sz, NULL);
     if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Monaco"), sz, NULL);
-    // Cache bold ONCE here (see note in hexa_appkit_init_term).
     g_term_font_bold = CTFontCreateCopyWithSymbolicTraits(
         g_term_font, 0, NULL, kCTFontBoldTrait, kCTFontBoldTrait);
     if (!g_term_font_bold) g_term_font_bold = (CTFontRef)CFRetain(g_term_font);
@@ -561,6 +595,74 @@ static void set_font_size(int sz) {
     g_term_ch = CTFontGetAscent(g_term_font) + CTFontGetDescent(g_term_font) +
                 CTFontGetLeading(g_term_font) + 2;
     g_font_size = sz;
+}
+
+// ── Grid layout helpers ──
+static void compute_grid_dims(int n, int *out_rows, int *out_cols) {
+    int rows, cols;
+    if      (n == 1) { rows = 1; cols = 1; }
+    else if (n == 2) { rows = 1; cols = 2; }
+    else if (n == 3) { rows = 1; cols = 3; }
+    else if (n == 4) { rows = 2; cols = 2; }
+    else if (n <= 6) { rows = 2; cols = 3; }
+    else /* 7..9 */  { rows = 3; cols = 3; }
+    *out_rows = rows;
+    *out_cols = cols;
+}
+
+#define TILE_INSET 2
+
+static NSRect compute_tile_rect(int idx, NSRect bounds, int n_tabs) {
+    if (n_tabs <= 0 || idx < 0 || idx >= n_tabs) return NSZeroRect;
+    int grid_rows, grid_cols;
+    compute_grid_dims(n_tabs, &grid_rows, &grid_cols);
+    int row = idx / grid_cols;
+    int col = idx % grid_cols;
+    float tile_w = bounds.size.width  / (float)grid_cols;
+    float tile_h = bounds.size.height / (float)grid_rows;
+    float x = col * tile_w;
+    float y = row * tile_h;
+    NSRect r = NSMakeRect(x + TILE_INSET, y + TILE_INSET,
+                          tile_w - 2 * TILE_INSET, tile_h - 2 * TILE_INSET);
+    if (r.size.width  < 0) r.size.width  = 0;
+    if (r.size.height < 0) r.size.height = 0;
+    return r;
+}
+
+static void apply_grid_layout(NSRect bounds) {
+    if (g_num_tabs <= 0) return;
+    if (g_term_cw <= 0 || g_term_ch <= 0) return;
+    int use_grid = (g_layout_mode == LAYOUT_GRID && g_num_tabs >= 1 && g_num_tabs <= 9);
+    for (int t = 0; t < g_num_tabs; t++) {
+        if (!g_tabs[t].used) continue;
+        int new_rows, new_cols;
+        if (use_grid) {
+            NSRect tile = compute_tile_rect(t, bounds, g_num_tabs);
+            new_rows = (int)(tile.size.height / g_term_ch);
+            new_cols = (int)(tile.size.width  / g_term_cw);
+            if (new_rows < 3)  new_rows = 3;
+            if (new_cols < 10) new_cols = 10;
+        } else {
+            new_rows = g_term_rows;
+            new_cols = g_term_cols;
+        }
+        if (new_rows > TERM_MAX_ROWS) new_rows = TERM_MAX_ROWS;
+        if (new_cols > TERM_MAX_COLS) new_cols = TERM_MAX_COLS;
+        int changed = (g_tabs[t].tile_rows != new_rows ||
+                       g_tabs[t].tile_cols != new_cols);
+        g_tabs[t].tile_rows = new_rows;
+        g_tabs[t].tile_cols = new_cols;
+        if (g_tabs[t].bg_cur_row >= new_rows) g_tabs[t].bg_cur_row = new_rows - 1;
+        if (g_tabs[t].bg_cur_col >= new_cols) g_tabs[t].bg_cur_col = new_cols - 1;
+        if (changed && g_tabs[t].pty_fd >= 0) {
+            struct winsize ws;
+            ws.ws_row = (unsigned short)new_rows;
+            ws.ws_col = (unsigned short)new_cols;
+            ws.ws_xpixel = 0;
+            ws.ws_ypixel = 0;
+            ioctl(g_tabs[t].pty_fd, TIOCSWINSZ, &ws);
+        }
+    }
 }
 
 static int g_term_quit = 0;
@@ -853,6 +955,127 @@ static NSColor *term_color(int idx) {
     @autoreleasepool {
     NSRect bounds = [self bounds];
 
+    // ── Grid (tiling) layout path ──
+    // When Cmd+G has put us in grid mode AND the tab count is within the
+    // supported range (1-9), render every tab simultaneously. 10+ tabs
+    // falls back to the stacked path below via effective_tab_bar_w().
+    if (g_layout_mode == LAYOUT_GRID && g_num_tabs >= 1 && g_num_tabs <= 9) {
+        // Paint the whole canvas black so tile gutters (the 2px inset)
+        // read as a distinct separator instead of showing bare bounds.
+        [[NSColor blackColor] setFill];
+        NSRectFill(bounds);
+
+        NSMutableDictionary *attrBuf = [NSMutableDictionary dictionaryWithCapacity:3];
+        NSNumber *underlineNum = @(NSUnderlineStyleSingle);
+
+        for (int t = 0; t < g_num_tabs; t++) {
+            if (!g_tabs[t].used) continue;
+            NSRect tile = compute_tile_rect(t, bounds, g_num_tabs);
+            if (tile.size.width <= 0 || tile.size.height <= 0) continue;
+
+            // Tile background
+            [[NSColor blackColor] setFill];
+            NSRectFill(tile);
+
+            int tile_rows = g_tabs[t].tile_rows > 0 ? g_tabs[t].tile_rows : g_term_rows;
+            int tile_cols = g_tabs[t].tile_cols > 0 ? g_tabs[t].tile_cols : g_term_cols;
+            if (tile_rows > TERM_MAX_ROWS) tile_rows = TERM_MAX_ROWS;
+            if (tile_cols > TERM_MAX_COLS) tile_cols = TERM_MAX_COLS;
+
+            // Cell source: the ACTIVE tab's live frame lives in g_term_grid
+            // (hexa's parser writes there). Background tabs read from
+            // their own g_tabs[t].grid (populated by bg_tab_write_bytes
+            // in poll_background_tabs). This keeps the active tab's hexa
+            // VT pipeline untouched.
+            TermCell (*src_grid)[TERM_MAX_COLS] =
+                (t == g_active_tab) ? g_term_grid : g_tabs[t].grid;
+
+            float ox = tile.origin.x;
+            float oy = tile.origin.y;
+            float max_x = tile.origin.x + tile.size.width;
+            float max_y = tile.origin.y + tile.size.height;
+            for (int r = 0; r < tile_rows; r++) {
+                float y = oy + r * g_term_ch;
+                if (y >= max_y) break;
+                if (y + g_term_ch < dirtyRect.origin.y ||
+                    y > dirtyRect.origin.y + dirtyRect.size.height) continue;
+                TermCell *cell_row = src_grid[r];
+                for (int c = 0; c < tile_cols; c++) {
+                    float x = ox + c * g_term_cw;
+                    if (x + g_term_cw > max_x) break;
+                    TermCell *cell = &cell_row[c];
+                    if (cell->flags & 0x20000) continue;
+                    int wide = (cell->flags & 0x10000) != 0;
+                    float cell_w = wide ? (2.0f * g_term_cw) : g_term_cw;
+                    int bg = cell->bg, fg = cell->fg;
+                    if (cell->flags & 8) { int tt = bg; bg = fg; fg = tt; }
+                    if (bg != 0) {
+                        [term_color(bg) setFill];
+                        NSRectFill(NSMakeRect(x, y, cell_w, g_term_ch));
+                    }
+                    if (cell->ch <= ' ') continue;
+
+                    CTFontRef df = (cell->flags & 1) ? g_term_font_bold : g_term_font;
+                    [attrBuf removeAllObjects];
+                    attrBuf[NSFontAttributeName] = (__bridge id)df;
+                    attrBuf[NSForegroundColorAttributeName] = term_color(fg);
+                    if (cell->flags & 4) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
+                    unichar uch = cell->ch;
+                    NSString *s = [NSString stringWithCharacters:&uch length:1];
+                    NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
+                    [as drawAtPoint:NSMakePoint(x, y + 2)];
+                    [as release];
+                }
+            }
+
+            // Tile border: 2px highlight for the active tab, thin 1px
+            // dim frame for the others. Drawn as 4 NSRectFill edges so
+            // we avoid the cost of NSBezierPath for a simple rectangle.
+            NSColor *border = (t == g_active_tab)
+                ? [NSColor colorWithRed:0.4 green:0.6 blue:1.0 alpha:0.8]
+                : [NSColor colorWithWhite:0.2 alpha:1.0];
+            float bw = (t == g_active_tab) ? 2.0f : 1.0f;
+            [border setFill];
+            NSRectFill(NSMakeRect(tile.origin.x, tile.origin.y, tile.size.width, bw));
+            NSRectFill(NSMakeRect(tile.origin.x,
+                                  tile.origin.y + tile.size.height - bw,
+                                  tile.size.width, bw));
+            NSRectFill(NSMakeRect(tile.origin.x, tile.origin.y, bw, tile.size.height));
+            NSRectFill(NSMakeRect(tile.origin.x + tile.size.width - bw,
+                                  tile.origin.y, bw, tile.size.height));
+
+            // Title strip near the top-left of each tile (small label so
+            // the user can tell tabs apart when they share a prompt).
+            if (g_tabs[t].title[0]) {
+                NSDictionary *ta = @{
+                    NSFontAttributeName: [NSFont systemFontOfSize:10],
+                    NSForegroundColorAttributeName:
+                        (t == g_active_tab)
+                          ? [NSColor colorWithRed:0.95 green:0.95 blue:0.95 alpha:0.95]
+                          : [NSColor colorWithRed:0.55 green:0.55 blue:0.55 alpha:0.95]
+                };
+                NSString *tn = [NSString stringWithUTF8String:g_tabs[t].title];
+                [tn drawAtPoint:NSMakePoint(tile.origin.x + 6, tile.origin.y + 3)
+                 withAttributes:ta];
+            }
+
+            // Active tab's cursor: only the active tile owns a visible
+            // cursor. We use the active rendering cursor position from
+            // g_term_cur_row/col.
+            if (t == g_active_tab && g_term_cur_vis &&
+                g_term_cur_row < tile_rows && g_term_cur_col < tile_cols) {
+                [[NSColor colorWithRed:0.6 green:0.6 blue:0.6 alpha:0.5] setFill];
+                NSRectFill(NSMakeRect(ox + g_term_cur_col * g_term_cw,
+                                      oy + g_term_cur_row * g_term_ch,
+                                      g_term_cw, g_term_ch));
+            }
+        }
+        // Grid path exits through the outer @autoreleasepool as the
+        // method returns — pool drains automatically.
+        return;
+    }
+
+    // ── Stacked (classic) layout path ──
     // ── Tab bar (left panel) ── skipped entirely when there is only one
     // tab, so the terminal grid reclaims the full width.
     int eff_tbw = effective_tab_bar_w();
@@ -1115,6 +1338,39 @@ static NSColor *term_color(int idx) {
 
 - (void)mouseDown:(NSEvent *)event {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+
+    // Grid mode: hit-test against all tiles and switch to the one under
+    // the click. Tab bar + drag-reorder are disabled in grid mode (the
+    // bar isn't drawn and tiles already visually distinguish tabs).
+    if (g_layout_mode == LAYOUT_GRID && g_num_tabs >= 1 && g_num_tabs <= 9) {
+        NSRect bounds = [self bounds];
+        for (int k = 0; k < g_num_tabs; k++) {
+            NSRect tile = compute_tile_rect(k, bounds, g_num_tabs);
+            if (NSPointInRect(p, tile)) {
+                if (k != g_active_tab) {
+                    // Save active → old tab slot and load new tab. Same
+                    // pattern as the stacked path so the hexa VT state
+                    // round-trips cleanly on switch.
+                    if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
+                        memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+                        g_tabs[g_active_tab].cur_row = g_term_cur_row;
+                        g_tabs[g_active_tab].cur_col = g_term_cur_col;
+                    }
+                    g_active_tab = k;
+                    memcpy(g_term_grid, g_tabs[k].grid, sizeof(g_term_grid));
+                    g_term_cur_row = g_tabs[k].cur_row;
+                    g_term_cur_col = g_tabs[k].cur_col;
+                    g_tab_cmd = 3;
+                    g_scroll_offset = 0;
+                    clear_active_alarm();
+                    [self setNeedsDisplay:YES];
+                }
+                return;
+            }
+        }
+        return;
+    }
+
     int eff_tbw = effective_tab_bar_w();
     if (eff_tbw > 0 && p.x < eff_tbw) {
         int idx = (int)((p.y - 4) / TAB_ROW_H);
@@ -1310,12 +1566,24 @@ static NSColor *term_color(int idx) {
         [self setNeedsDisplay:YES];
         return YES;
     }
-    // Cmd+F toggle search overlay. Safety net for the rare case
-    // where AppKit dispatches performKeyEquivalent before the main
-    // loop's Cmd-intercept runs.
-    if (ch == 'f' || ch == 'F') {
+    // Cmd+F toggle search overlay.
+    if ((ch == 'f' || ch == 'F') && !with_ctrl) {
         if (g_search_active) search_close();
         else                 search_open();
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    // Cmd+G → toggle tiling grid layout. Fires g_layout_dirty so the main
+    // event loop picks up the change on the next tick and sends TIOCSWINSZ
+    // to each tab. 10+ tabs can't enter grid mode (falls back to stacked).
+    if (ch == 'g') {
+        if (g_num_tabs >= 1 && g_num_tabs <= 9)
+            g_layout_mode = (g_layout_mode == LAYOUT_GRID) ? LAYOUT_STACKED : LAYOUT_GRID;
+        else
+            g_layout_mode = LAYOUT_STACKED;
+        g_layout_dirty = 1;
+        g_full_redraw = 1;
+        g_eff_tab_bar_w_cache = -1;
         [self setNeedsDisplay:YES];
         return YES;
     }
@@ -2394,6 +2662,14 @@ long hexa_tab_new(void) {
     g_num_tabs++;
     g_active_tab = idx;
 
+    // Mirror the current shared rows/cols into the new tab's tile
+    // dims so apply_grid_layout (on the next tick) has a sane baseline.
+    g_tabs[idx].tile_rows = g_term_rows;
+    g_tabs[idx].tile_cols = g_term_cols;
+    g_tabs[idx].bg_cur_row = 0;
+    g_tabs[idx].bg_cur_col = 0;
+    g_tabs[idx].bg_esc_state = 0;
+
     // Renumber profile group now that the new sibling is in place.
     void_tabs_renumber_profiles();
 
@@ -2402,6 +2678,13 @@ long hexa_tab_new(void) {
     g_term_cur_row = 0;
     g_term_cur_col = 0;
     g_full_redraw = 1;
+
+    // Grid mode: tab count just changed, so every tile needs to shrink.
+    // Force a reflow on the next poll tick.
+    if (g_layout_mode == LAYOUT_GRID) {
+        g_layout_dirty = 1;
+        g_eff_tab_bar_w_cache = -1;
+    }
 
     return (long)idx;
 }
@@ -2474,6 +2757,14 @@ long hexa_tab_close(long idx) {
     memcpy(g_term_grid, g_tabs[g_active_tab].grid, sizeof(g_term_grid));
     g_term_cur_row = g_tabs[g_active_tab].cur_row;
     g_term_cur_col = g_tabs[g_active_tab].cur_col;
+
+    // Grid mode: tab count changed → remaining tiles need to expand.
+    // Marking layout dirty triggers apply_grid_layout on the next tick.
+    // If we dropped below 1 tab we already returned above.
+    if (g_layout_mode == LAYOUT_GRID) {
+        g_layout_dirty = 1;
+        g_eff_tab_bar_w_cache = -1;
+    }
 
     return (long)g_active_tab;
 }
@@ -2930,6 +3221,20 @@ long hexa_appkit_term_poll(void) {
                                 [[g_window contentView] setNeedsDisplay:YES];
                             continue;
                         }
+                        // Cmd+G → toggle tiling grid layout.
+                        if (ch == 'g') {
+                            if (g_num_tabs >= 1 && g_num_tabs <= 9)
+                                g_layout_mode = (g_layout_mode == LAYOUT_GRID)
+                                    ? LAYOUT_STACKED : LAYOUT_GRID;
+                            else
+                                g_layout_mode = LAYOUT_STACKED;
+                            g_layout_dirty = 1;
+                            g_full_redraw = 1;
+                            g_eff_tab_bar_w_cache = -1;
+                            if (g_window)
+                                [[g_window contentView] setNeedsDisplay:YES];
+                            continue;
+                        }
                         // Cmd+1~9 → tab 1..9. Cmd+0 is handled above as
                         // font-reset, so tab 10 has no keyboard shortcut.
                         int target = -1;
@@ -2969,29 +3274,71 @@ long hexa_appkit_term_poll(void) {
         if (g_window && g_term_cw > 0 && g_term_ch > 0) {
             NSRect f = [[g_window contentView] frame];
             int eff_tbw = effective_tab_bar_w();
-            int new_cols = (int)((f.size.width - eff_tbw) / g_term_cw);
-            int new_rows = (int)(f.size.height / g_term_ch);
-            if (new_cols < 20) new_cols = 20;
-            if (new_rows < 5) new_rows = 5;
-            if (new_cols > TERM_MAX_COLS) new_cols = TERM_MAX_COLS;
-            if (new_rows > TERM_MAX_ROWS) new_rows = TERM_MAX_ROWS;
+            int in_grid = (g_layout_mode == LAYOUT_GRID && g_num_tabs >= 1 && g_num_tabs <= 9);
+            int grid_needs_reflow = (in_grid && g_layout_dirty);
             int tbw_changed = (eff_tbw != g_eff_tab_bar_w_cache);
-            if (new_cols != g_term_cols || new_rows != g_term_rows || tbw_changed) {
-                g_term_cols = new_cols;
-                g_term_rows = new_rows;
-                g_eff_tab_bar_w_cache = eff_tbw;
-                g_resized = 1;
-                g_scroll_offset = 0;
-                g_full_redraw = 1;
-                // Notify ALL tabs' PTYs of new size
-                struct winsize ws;
-                ws.ws_row = (unsigned short)new_rows;
-                ws.ws_col = (unsigned short)new_cols;
-                ws.ws_xpixel = 0;
-                ws.ws_ypixel = 0;
-                for (int t = 0; t < g_num_tabs; t++) {
-                    if (g_tabs[t].used && g_tabs[t].pty_fd >= 0)
-                        ioctl(g_tabs[t].pty_fd, TIOCSWINSZ, &ws);
+
+            if (in_grid) {
+                // Grid mode: detect a window size change by cached dims
+                // instead of comparing against g_term_cols/rows (those get
+                // overwritten to the active tile's size below, so a tick-
+                // to-tick comparison with the full window width would
+                // trigger an endless reflow loop).
+                static float s_last_w = -1, s_last_h = -1;
+                int wh_changed = (f.size.width != s_last_w ||
+                                  f.size.height != s_last_h);
+                if (wh_changed || grid_needs_reflow || tbw_changed) {
+                    s_last_w = f.size.width;
+                    s_last_h = f.size.height;
+                    g_eff_tab_bar_w_cache = eff_tbw;
+                    g_resized = 1;
+                    g_scroll_offset = 0;
+                    g_full_redraw = 1;
+                    apply_grid_layout(f);
+                    // The hexa VT parser writes to g_term_grid, so we
+                    // publish the ACTIVE tab's tile dims as the "window"
+                    // size — the parser re-inits and wraps at tile_cols.
+                    if (g_active_tab >= 0 && g_active_tab < g_num_tabs) {
+                        int ar = g_tabs[g_active_tab].tile_rows;
+                        int ac = g_tabs[g_active_tab].tile_cols;
+                        if (ar > 0 && ac > 0) {
+                            g_term_rows = ar;
+                            g_term_cols = ac;
+                        }
+                    }
+                    g_layout_dirty = 0;
+                }
+            } else {
+                // Stacked mode: classic path — all tabs share g_term_rows/cols.
+                int new_cols = (int)((f.size.width - eff_tbw) / g_term_cw);
+                int new_rows = (int)(f.size.height / g_term_ch);
+                if (new_cols < 20) new_cols = 20;
+                if (new_rows < 5)  new_rows = 5;
+                if (new_cols > TERM_MAX_COLS) new_cols = TERM_MAX_COLS;
+                if (new_rows > TERM_MAX_ROWS) new_rows = TERM_MAX_ROWS;
+                if (new_cols != g_term_cols || new_rows != g_term_rows ||
+                    tbw_changed || g_layout_dirty) {
+                    g_term_cols = new_cols;
+                    g_term_rows = new_rows;
+                    g_eff_tab_bar_w_cache = eff_tbw;
+                    g_resized = 1;
+                    g_scroll_offset = 0;
+                    g_full_redraw = 1;
+                    // Mirror shared dims onto each tab's tile_rows/cols so
+                    // a later grid toggle starts from a consistent base.
+                    struct winsize ws;
+                    ws.ws_row = (unsigned short)new_rows;
+                    ws.ws_col = (unsigned short)new_cols;
+                    ws.ws_xpixel = 0;
+                    ws.ws_ypixel = 0;
+                    for (int t = 0; t < g_num_tabs; t++) {
+                        if (!g_tabs[t].used) continue;
+                        g_tabs[t].tile_rows = new_rows;
+                        g_tabs[t].tile_cols = new_cols;
+                        if (g_tabs[t].pty_fd >= 0)
+                            ioctl(g_tabs[t].pty_fd, TIOCSWINSZ, &ws);
+                    }
+                    g_layout_dirty = 0;
                 }
             }
         }
@@ -3050,10 +3397,113 @@ static void update_dock_badge(void) {
     }
 }
 
+// bg_tab_write_bytes: best-effort plain-text writer for background tabs in
+// grid mode. Bytes are written cell-by-cell into the tab's own grid
+// (NOT g_term_grid). ANSI escape sequences are stripped (ESC [ ... final,
+// ESC ] ... BEL, two-byte ESC X). Printable ASCII advances the column,
+// wrapping at tile_cols. LF scrolls within the tile. CR resets col. BS
+// steps back one. TAB rounds up to the next 8-col stop. Wide chars and
+// SGR colours are dropped — this is a minimal "show something" mode so
+// the user can see activity rather than a frozen snapshot. The active
+// tab's grid is still produced by the full hexa VT parser.
+static void bg_tab_write_bytes(VoidTab *tab, const char *buf, int n) {
+    if (!tab) return;
+    int rows = tab->tile_rows > 0 ? tab->tile_rows : g_term_rows;
+    int cols = tab->tile_cols > 0 ? tab->tile_cols : g_term_cols;
+    if (rows > TERM_MAX_ROWS) rows = TERM_MAX_ROWS;
+    if (cols > TERM_MAX_COLS) cols = TERM_MAX_COLS;
+    if (rows <= 0 || cols <= 0) return;
+    int r = tab->bg_cur_row;
+    int c = tab->bg_cur_col;
+    if (r < 0) r = 0; if (r >= rows) r = rows - 1;
+    if (c < 0) c = 0; if (c >= cols) c = cols - 1;
+    for (int i = 0; i < n; i++) {
+        unsigned char b = (unsigned char)buf[i];
+        // ESC state machine — consumes the rest of a CSI / OSC / SS3 etc.
+        if (tab->bg_esc_state == 1) {
+            if (b == '[' || b == ']') {
+                tab->bg_esc_state = 2;
+            } else {
+                // Two-byte sequences like ESC =, ESC >, ESC c, etc. — drop.
+                tab->bg_esc_state = 0;
+            }
+            continue;
+        }
+        if (tab->bg_esc_state == 2) {
+            // CSI final byte is 0x40..0x7E. OSC terminates on BEL (0x07)
+            // or ST (ESC \) — we treat BEL as universal terminator to keep
+            // the loop bounded. Intermediate/parameter bytes are just swallowed.
+            if (b == 0x07) {
+                tab->bg_esc_state = 0;
+            } else if (b >= 0x40 && b <= 0x7E) {
+                tab->bg_esc_state = 0;
+            }
+            continue;
+        }
+        // ESC introducer
+        if (b == 0x1B) { tab->bg_esc_state = 1; continue; }
+        // Controls
+        if (b == '\r') { c = 0; continue; }
+        if (b == '\n') {
+            c = 0;
+            r++;
+            if (r >= rows) {
+                // Scroll the tile grid up by one row so the prompt stays visible.
+                for (int rr = 0; rr < rows - 1; rr++) {
+                    memcpy(tab->grid[rr], tab->grid[rr + 1],
+                           sizeof(TermCell) * cols);
+                }
+                // Clear the newly vacated bottom row.
+                for (int cc = 0; cc < cols; cc++) {
+                    tab->grid[rows - 1][cc].ch = ' ';
+                    tab->grid[rows - 1][cc].fg = 7;
+                    tab->grid[rows - 1][cc].bg = 0;
+                    tab->grid[rows - 1][cc].flags = 0;
+                }
+                r = rows - 1;
+            }
+            continue;
+        }
+        if (b == 0x08) { if (c > 0) c--; continue; }
+        if (b == '\t') {
+            c = (c + 8) & ~7;
+            if (c >= cols) c = cols - 1;
+            continue;
+        }
+        if (b < 0x20) continue;     // other C0 controls
+        if (b >= 0x80) continue;    // multi-byte UTF-8 — drop leading/cont
+        if (c >= cols) {
+            c = 0; r++;
+            if (r >= rows) {
+                for (int rr = 0; rr < rows - 1; rr++)
+                    memcpy(tab->grid[rr], tab->grid[rr + 1],
+                           sizeof(TermCell) * cols);
+                for (int cc = 0; cc < cols; cc++) {
+                    tab->grid[rows - 1][cc].ch = ' ';
+                    tab->grid[rows - 1][cc].fg = 7;
+                    tab->grid[rows - 1][cc].bg = 0;
+                    tab->grid[rows - 1][cc].flags = 0;
+                }
+                r = rows - 1;
+            }
+        }
+        tab->grid[r][c].ch = (unichar)b;
+        tab->grid[r][c].fg = 7;
+        tab->grid[r][c].bg = 0;
+        tab->grid[r][c].flags = 0;
+        c++;
+    }
+    if (c >= cols) c = cols - 1;
+    if (r >= rows) r = rows - 1;
+    tab->bg_cur_row = r;
+    tab->bg_cur_col = c;
+}
+
 static void poll_background_tabs(void) {
     if (g_num_tabs < 2) return;
-    char discard[4096];
+    char buf[4096];
     int changed = 0;
+    int grid_mode = (g_layout_mode == LAYOUT_GRID && g_num_tabs <= 9);
     for (int i = 0; i < g_num_tabs; i++) {
         if (i == g_active_tab) continue;
         VoidTab *tab = &g_tabs[i];
@@ -3061,14 +3511,23 @@ static void poll_background_tabs(void) {
         // Drain non-blocking (fd is already O_NONBLOCK from spawn).
         ssize_t total = 0;
         while (1) {
-            ssize_t n = read(tab->pty_fd, discard, sizeof(discard));
+            ssize_t n = read(tab->pty_fd, buf, sizeof(buf));
             if (n <= 0) break;
             total += n;
+            if (grid_mode) bg_tab_write_bytes(tab, buf, (int)n);
             if (total > 65536) break; // stay bounded per tick
         }
         if (total > 0 && !tab->has_alarm) {
             tab->has_alarm = 1;
             changed = 1;
+        }
+        if (total > 0 && grid_mode) {
+            // Repaint just this tile so the new content shows up immediately.
+            if (g_window) {
+                NSRect bnds = [[g_window contentView] bounds];
+                NSRect tile = compute_tile_rect(i, bnds, g_num_tabs);
+                [[g_window contentView] setNeedsDisplayInRect:tile];
+            }
         }
     }
     if (changed) {
