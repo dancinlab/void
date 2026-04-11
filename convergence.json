@@ -199,6 +199,110 @@
       "locked": true,
       "src": "src/sys_appkit.m ClosedTabSnapshot + tab_reopen_last + hexa_tab_close push",
       "evidence": "탭 닫을 때 title/profile_base/cwd 스냅샷 push. Cmd+Z = pop → profile_by_title 조회 → 같은 cmd로 재스폰."
+    },
+    {
+      "id": "VC-26",
+      "item": "마우스 텍스트 선택 + Cmd+C/V NSPasteboard 통합 + bracketed paste",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m selection_* + copy_selection_to_clipboard + paste_from_clipboard",
+      "evidence": "드래그/더블클릭(단어)/트리플클릭(줄). paste = \\x1b[200~ ... \\x1b[201~."
+    },
+    {
+      "id": "VC-27",
+      "item": "Cmd+=/-/0 폰트 줌 — 8..40pt, NSUserDefaults voidFontSize persist",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m set_font_size + Cmd-intercept",
+      "evidence": "SFMono → Menlo → Monaco fallback chain. cw/ch 재계산 + g_resized로 PTY reflow."
+    },
+    {
+      "id": "VC-28",
+      "item": "Cmd+F 스크롤백 검색 오버레이 + 매치 네비게이션",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m search_* + drawRect 오버레이",
+      "evidence": "ASCII case-insensitive 부분 문자열, 최대 4096 매치. Enter/Shift+Enter 이동."
+    },
+    {
+      "id": "VC-29",
+      "item": "Cmd+G 타일 그리드 레이아웃 (1~9탭 자동) + NSUserDefaults voidLayoutMode persist",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m LayoutMode + compute_tile_rect + apply_grid_layout + draw_grid",
+      "evidence": "1=1×1 2=1×2 3=1×3 4=2×2 5-6=2×3 7-9=3×3. 재시작 시 마지막 모드 복원."
+    },
+    {
+      "id": "VC-30",
+      "item": "Real xterm alternate screen buffer (?1049/?1047/?47/?1048)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa scr_is_alt + alt_* arrays + enter/leave_alt_screen",
+      "evidence": "T18 save/restore 테스트 통과. vim/htop/less 알트 스크린 진입·복원 정상. claude는 ?1004h shim으로 처리."
+    },
+    {
+      "id": "VC-31",
+      "item": "void-server supervisor 데몬 — PTY master 보유, unix socket, SCM_RIGHTS",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_server.c + src/sys_appkit.m 클라이언트 글루",
+      "evidence": "SPAWN/ATTACH/DETACH/LIST/KILL/PING/CHECKPOINT. 시맨틱 레이블, 프로세스 분류기, /tmp/void_server_ckpt 크래시 복구. VOID_NO_SERVER=1 opt-out."
+    },
+    {
+      "id": "VC-32",
+      "item": "Merkle delta sync on ATTACH — 섹션 해시 비교로 변경분만 전송",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_server.c update_session_hashes + build_attach_body, src/sys_appkit.m void_server_attach_ex",
+      "evidence": "FNV-1a 64 per 64-row section. Python 라운드트립 테스트: 동일 해시 ATTACH는 0 바이트 payload."
+    },
+    {
+      "id": "VC-33",
+      "item": "void-server 바이너리 mtime watcher (kqueue) + prewarm stub",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_server.c binwatch_init + binwatch_pump + binwatch_log",
+      "evidence": "/Applications/VOID.app/Contents/MacOS/void_term 감시. NOTE_WRITE/ATTRIB/DELETE/RENAME 모두 잡음. /tmp/void_server_binwatch.log."
+    },
+    {
+      "id": "VC-34",
+      "item": "macOS 메뉴바 — 파일/편집/보기/윈도우 한국어 전체 구성 + 보기>숨은 세션 동적 서브메뉴",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m HexaTermDelegate menu* methods + menuNeedsUpdate:",
+      "evidence": "새 탭/탭 닫기/재실행/닫은 탭 다시 열기/복사/붙여넣기/찾기/탭/그리드/다음 탭/확대/축소/원래 크기/숨은 세션/최소화/확대축소. 단축키와 메뉴 클릭 동일 동작."
+    },
+    {
+      "id": "VC-35",
+      "item": "시작 시 void-server 세션 자동 ATTACH — void_term 재실행해도 탭 복원",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m hexa_appkit_init_term 자동 attach 블록",
+      "evidence": "hexa_appkit_init_term 말미에 void_server_list → 각 세션에 void_server_attach → g_tabs[] 빌드. g_shadow_restored=1 재활용으로 hexa_tab_new 첫 호출 스왈로우."
+    },
+    {
+      "id": "VC-36",
+      "item": "Self-binary kqueue watcher — /Applications 바이너리 교체 시 in-process relaunch",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m install_self_binary_watcher + self_watch_thread_main + menuRelaunch + main-loop flag check",
+      "evidence": "pthread + kqueue EVFILT_VNODE. atomic mv 감지 → g_want_self_relaunch → NSWorkspace openApplicationAtURL createsNewApplicationInstance=YES → [NSApp terminate:]. pkill/open/osascript 외부 명령 의존 0."
+    },
+    {
+      "id": "VC-37",
+      "item": "UTF-8 state reset on ESC — 부분 UTF-8 시퀀스 + 이스케이프 간섭 하드닝",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa GROUND state ESC transition, T20 regression test",
+      "evidence": "T20 PASS: '\\xEA\\xB0' (한글 선행 2바이트) + ESC[0m + 'A' → A가 col 0에 정상 표시. 이전엔 utf8_remain=1로 남아 A를 continuation byte로 흡수."
+    },
+    {
+      "id": "VC-38",
+      "item": "cl 테이블 렌더링 가드 (T19) + VOID_VT_CAPTURE 진단 훅",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa T19 test, src/sys_pty.c VOID_VT_CAPTURE env-gated binary dump",
+      "evidence": "T19 PASS: 10행 ASCII 테이블 모든 행 col 2에서 시작. 4000+ 퍼즈 케이스에서 재현 안 됨 → 하드닝 + diagnostic 두 축 커버. VOID_VT_CAPTURE=1로 실행 시 /tmp/void_vt_capture.bin 바이트 단위 캡처."
     }
   ],
   "pending_ossification": []

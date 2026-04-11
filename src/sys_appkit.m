@@ -444,9 +444,73 @@ static char g_argv0[4096] = {0};     // captured at init for re-exec
 // Signal handler can only set sig_atomic_t safely.
 #include <signal.h>
 static volatile sig_atomic_t g_swap_flag = 0;
+// Self-binary watcher: kqueue thread that observes /Applications/VOID.app/
+// Contents/MacOS/void_term. When the file is replaced by the auto-build
+// hook, sets g_want_self_relaunch; the main loop sees it and does an
+// NSWorkspace launch-new-instance + terminate. No pkill / open / osascript.
+static volatile int g_want_self_relaunch = 0;
 static void handle_sigusr1(int sig) {
     (void)sig;
     g_swap_flag = 1;
+}
+
+// g_term_quit is defined later in the file (after HexaTermView); forward
+// declare so the self-binary watcher thread can poll it.
+extern int g_term_quit;
+
+// Self-binary watcher thread — blocks on kqueue EVFILT_VNODE and flips
+// g_want_self_relaunch when the file is replaced. The main event loop
+// polls that flag every tick and performs the NSWorkspace relaunch.
+#include <sys/event.h>
+#include <pthread.h>
+static void *self_watch_thread_main(void *unused) {
+    (void)unused;
+    const char *path = "/Applications/VOID.app/Contents/MacOS/void_term";
+    int fd = open(path, O_EVTONLY);
+    if (fd < 0) return NULL;
+    int kq = kqueue();
+    if (kq < 0) { close(fd); return NULL; }
+    struct kevent kev;
+    EV_SET(&kev, fd, EVFILT_VNODE,
+           EV_ADD | EV_ENABLE | EV_CLEAR,
+           NOTE_WRITE | NOTE_ATTRIB | NOTE_DELETE | NOTE_RENAME,
+           0, NULL);
+    if (kevent(kq, &kev, 1, NULL, 0, NULL) < 0) {
+        close(kq); close(fd); return NULL;
+    }
+    while (!g_term_quit) {
+        struct kevent ev;
+        struct timespec ts = { 1, 0 }; // 1s poll so quit wakes us
+        int n = kevent(kq, NULL, 0, &ev, 1, &ts);
+        if (n < 0) break;
+        if (n == 0) continue;
+        // Any fflag = mtime / inode changed. Re-open on delete/rename
+        // so we keep watching the replacement inode.
+        if (ev.fflags & (NOTE_DELETE | NOTE_RENAME)) {
+            close(fd);
+            fd = open(path, O_EVTONLY);
+            if (fd < 0) break;
+            EV_SET(&kev, fd, EVFILT_VNODE,
+                   EV_ADD | EV_ENABLE | EV_CLEAR,
+                   NOTE_WRITE | NOTE_ATTRIB | NOTE_DELETE | NOTE_RENAME,
+                   0, NULL);
+            kevent(kq, &kev, 1, NULL, 0, NULL);
+        }
+        // Debounce: wait 150ms to coalesce the rapid cp + codesign
+        // sequence the auto-build hook produces, then fire once.
+        usleep(150 * 1000);
+        g_want_self_relaunch = 1;
+        break;
+    }
+    close(kq);
+    if (fd >= 0) close(fd);
+    return NULL;
+}
+
+static void install_self_binary_watcher(void) {
+    pthread_t th;
+    if (pthread_create(&th, NULL, self_watch_thread_main, NULL) == 0)
+        pthread_detach(th);
 }
 
 // Handoff file format (packed, little-endian, same endian on a single
@@ -701,7 +765,7 @@ static void apply_grid_layout(NSRect bounds) {
     }
 }
 
-static int g_term_quit = 0;
+int g_term_quit = 0;
 static int g_scroll_offset = 0;    // 0 = live view, >0 = lines scrolled back
 static int g_sb_push_col = 0;      // temp column index during row push
 
@@ -1860,6 +1924,7 @@ static void void_tabs_renumber_profiles(void);
 - (void)menuNewTab:(id)sender;
 - (void)menuCloseTab:(id)sender;
 - (void)menuUndoClose:(id)sender;
+- (void)menuRelaunch:(id)sender;
 - (void)menuCopy:(id)sender;
 - (void)menuPaste:(id)sender;
 - (void)menuFind:(id)sender;
@@ -1888,6 +1953,27 @@ static void void_tabs_renumber_profiles(void);
 - (void)menuUndoClose:(id)sender {
     (void)sender;
     tab_reopen_last();
+}
+// In-process relaunch — spawns a fresh instance of /Applications/VOID.app
+// via NSWorkspace (which goes through LaunchServices so the Dock tile
+// is correct) and then terminates this process. No pkill / open /
+// osascript involved — pure AppKit.
+- (void)menuRelaunch:(id)sender {
+    (void)sender;
+    @autoreleasepool {
+        NSURL *appURL = [NSURL fileURLWithPath:@"/Applications/VOID.app"];
+        NSWorkspaceOpenConfiguration *cfg = [NSWorkspaceOpenConfiguration configuration];
+        cfg.createsNewApplicationInstance = YES;
+        [[NSWorkspace sharedWorkspace]
+            openApplicationAtURL:appURL
+                   configuration:cfg
+               completionHandler:^(NSRunningApplication *a, NSError *e) {
+                    (void)a; (void)e;
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [NSApp terminate:nil];
+                    });
+               }];
+    }
 }
 - (void)menuCopy:(id)sender     { (void)sender; copy_selection_to_clipboard(); }
 - (void)menuPaste:(id)sender {
@@ -3170,6 +3256,8 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             MI(fm, @"탭 닫기",      @selector(menuCloseTab:),   @"w");
             [fm addItem:[NSMenuItem separatorItem]];
             MI(fm, @"닫은 탭 다시 열기", @selector(menuUndoClose:), @"z");
+            [fm addItem:[NSMenuItem separatorItem]];
+            MI(fm, @"재실행",       @selector(menuRelaunch:),   @"r");
         }
 
         // Edit menu — clipboard + search
@@ -3305,6 +3393,12 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
     sa.sa_handler = handle_sigusr1;
     sigemptyset(&sa.sa_mask);
     sigaction(SIGUSR1, &sa, NULL);
+
+    // Background thread that watches the installed binary for mtime
+    // change. When the auto-build hook replaces it, the watcher flips
+    // g_want_self_relaunch; the main poll loop observes the flag and
+    // calls menuRelaunch to do an NSWorkspace-driven fresh launch.
+    if (!is_shadow) install_self_binary_watcher();
 
     // Shadow handshake: tell parent we're ready, wait for go.
     if (is_shadow && g_shadow_sock >= 0) {
@@ -4317,6 +4411,16 @@ long hexa_appkit_term_poll(void) {
             // If perform_hot_swap returned we either aborted (child
             // failed) or are about to _exit; fall through to the next
             // tick so the runloop drains cleanly.
+        }
+
+        // Self-binary watcher flipped after auto-build installed a new
+        // binary to /Applications/VOID.app. Launch a fresh instance via
+        // NSWorkspace and terminate the current one — pure AppKit, no
+        // pkill / open / osascript shell-out.
+        if (g_want_self_relaunch) {
+            g_want_self_relaunch = 0;
+            if (g_term_delegate)
+                [g_term_delegate menuRelaunch:nil];
         }
     }
     return g_term_quit;

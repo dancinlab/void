@@ -1,11 +1,15 @@
 #!/bin/bash
 # auto-build: PostToolUse hook for the void project.
-# After any Write/Edit on a file under ~/Dev/void/src/*.m,c,hexa, rebuild
-# void_term and install to /Applications/VOID.app/Contents/MacOS/. Only
-# the canonical /Applications bundle is used as a runtime target — the
-# ~/Dev/void/VOID.app directory is git-tracked for Info.plist / icon
-# source but not installed to, to avoid LaunchServices registering the
-# two paths as distinct instances (duplicate Dock tile).
+#
+# After any Write/Edit on a file under ~/Dev/void/src/*.m,c,hexa, build
+# void_term and void_server DIRECTLY into /Applications/VOID.app/
+# Contents/MacOS/ (no intermediate dev-tree copy). The running void_term
+# has a kqueue thread watching that exact path and flips an internal
+# flag the moment the binary is replaced; the main loop picks up the
+# flag and uses NSWorkspace openApplicationAtURL + [NSApp terminate] to
+# perform an in-process self-relaunch. No pkill, no osascript, no
+# external open — pure AppKit.
+#
 # Silent on success; emits a Claude systemMessage on failure.
 set -uo pipefail
 
@@ -37,26 +41,31 @@ esac
 
 cd ~/Dev/void 2>/dev/null || exit 0
 
+APP_BIN=/Applications/VOID.app/Contents/MacOS/void_term
+APP_SRV=/Applications/VOID.app/Contents/MacOS/void_server
+
 LOG=$(mktemp -t auto-build.XXXXXX)
 trap 'rm -f "$LOG"' EXIT
 
 (
     set -e
+    # Build directly into a temp file, run tests, then atomic-mv into
+    # the app bundle. The atomic mv is what fires the running process's
+    # kqueue NOTE_DELETE/NOTE_RENAME → self_watch_thread → relaunch.
+    TMP_BIN=$(mktemp -t void_term.XXXXXX)
+    TMP_SRV=$(mktemp -t void_server.XXXXXX)
     clang -O2 -w -ObjC /tmp/void_main.c src/sys_pty.c src/sys_appkit.m \
-        -framework Cocoa -o void_term
+        -framework Cocoa -o "$TMP_BIN"
     if [ -f src/void_server.c ]; then
-        clang -O2 -w src/void_server.c -o void_server
+        clang -O2 -w src/void_server.c -o "$TMP_SRV"
     fi
-    # Install to /Applications ONLY (canonical launch target). Keeping
-    # ~/Dev/void/VOID.app clean prevents LaunchServices from allocating
-    # a second Dock tile for the same CFBundleIdentifier.
+    VOID_TEST=1 "$TMP_BIN" 2>&1 | tail -3
     if [ -d /Applications/VOID.app/Contents/MacOS ]; then
-        cp void_term /Applications/VOID.app/Contents/MacOS/void_term
-        if [ -f void_server ]; then
-            cp void_server /Applications/VOID.app/Contents/MacOS/void_server
+        mv -f "$TMP_BIN" "$APP_BIN"
+        if [ -f "$TMP_SRV" ]; then
+            mv -f "$TMP_SRV" "$APP_SRV"
         fi
     fi
-    VOID_TEST=1 ./void_term 2>&1 | tail -3
 ) > "$LOG" 2>&1
 
 rc=$?
@@ -70,24 +79,7 @@ PY
     exit 0
 fi
 
-# Auto-relaunch: after a successful build, if void_term is currently
-# running, kill it and launch via /Applications/VOID.app so the user
-# sees the new binary without typing anything. Skipped when
-# VOID_NO_RELAUNCH=1 is set (e.g. during heavy editing where the user
-# is still interacting with the current session).
-#
-# Session preservation note: without void-server backing, a kill loses
-# all PTY state (shells, claude sessions). With VOID_USE_SERVER=1 (which
-# we plan to make default next) the shells survive because the server
-# holds the PTY masters.
-if [ -z "${VOID_NO_RELAUNCH:-}" ]; then
-    if pgrep -x void_term >/dev/null 2>&1; then
-        pkill -x void_term 2>/dev/null || true
-        # Small wait so the old process releases its NSWindow before
-        # LaunchServices opens the new one.
-        sleep 0.2
-        open /Applications/VOID.app 2>/dev/null || true
-    fi
-fi
-
+# No external relaunch command — void_term's internal self-binary
+# watcher reacts to the atomic mv above and triggers an NSWorkspace
+# launch-new-instance + terminate dance on the main thread.
 exit 0

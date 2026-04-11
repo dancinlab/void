@@ -56,20 +56,9 @@ if [ "$mode" = "--build-only" ]; then
     exit 0
 fi
 
-# Find running void_term processes and restart them via kill+open.
-# The SIGUSR1 self-exec path is blocked by macOS codesigning when the
-# parent is inside /Applications/VOID.app, so we use pkill+open which
-# LaunchServices treats as a fresh launch and inherits the bundle
-# identity. Sessions are preserved via void-server's PTY ownership
-# (once VOID_USE_SERVER=1 is the default).
-pids=$(pgrep -x void_term 2>/dev/null || true)
-if [ -z "$pids" ]; then
-    open /Applications/VOID.app 2>/dev/null || true
-    exit 0
-fi
-
-pkill -x void_term 2>/dev/null || true
-sleep 0.2
-open /Applications/VOID.app 2>/dev/null || true
-
+# Nothing to do at the process level — void_term's self-binary watcher
+# (sys_appkit.m:install_self_binary_watcher) triggers an in-process
+# NSWorkspace relaunch the moment the build above replaces the file.
+# If void_term is not currently running, the user launches it manually
+# from the Dock or via /Applications/VOID.app.
 exit 0
