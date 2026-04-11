@@ -1,9 +1,8 @@
 # hexa.toml — void package manifest
 #
 # Spec: ~/Dev/hexa-lang/hexa.toml (reference)
-# Replaces the deleted Cargo.toml / void-app Metal build after the
-# 2026-04-11 rebuild (previous Metal/Vulkan 6-layer design archived at
-# ~/archive/void_20260411_pre_terminalapp/).
+# AI-native rebuild 2026-04-11: prior Metal/Vulkan 6-layer design
+# archived at ~/archive/void_20260411_pre_terminalapp/.
 #
 # AI-native: void is 100% hexa-lang. Only system helpers (PTY/Cocoa)
 # compile through C/ObjC (src/sys_*.{c,m}). Everything else is .hexa.
