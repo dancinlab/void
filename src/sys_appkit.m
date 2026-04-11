@@ -285,6 +285,16 @@ typedef struct VoidTab_ {
     int bg_cur_row;
     int bg_cur_col;
     int bg_esc_state; // 0 = normal, 1 = saw ESC, 2 = inside CSI
+    // Merkle delta sync state. The void-server groups its 200x400 grid
+    // into ~4 sections of 64 rows each and hashes them with FNV-1a 64.
+    // On ATTACH we send the hashes the client already has; the server
+    // replies with section records and only includes payload for
+    // sections where the hashes disagree. `section_hash_count` is the
+    // number of sections the client currently knows about (0 before
+    // the first successful attach). Capped at 16 sections so a future
+    // ~1024-row grid still fits without reallocation.
+    uint64_t section_hashes[16];
+    int      section_hash_count;
 } VoidTab;
 
 static VoidTab g_tabs[MAX_TABS];
@@ -2621,17 +2631,63 @@ fail:
     return -1;
 }
 
-// Attach to an existing session. On success writes the fd via SCM_RIGHTS
-// into *out_fd and fills out_rows/out_cols from the server's reply. The
-// grid payload that the server sends is read into a scratch buffer and
-// discarded here — the client will let the reattached shell redraw
-// itself (claude et al. redraw on SIGWINCH / focus in).
-static int void_server_attach(const char id[32], int *out_fd,
-                              int *out_rows, int *out_cols) {
+// Merkle delta sync section stride — must match void_server.c
+// VS_SECTION_LINES. 64 rows × 400 cols × 16 bytes = 409600 B / section.
+#define VS_CLIENT_SECTION_LINES 64
+#define VS_CLIENT_GRID_ROWS     TERM_MAX_ROWS
+#define VS_CLIENT_GRID_COLS     TERM_MAX_COLS
+#define VS_CLIENT_N_SECTIONS    ((VS_CLIENT_GRID_ROWS + VS_CLIENT_SECTION_LINES - 1) / VS_CLIENT_SECTION_LINES)
+
+// Pin the TermCell layout to 16 bytes so the server's VsCell payloads
+// memcpy into place without transcoding. Any future attempt to reshape
+// TermCell (new field, alignment change) has to be mirrored in
+// void_server.c VsCell or the Merkle sync will silently scramble.
+_Static_assert(sizeof(TermCell) == 16, "TermCell must stay 16 bytes to match VsCell wire layout");
+
+// Attach to an existing session using Merkle delta sync. The caller
+// supplies the set of section hashes it already holds (or NULL/0 on
+// first attach). Sections whose hash still matches the server get an
+// empty "section_bytes=0" record and are left untouched in *out_grid;
+// sections that have changed are memcpy'd into the right rows.
+//
+// On success:
+//   *out_fd   — dup'd PTY master received via SCM_RIGHTS
+//   *out_rows / *out_cols — live session dimensions as the server knows
+//   out_grid  — receiving grid (may be NULL to skip blit)
+//   out_hashes / *out_hash_count — updated section hashes
+//
+// Known-hash arrays are capped at VS_CLIENT_N_SECTIONS; extra slots
+// (e.g. a larger future grid) are ignored. The function handles both
+// live sessions (status 0, fd passed) and tombstones (status 3, no fd)
+// — on tombstone it returns -2 so callers can distinguish that case.
+static int void_server_attach_ex(const char id[32],
+                                 const uint64_t *known_hashes,
+                                 int known_n,
+                                 int *out_fd,
+                                 int *out_rows, int *out_cols,
+                                 TermCell (*out_grid)[TERM_MAX_COLS],
+                                 uint64_t *out_hashes,
+                                 int      *out_hash_count) {
     if (void_server_ensure() != 0) return -1;
-    uint32_t hdr[3] = { VS_MAGIC_CLIENT, VS_CMD_ATTACH, 32 };
+
+    // Request: id[32] + uint32 n + uint64[n]
+    if (known_n < 0) known_n = 0;
+    if (known_n > VS_CLIENT_N_SECTIONS) known_n = VS_CLIENT_N_SECTIONS;
+    size_t req_len = 32 + 4 + (size_t)known_n * 8;
+    char req[32 + 4 + 16 * 8];
+    if (req_len > sizeof(req)) req_len = sizeof(req);
+    memset(req, 0, sizeof(req));
+    memcpy(req, id, 32);
+    uint32_t n32 = (uint32_t)known_n;
+    memcpy(req + 32, &n32, 4);
+    for (int k = 0; k < known_n; k++) {
+        uint64_t h = known_hashes ? known_hashes[k] : 0;
+        memcpy(req + 32 + 4 + (size_t)k * 8, &h, 8);
+    }
+
+    uint32_t hdr[3] = { VS_MAGIC_CLIENT, VS_CMD_ATTACH, (uint32_t)req_len };
     if (vs_write_exact(g_server_sock, hdr, sizeof(hdr)) < 0) goto fail;
-    if (vs_write_exact(g_server_sock, id, 32) < 0) goto fail;
+    if (vs_write_exact(g_server_sock, req, req_len) < 0) goto fail;
 
     uint32_t rhdr[3];
     struct msghdr msg = {0};
@@ -2647,8 +2703,9 @@ static int void_server_attach(const char id[32], int *out_fd,
     if (rhdr[0] != VS_MAGIC_CLIENT) goto fail;
     uint32_t status = rhdr[1];
     uint32_t blen = rhdr[2];
-    // status 0 = live session w/ fd, status 3 = tombstone (no fd)
-    if (status != 0) {
+
+    // Session missing / server error: drain body and fail.
+    if (status != 0 && status != 3) {
         if (blen > 0 && blen < (1 << 20)) {
             char *skip = (char *)malloc(blen);
             vs_read_exact(g_server_sock, skip, blen);
@@ -2666,32 +2723,126 @@ static int void_server_attach(const char id[32], int *out_fd,
         }
         cm = CMSG_NXTHDR(&msg, cm);
     }
-    if (got_fd < 0) return -1;
 
-    // Body: rows16 cols16 uint32 grid_bytes + grid_data
-    if (blen >= 8) {
-        uint16_t rows = 0, cols = 0;
-        if (vs_read_exact(g_server_sock, &rows, 2) < 0) { close(got_fd); goto fail; }
-        if (vs_read_exact(g_server_sock, &cols, 2) < 0) { close(got_fd); goto fail; }
-        uint32_t gb = 0;
-        if (vs_read_exact(g_server_sock, &gb,   4) < 0) { close(got_fd); goto fail; }
-        if (out_rows) *out_rows = rows;
-        if (out_cols) *out_cols = cols;
-        // Skip grid payload — we rely on the shell to redraw.
-        if (gb > 0 && gb < (1 << 20)) {
-            char *skip = (char *)malloc(gb);
-            vs_read_exact(g_server_sock, skip, gb);
-            free(skip);
+    // Live sessions must include a PTY fd. Tombstone (status 3) never
+    // carries one — the session has no running shell to attach to.
+    if (status == 0 && got_fd < 0) return -1;
+
+    // Body: rows16 cols16 n_sections32 repeat(idx32 bytes32 hash64 [payload])
+    if (blen < 8) {
+        if (got_fd >= 0) close(got_fd);
+        return -1;
+    }
+    uint16_t rows = 0, cols = 0;
+    uint32_t n_sections = 0;
+    if (vs_read_exact(g_server_sock, &rows, 2) < 0) { if (got_fd >= 0) close(got_fd); goto fail; }
+    if (vs_read_exact(g_server_sock, &cols, 2) < 0) { if (got_fd >= 0) close(got_fd); goto fail; }
+    if (vs_read_exact(g_server_sock, &n_sections, 4) < 0) { if (got_fd >= 0) close(got_fd); goto fail; }
+    if (out_rows) *out_rows = rows;
+    if (out_cols) *out_cols = cols;
+
+    // Sanity — don't trust the server to a fault
+    if (n_sections > VS_CLIENT_N_SECTIONS + 4) {
+        if (got_fd >= 0) close(got_fd);
+        goto fail;
+    }
+
+    int cols_i = cols;
+    if (cols_i <= 0 || cols_i > VS_CLIENT_GRID_COLS) cols_i = VS_CLIENT_GRID_COLS;
+    size_t per_row  = (size_t)cols_i * sizeof(TermCell);
+    size_t per_sect = (size_t)VS_CLIENT_SECTION_LINES * per_row;
+
+    int max_out_hashes = out_hash_count ? VS_CLIENT_N_SECTIONS : 0;
+    if (out_hash_count) *out_hash_count = 0;
+
+    // Scratch row buffer — VsCell and TermCell share the same 16-byte
+    // layout, so we can memcpy directly. (unichar on macOS is 16-bit and
+    // the server writes ch as uint16_t in the same position.)
+    for (uint32_t k = 0; k < n_sections; k++) {
+        uint32_t idx32 = 0, bytes32 = 0;
+        uint64_t server_hash = 0;
+        if (vs_read_exact(g_server_sock, &idx32, 4) < 0)   { if (got_fd >= 0) close(got_fd); goto fail; }
+        if (vs_read_exact(g_server_sock, &bytes32, 4) < 0) { if (got_fd >= 0) close(got_fd); goto fail; }
+        if (vs_read_exact(g_server_sock, &server_hash, 8) < 0) { if (got_fd >= 0) close(got_fd); goto fail; }
+
+        if (out_hashes && (int)idx32 < max_out_hashes) {
+            out_hashes[idx32] = server_hash;
+            if (out_hash_count && (int)idx32 + 1 > *out_hash_count)
+                *out_hash_count = (int)idx32 + 1;
+        }
+
+        if (bytes32 == 0) continue; // unchanged — client already holds it
+
+        // Sanity bound to stop a rogue server from allocating gigabytes.
+        if (bytes32 > per_sect + 1024) {
+            if (got_fd >= 0) close(got_fd);
+            goto fail;
+        }
+
+        // Read SECTION_LINES rows worth of cells into the target grid,
+        // one row at a time so we can skip rows that fall outside the
+        // client grid bounds cleanly.
+        int row0 = (int)idx32 * VS_CLIENT_SECTION_LINES;
+        size_t remaining = bytes32;
+        for (int dr = 0; dr < VS_CLIENT_SECTION_LINES && remaining >= per_row; dr++) {
+            int rr = row0 + dr;
+            TermCell *dst = NULL;
+            if (out_grid && rr >= 0 && rr < VS_CLIENT_GRID_ROWS)
+                dst = out_grid[rr];
+            if (dst) {
+                if (vs_read_exact(g_server_sock, dst, per_row) < 0) {
+                    if (got_fd >= 0) close(got_fd);
+                    goto fail;
+                }
+            } else {
+                char scratch[VS_CLIENT_GRID_COLS * sizeof(TermCell)];
+                if (vs_read_exact(g_server_sock, scratch, per_row) < 0) {
+                    if (got_fd >= 0) close(got_fd);
+                    goto fail;
+                }
+            }
+            remaining -= per_row;
+        }
+        // Drain any stray padding (shouldn't happen — bytes32 is an exact
+        // multiple of per_row when cols match — but be robust).
+        while (remaining > 0) {
+            char tail[256];
+            size_t chunk = remaining > sizeof(tail) ? sizeof(tail) : remaining;
+            if (vs_read_exact(g_server_sock, tail, chunk) < 0) {
+                if (got_fd >= 0) close(got_fd);
+                goto fail;
+            }
+            remaining -= chunk;
         }
     }
+
+    if (status == 3) {
+        // Tombstone — no PTY fd. Caller has fresh hashes + grid cells;
+        // reattach is not possible but the last frame is now local.
+        if (out_fd) *out_fd = -1;
+        return -2;
+    }
+
     int fl = fcntl(got_fd, F_GETFL, 0);
     fcntl(got_fd, F_SETFL, fl | O_NONBLOCK);
-    *out_fd = got_fd;
+    if (out_fd) *out_fd = got_fd;
     return 0;
 
 fail:
     if (g_server_sock >= 0) { close(g_server_sock); g_server_sock = -1; }
     return -1;
+}
+
+// Legacy wrapper — first-attach path with no hashes, no grid writeback.
+// Kept as a stable name so any future code that just wants (fd, rows,
+// cols) can call it without pulling in the whole section bookkeeping.
+// Matches the old signature so existing forward declarations still bind.
+static int void_server_attach(const char id[32], int *out_fd,
+                              int *out_rows, int *out_cols) {
+    return void_server_attach_ex(id,
+                                 NULL, 0,
+                                 out_fd, out_rows, out_cols,
+                                 NULL, NULL, NULL);
 }
 
 // Spawn a PTY with an optional profile. If vp is NULL, uses the user's

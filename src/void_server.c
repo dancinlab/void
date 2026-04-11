@@ -33,11 +33,18 @@
 //     uint32 pty_fd_hint    (informational; real fd arrives via SCM_RIGHTS on the control msg)
 //
 //   ATTACH body:
-//     char session_id[32]
+//     char     session_id[32]
+//     uint32   n_client_hashes            (0 = full snapshot, first-attach path)
+//     uint64   client_hash[n_client_hashes] (per-section FNV64 the client already has)
 //   ATTACH response body:
-//     uint16 rows, cols
-//     uint32 grid_bytes     (cells serialized, compressed Merkle-delta later)
-//     bytes  grid_data
+//     uint16   rows
+//     uint16   cols
+//     uint32   n_sections                 (total section count in this grid)
+//     repeat n_sections times:
+//       uint32 section_idx
+//       uint32 section_bytes              (0 = unchanged, payload omitted)
+//       uint64 server_hash                (live FNV64 for this section)
+//       bytes  section_data               (SECTION_LINES * cols * sizeof(VsCell))
 //     + the real PTY fd arrives via SCM_RIGHTS
 //
 //   DETACH body:
@@ -361,6 +368,43 @@ static void binwatch_pump(void) {
     }
 }
 
+// ── Merkle delta sync (section hashes) ──────────────────────────────
+
+// Number of sections covering the live rows of this session. 64 lines
+// per section, plus one trailing section for any remainder.
+#define VS_N_SECTIONS  ((VS_GRID_ROWS + VS_SECTION_LINES - 1) / VS_SECTION_LINES)
+
+// Recompute the per-section Merkle hash for every section flagged
+// dirty. Called from pump_sessions after each drain and at the top of
+// handle_attach so the reply never ships stale hashes. Rows past
+// VS_GRID_ROWS are zero-padded so client and server see the same byte
+// sequence regardless of session resize.
+static void update_session_hashes(VsSession *s) {
+    if (!s || !s->used) return;
+    int cols = s->cols > 0 ? s->cols : VS_GRID_COLS;
+    if (cols > VS_GRID_COLS) cols = VS_GRID_COLS;
+    size_t per_row = (size_t)cols * sizeof(VsCell);
+    unsigned char zeros[VS_GRID_COLS * sizeof(VsCell)];
+    memset(zeros, 0, per_row);
+    for (int sec = 0; sec < VS_N_SECTIONS; sec++) {
+        if (!s->section_dirty[sec]) continue;
+        int row0 = sec * VS_SECTION_LINES;
+        uint64_t h = 0xcbf29ce484222325ULL;
+        for (int dr = 0; dr < VS_SECTION_LINES; dr++) {
+            int r = row0 + dr;
+            const unsigned char *p = (r >= VS_GRID_ROWS)
+                ? zeros
+                : (const unsigned char *)&s->grid[r * VS_GRID_COLS];
+            for (size_t i = 0; i < per_row; i++) {
+                h ^= p[i];
+                h *= 0x100000001b3ULL;
+            }
+        }
+        s->section_hash[sec] = h;
+        s->section_dirty[sec] = 0;
+    }
+}
+
 // ── semantic labeling ────────────────────────────────────────────────
 
 // Derive a readable label from cwd + dominant child process.
@@ -591,6 +635,10 @@ static int spawn_session_pty(VsSession *s,
         s->grid[i].bg    = 0;
         s->grid[i].flags = 0;
     }
+    // Mark every section dirty so the first ATTACH computes real hashes
+    // from the space-fill grid instead of returning the zero-init values.
+    for (int sec = 0; sec < VS_N_SECTIONS; sec++)
+        s->section_dirty[sec] = 1;
     return 0;
 }
 
@@ -666,6 +714,10 @@ static void scan_and_restore_checkpoints(void) {
         read(fd, s->grid, sizeof(s->grid));
         s->is_checkpoint_restored = 1;
         s->pty_fd = -1;
+        // Force a rehash on first ATTACH — we don't trust any hash
+        // we might have written into the checkpoint.
+        for (int sec = 0; sec < VS_N_SECTIONS; sec++)
+            s->section_dirty[sec] = 1;
         close(fd);
     }
     closedir(d);
@@ -775,38 +827,138 @@ static int handle_spawn(int client_fd, const char *body, uint32_t len) {
     return 0;
 }
 
+// Build a Merkle-delta ATTACH response body. Returns a malloc'd buffer
+// (caller frees) and writes the total length into *out_len. Compares
+// each server section hash against the corresponding entry in
+// client_hashes[] (or treats it as zero/mismatch if k >= n_client_hashes
+// so the client gets the full payload on first attach).
+//
+// Layout:
+//   uint16 rows
+//   uint16 cols
+//   uint32 n_sections
+//   repeat n_sections:
+//     uint32 section_idx
+//     uint32 section_bytes  (0 when hash matches, else SECTION_LINES * cols * sizeof(VsCell))
+//     uint64 server_hash
+//     bytes  payload        (present iff section_bytes > 0)
+static char *build_attach_body(VsSession *s,
+                               const uint64_t *client_hashes,
+                               uint32_t n_client_hashes,
+                               size_t *out_len) {
+    // Ensure hashes are current — pump_sessions usually did this already
+    // but a second call is cheap (section_dirty gate) and guarantees we
+    // never emit stale entries.
+    update_session_hashes(s);
+
+    int cols = s->cols > 0 ? s->cols : VS_GRID_COLS;
+    if (cols > VS_GRID_COLS) cols = VS_GRID_COLS;
+    uint32_t n_sections = VS_N_SECTIONS;
+    size_t section_payload = (size_t)VS_SECTION_LINES * (size_t)cols * sizeof(VsCell);
+
+    // Worst case: every section dirty → header + n_sections * (16 + payload)
+    size_t worst =
+        2 + 2 + 4 +
+        (size_t)n_sections * (4 + 4 + 8 + section_payload);
+    char *buf = (char *)malloc(worst);
+    if (!buf) { *out_len = 0; return NULL; }
+    size_t off = 0;
+
+    uint16_t rows16 = (uint16_t)s->rows;
+    uint16_t cols16 = (uint16_t)s->cols;
+    memcpy(buf + off, &rows16, 2); off += 2;
+    memcpy(buf + off, &cols16, 2); off += 2;
+    memcpy(buf + off, &n_sections, 4); off += 4;
+
+    for (uint32_t k = 0; k < n_sections; k++) {
+        uint64_t server_hash = s->section_hash[k];
+        // Fall back to a guaranteed-mismatch sentinel (0) when the client
+        // didn't send a hash for this section — a first-attach client
+        // passes n=0 and gets the full grid this way.
+        uint64_t client_hash = (k < n_client_hashes) ? client_hashes[k] : 0;
+        int matches = (k < n_client_hashes) && (client_hash == server_hash);
+
+        uint32_t idx32 = k;
+        uint32_t bytes32 = matches ? 0u : (uint32_t)section_payload;
+        memcpy(buf + off, &idx32, 4);       off += 4;
+        memcpy(buf + off, &bytes32, 4);     off += 4;
+        memcpy(buf + off, &server_hash, 8); off += 8;
+        if (!matches) {
+            // Copy SECTION_LINES rows worth of live cells (first `cols`
+            // columns each). Rows past s->rows are still zeroed from the
+            // initial clear, which hashes consistently on both sides.
+            int row0 = (int)k * VS_SECTION_LINES;
+            for (int dr = 0; dr < VS_SECTION_LINES; dr++) {
+                int r = row0 + dr;
+                if (r >= VS_GRID_ROWS) {
+                    memset(buf + off, 0, (size_t)cols * sizeof(VsCell));
+                } else {
+                    memcpy(buf + off,
+                           &s->grid[r * VS_GRID_COLS],
+                           (size_t)cols * sizeof(VsCell));
+                }
+                off += (size_t)cols * sizeof(VsCell);
+            }
+        }
+    }
+    *out_len = off;
+    return buf;
+}
+
 static int handle_attach(int client_fd, const char *body, uint32_t len) {
+    // New body layout: id[32] + uint32 n + uint64[n]. The classic
+    // 32-byte-only request is accepted as n=0 for backwards compat.
     if (len < 32) return -1;
     char id[32] = {0};
     memcpy(id, body, 32);
+
+    uint32_t n_client = 0;
+    const uint64_t *client_hashes = NULL;
+    if (len >= 32 + 4) {
+        memcpy(&n_client, body + 32, 4);
+        // Sanity — cap at VS_N_SECTIONS; extra entries are ignored.
+        if (n_client > VS_N_SECTIONS) n_client = VS_N_SECTIONS;
+        // Make sure the body is actually long enough to hold n hashes.
+        if (len < 32 + 4 + (size_t)n_client * 8) {
+            n_client = 0;
+        } else if (n_client > 0) {
+            client_hashes = (const uint64_t *)(body + 32 + 4);
+        }
+    }
+
     VsSession *s = find_session(id);
     if (!s) {
         send_response(client_fd, 1, NULL, 0, -1);
         return 0;
     }
+
+    // Ensure hashes are live before we assemble the response so the
+    // first post-spawn ATTACH sees the already-printed banner rows.
+    update_session_hashes(s);
+
     if (s->is_checkpoint_restored || s->pty_fd < 0) {
-        // Tombstone — no live shell, just the last frame
-        char resp[4 + 4 + sizeof(s->grid)];
-        uint16_t rows = (uint16_t)s->rows, cols = (uint16_t)s->cols;
-        memcpy(resp, &rows, 2);
-        memcpy(resp + 2, &cols, 2);
-        uint32_t gb = (uint32_t)sizeof(s->grid);
-        memcpy(resp + 4, &gb, 4);
-        memcpy(resp + 8, s->grid, sizeof(s->grid));
-        send_response(client_fd, 3, resp, sizeof(resp), -1);
+        // Tombstone — no live shell. Still use the new wire format so
+        // clients don't have to handle two response shapes; status=3
+        // signals "no PTY fd" and the grid is delivered the same way.
+        size_t body_len = 0;
+        char *resp = build_attach_body(s, client_hashes, n_client, &body_len);
+        if (!resp) {
+            send_response(client_fd, 2, NULL, 0, -1);
+            return 0;
+        }
+        send_response(client_fd, 3, resp, body_len, -1);
+        free(resp);
         return 0;
     }
+
     s->attached_client_fd = client_fd;
     s->last_attach_mtime = (uint64_t)g_binary_mtime_ns;
-    // Response: rows, cols, grid_bytes, grid
-    size_t body_len = 2 + 2 + 4 + sizeof(s->grid);
-    char *resp = (char *)malloc(body_len);
-    uint16_t rows = (uint16_t)s->rows, cols = (uint16_t)s->cols;
-    memcpy(resp, &rows, 2);
-    memcpy(resp + 2, &cols, 2);
-    uint32_t gb = (uint32_t)sizeof(s->grid);
-    memcpy(resp + 4, &gb, 4);
-    memcpy(resp + 8, s->grid, sizeof(s->grid));
+    size_t body_len = 0;
+    char *resp = build_attach_body(s, client_hashes, n_client, &body_len);
+    if (!resp) {
+        send_response(client_fd, 2, NULL, 0, -1);
+        return 0;
+    }
     send_response(client_fd, 0, resp, body_len, s->pty_fd);
     free(resp);
     return 0;
@@ -949,9 +1101,11 @@ static void pump_sessions(void) {
     for (int i = 0; i < VS_MAX_SESSIONS; i++) {
         VsSession *s = &g_sessions[i];
         if (!s->used || s->pty_fd < 0) continue;
+        int wrote_any = 0;
         char buf[VS_READ_BUF_SIZE];
         ssize_t n;
         while ((n = read(s->pty_fd, buf, sizeof(buf))) > 0) {
+            wrote_any = 1;
             s->last_activity_ns = now_ns();
             // Naive plain-text grid update for background preview only —
             // strips ESC sequences by skipping bytes between ESC and the
@@ -996,10 +1150,17 @@ static void pump_sessions(void) {
                     s->cur_row++;
                 }
             }
-            // Mark all sections dirty — Merkle will lazily rehash on query
-            for (int sec = 0; sec <= VS_GRID_ROWS / VS_SECTION_LINES; sec++)
+            // Mark all sections dirty — Merkle rehash happens just below
+            // (after the drain loop) so back-to-back reads only pay the
+            // hash cost once per pump tick.
+            for (int sec = 0; sec < VS_N_SECTIONS; sec++)
                 s->section_dirty[sec] = 1;
         }
+        // Rehash dirty sections now that the full drain is done. ATTACH
+        // replies read s->section_hash directly, and calling this here
+        // keeps the hash table in sync with the live grid without paying
+        // for it on the ATTACH critical path.
+        if (wrote_any) update_session_hashes(s);
         // Reap if child died
         int status;
         if (s->shell_pid > 0 && waitpid(s->shell_pid, &status, WNOHANG) == s->shell_pid) {
