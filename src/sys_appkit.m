@@ -237,11 +237,12 @@ static void term_key_push(const char *data, int len) {
 
 // ANSI color
 static NSColor *term_color(int idx) {
+    // Terminal.app Basic dark palette
     static uint32_t a16[] = {
-        0x000000,0xCC0000,0x00CC00,0xCCCC00,
-        0x0000CC,0xCC00CC,0x00CCCC,0xCCCCCC,
-        0x666666,0xFF3333,0x33FF33,0xFFFF33,
-        0x3333FF,0xFF33FF,0x33FFFF,0xFFFFFF
+        0x000000,0xC33720,0x00BC12,0xC7BC09,
+        0x0037DA,0xBB3FC6,0x00BBBB,0xBFBFBF,
+        0x686868,0xED4E39,0x2DE636,0xD9D326,
+        0x2B78E4,0xD256DE,0x33D7D7,0xE5E5E5
     };
     if (idx < 0) idx = 7;
     if (idx < 16) {
@@ -320,7 +321,7 @@ static NSColor *term_color(int idx) {
 
     // ── Terminal grid (right of tab bar) ──
     float ox = TAB_BAR_W;
-    [[NSColor colorWithRed:0.07 green:0.07 blue:0.10 alpha:1.0] setFill];
+    [[NSColor blackColor] setFill];
     NSRectFill(NSMakeRect(ox, 0, bounds.size.width - ox, bounds.size.height));
 
     for (int r = 0; r < g_term_rows; r++) {
@@ -358,7 +359,7 @@ static NSColor *term_color(int idx) {
     }
     // Cursor
     if (g_term_cur_vis && g_term_cur_row < g_term_rows && g_term_cur_col < g_term_cols) {
-        [[NSColor colorWithRed:0.8 green:0.8 blue:0.9 alpha:0.7] setFill];
+        [[NSColor colorWithRed:0.6 green:0.6 blue:0.6 alpha:0.5] setFill];
         NSRectFill(NSMakeRect(ox + g_term_cur_col * g_term_cw,
                               g_term_cur_row * g_term_ch, g_term_cw, g_term_ch));
     }
@@ -519,8 +520,11 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         g_term_delegate = [[HexaTermDelegate alloc] init];
         [app setDelegate:g_term_delegate];
 
-        g_term_font = CTFontCreateWithName(CFSTR("Menlo-Regular"), font_size, NULL);
-        if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Monaco"), font_size, NULL);
+        // Match Terminal.app: SFMono-Regular 13pt (fallback chain)
+        long fs = font_size > 0 ? font_size : 13;
+        g_term_font = CTFontCreateWithName(CFSTR("SFMono-Regular"), fs, NULL);
+        if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Menlo-Regular"), fs, NULL);
+        if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Monaco"), fs, NULL);
 
         UniChar mc = 'M';
         CGGlyph gl;
@@ -557,7 +561,7 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         [g_window setMinSize:NSMakeSize(TAB_BAR_W + g_term_cw * 20, g_term_ch * 5)];
         if (@available(macOS 10.14, *))
             [g_window setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
-        [g_window setBackgroundColor:[NSColor colorWithRed:0.07 green:0.07 blue:0.10 alpha:1.0]];
+        [g_window setBackgroundColor:[NSColor blackColor]];
 
         NSView *tv = [[HexaTermView alloc] initWithFrame:frame];
         [g_window setContentView:tv];
