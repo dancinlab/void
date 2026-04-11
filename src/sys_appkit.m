@@ -181,6 +181,7 @@ long hexa_appkit_set_title(void) {
 // ══════════════════════════════════════════════════════════════════
 
 #include <sys/wait.h>
+#include <sys/ioctl.h>
 #include <util.h>
 
 #define TERM_MAX_ROWS 200
@@ -602,9 +603,15 @@ long hexa_tab_new(void) {
 
     g_tabs[idx].used = 1;
     g_tabs[idx].pty_fd = fd;
-    // Get child pid from the forkpty (stored in hexa_sh_child_pid via sys_pty.c)
-    // Actually we do it ourselves here:
-    g_tabs[idx].pid = 0; // Will be set properly
+    g_tabs[idx].pid = 0;
+
+    // Set PTY to actual window size immediately
+    struct winsize ws;
+    ws.ws_row = (unsigned short)g_term_rows;
+    ws.ws_col = (unsigned short)g_term_cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+    ioctl(fd, TIOCSWINSZ, &ws);
     snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "");
     tab_clear_grid(g_tabs[idx].grid);
     g_tabs[idx].cur_row = 0;
@@ -760,6 +767,16 @@ long hexa_appkit_term_poll(void) {
                 g_term_cols = new_cols;
                 g_term_rows = new_rows;
                 g_resized = 1;
+                // Notify ALL tabs' PTYs of new size
+                struct winsize ws;
+                ws.ws_row = (unsigned short)new_rows;
+                ws.ws_col = (unsigned short)new_cols;
+                ws.ws_xpixel = 0;
+                ws.ws_ypixel = 0;
+                for (int t = 0; t < g_num_tabs; t++) {
+                    if (g_tabs[t].used && g_tabs[t].pty_fd >= 0)
+                        ioctl(g_tabs[t].pty_fd, TIOCSWINSZ, &ws);
+                }
             }
         }
     }
