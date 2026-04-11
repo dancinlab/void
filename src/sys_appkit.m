@@ -1236,14 +1236,26 @@ static void tabs_move(int from, int to) {
 }
 
 // Convert a blank tab to a live profile (or plain shell) tab in place.
-// Spawns the PTY, locks the title, clears is_blank, and triggers a
-// full redraw. Used by Cmd+Ctrl+N / Cmd+T when the active tab is blank,
-// so the shortcut replaces the initial empty screen instead of creating
-// a sibling tab.
+// Kills the existing (still-pristine) shell PTY first, then spawns the
+// profile PTY in its place. Locks the title, clears is_blank, resets
+// hexa's VT state via g_resized, triggers a full redraw. Used by
+// Cmd+Ctrl+N / Cmd+T when the active tab is blank.
 static int tab_become_profile(int idx, VoidProfile *vp) {
     if (idx < 0 || idx >= g_num_tabs) return -1;
     if (!g_tabs[idx].used) return -1;
     if (!g_tabs[idx].is_blank) return -1; // never clobber a live tab
+
+    // The initial blank tab owns a real (idle) shell PTY — reap it so
+    // we don't leak a zombie sh process when the profile takes over.
+    if (g_tabs[idx].pty_fd >= 0) {
+        close(g_tabs[idx].pty_fd);
+        g_tabs[idx].pty_fd = -1;
+    }
+    if (g_tabs[idx].pid > 0) {
+        kill(g_tabs[idx].pid, SIGTERM);
+        waitpid(g_tabs[idx].pid, NULL, WNOHANG);
+        g_tabs[idx].pid = 0;
+    }
 
     int fd = tab_spawn_pty_profile(vp);
     if (fd < 0) return -1;
@@ -1307,29 +1319,31 @@ long hexa_tab_new(void) {
     VoidProfile *vp = g_pending_profile;
     g_pending_profile = NULL;
 
-    // Blank-initial rule: the very first tab, opened with no profile,
-    // is created without a PTY. Any later hexa_tab_new call (Cmd+T from
-    // a live tab, or a profile shortcut) spawns a real shell.
+    // Blank-initial rule: the first tab is always a real working shell
+    // (so ssh/git/etc. are immediately usable) but flagged is_blank so
+    // a profile shortcut can convert it in place — UNTIL the user types
+    // anything. The is_blank flag is cleared by hexa_keys_to_pty the
+    // moment the first keystroke flows to the PTY.
     static int g_initial_tab_done = 0;
     int make_blank = (!g_initial_tab_done && !vp);
     g_initial_tab_done = 1;
 
     int idx = g_num_tabs;
-    int fd = make_blank ? -1 : tab_spawn_pty_profile(vp);
-    if (!make_blank && fd < 0) return -1;
+    int fd = tab_spawn_pty_profile(vp);
+    if (fd < 0) return -1;
 
     g_tabs[idx].used = 1;
     g_tabs[idx].pty_fd = fd;
     g_tabs[idx].pid = 0;
     g_tabs[idx].is_blank = make_blank ? 1 : 0;
 
-    // Set PTY to actual window size immediately (skip for blank tabs).
+    // Set PTY to actual window size immediately
     struct winsize ws;
     ws.ws_row = (unsigned short)g_term_rows;
     ws.ws_col = (unsigned short)g_term_cols;
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
-    if (fd >= 0) ioctl(fd, TIOCSWINSZ, &ws);
+    ioctl(fd, TIOCSWINSZ, &ws);
 
     // Title: profile tabs are renumbered as a group by void_tabs_renumber_profiles.
     // 1 sibling → "nexus", 2+ siblings → "nexus (1)", "nexus (2)", … in tab order.
@@ -1793,6 +1807,19 @@ long hexa_keys_to_pty(long master_fd) {
     for (int i = 0; i < avail; i++) {
         buf[i] = g_term_keys[g_term_kr % TERM_KEY_SIZE];
         g_term_kr++;
+    }
+    // Clear is_blank ONLY on Enter (command execution), not on every
+    // keystroke. Typing `ssh foo` without hitting Enter keeps the tab
+    // convertible; hitting Enter runs something so the tab is no longer
+    // pristine and a profile shortcut must open a new tab instead.
+    if (g_active_tab >= 0 && g_active_tab < g_num_tabs &&
+        g_tabs[g_active_tab].is_blank) {
+        for (int i = 0; i < avail; i++) {
+            if (buf[i] == '\r' || buf[i] == '\n') {
+                g_tabs[g_active_tab].is_blank = 0;
+                break;
+            }
+        }
     }
     return (long)write((int)master_fd, buf, avail);
 }
