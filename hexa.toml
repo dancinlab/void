@@ -33,13 +33,14 @@ artifact_prefix = "/tmp/void_"
 name = "void"
 path = "void"
 
-# Current MVP entry. When L3_app lands (app_main.hexa), this switches.
 [bin.default_src]
-hexa = "src/smoke_appkit.hexa"
-helpers = ["src/sys_appkit.m"]
+hexa = "src/void_main.hexa"
+helpers = ["src/sys_pty.c", "src/sys_appkit.m"]
+frameworks = ["Cocoa", "CoreText"]
 
 [test]
-runner = "scripts/build.sh"
+runner = "void --test"
+self_test = 8
 smokes = [
     "src/smoke_pty.hexa",
     "src/smoke_termios.hexa",
@@ -50,8 +51,14 @@ smokes = [
     "src/smoke_screen.hexa",
     "src/smoke_term_v1.hexa",
     "src/smoke_appkit.hexa",
+    "src/smoke_sgr.hexa",
+    "src/smoke_csi_osc.hexa",
+    "src/smoke_drawrect.hexa",
+    "src/smoke_osc_title.hexa",
+    "src/smoke_app_entry.hexa",
+    "src/smoke_interactive.hexa",
 ]
-baseline = 9
+baseline = 15
 
 [state]
 # AI-native state pointers — do NOT put progress in README/CHANGELOG.

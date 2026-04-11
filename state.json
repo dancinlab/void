@@ -1,0 +1,60 @@
+{
+  "_meta": {
+    "purpose": "void SSoT — layers, blockers, next steps",
+    "updated": "2026-04-11"
+  },
+  "layers": {
+    "L1_sys": {
+      "status": "PASS",
+      "src": ["src/sys_pty.c", "src/sys_appkit.m"],
+      "ossified": 5
+    },
+    "L2_term": {
+      "status": "PASS",
+      "src": ["src/void_main.hexa (VT parser + screen buffer inline)"],
+      "ossified": 6
+    },
+    "L3_app": {
+      "status": "PASS",
+      "src": ["src/void_main.hexa (main loop + sync_to_bridge)"],
+      "ossified": 5
+    }
+  },
+  "binary": {
+    "entry": "src/void_main.hexa",
+    "helpers": ["src/sys_pty.c", "src/sys_appkit.m"],
+    "output": "void_term",
+    "app_bundle": "VOID.app",
+    "size_bytes": 99784,
+    "arch": "arm64",
+    "self_test": "8/8 pass"
+  },
+  "features": {
+    "vt_parser": "6-state (GROUND/ESC/CSI/OSC_NUM/OSC_STR/CHARSET)",
+    "sgr": "0/1/4/7/22/24/27/30-37/38;5;N/38;2;R;G;B/39/40-47/48;5;N/48;2;R;G;B/49/90-97/100-107",
+    "csi": "CUP/CUU/CUD/CUF/CUB/ED/EL/IL/DL/DCH/ICH/ECH/SU/SD/DECSTBM/SGR/save/restore",
+    "osc": "OSC 0 title (BEL + ST)",
+    "tabs": "Cmd+T new / Cmd+W close / click switch / left tab bar 140px",
+    "keys": "arrow/home/end/pgup/pgdn/del/F1-F4/Ctrl+a-z",
+    "single_instance": "/tmp/void_term.lock Unix socket",
+    "app_bundle": "VOID.app (Info.plist + AppIcon.icns)"
+  },
+  "blockers": {
+    "VB1": {
+      "severity": "high",
+      "title": "native build_c 부재",
+      "impact": "hexa→C transpile 인터프리터 모드 (수분 소요)"
+    }
+  },
+  "next": [
+    "실제 GUI 인터랙션 검증 (셸 프롬프트 + 명령 실행)",
+    "resize 지원 (window resize → PTY TIOCSWINSZ)",
+    "scrollback buffer",
+    "Cmd+1~9 탭 전환"
+  ],
+  "last_test": {
+    "date": "2026-04-11",
+    "result": "8/8 pass",
+    "commit": "efe470d"
+  }
+}
