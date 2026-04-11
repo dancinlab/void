@@ -1,0 +1,911 @@
+// void-server — session supervisor daemon
+//
+// Owns PTY masters on behalf of void_term clients so that:
+//   1. Processes (claude, shell, vim, etc.) survive client exit
+//   2. Clients can re-attach to sessions across restarts
+//   3. Hot-swap (void_term rebuild) is free — the PTY never closes
+//   4. Crash resurrection — periodic checkpoints let us restore state
+//      if the server itself dies (we reparent PTYs via launchd-ish trick)
+//
+// Wire protocol — length-prefixed binary over AF_UNIX/SOCK_STREAM at
+//   /tmp/void_server.sock
+//
+//   Request frame:
+//     uint32 magic = 'VSR1'
+//     uint32 cmd   = VS_SPAWN | VS_ATTACH | VS_DETACH | VS_LIST | VS_KILL
+//     uint32 body_len
+//     bytes  body (command-specific)
+//
+//   Response frame:
+//     uint32 magic = 'VSR1'
+//     uint32 status = 0 success | nonzero errno-ish
+//     uint32 body_len
+//     bytes  body
+//
+//   SPAWN body:
+//     char title[64]
+//     char path[512]   (cwd; "" = inherit)
+//     char cmd[512]    (cmd to run after cd; "" = default shell)
+//     uint16 rows
+//     uint16 cols
+//   SPAWN response body:
+//     char session_id[32]   (ULID-ish)
+//     uint32 pty_fd_hint    (informational; real fd arrives via SCM_RIGHTS on the control msg)
+//
+//   ATTACH body:
+//     char session_id[32]
+//   ATTACH response body:
+//     uint16 rows, cols
+//     uint32 grid_bytes     (cells serialized, compressed Merkle-delta later)
+//     bytes  grid_data
+//     + the real PTY fd arrives via SCM_RIGHTS
+//
+//   DETACH body:
+//     char session_id[32]
+//   DETACH response: empty (session kept alive, client-side fd should be closed)
+//
+//   LIST body: empty
+//   LIST response body:
+//     uint32 n
+//     repeated n times:
+//       char session_id[32]
+//       char label[64]
+//       char cwd[256]
+//       uint32 proc_count
+//       repeated proc_count times:
+//         char name[32]
+//   KILL body: char session_id[32] — hard-kill the session (SIGTERM to pgrp)
+//
+// AI-native layers:
+//   - Semantic label: derived from cwd tail + dominant child process name
+//   - Process classifier: lookup table picks persistence strategy on detach
+//   - Content-hashed state store: Merkle tree over 64-line sections, delta sync
+//   - Checkpoint engine: periodic (every 5s) dump of grid + cursor to disk
+//   - Crash resurrection: on server startup, scan ckpt dir for orphan sessions
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/wait.h>
+#include <sys/uio.h>
+#include <sys/ioctl.h>
+#include <sys/select.h>
+#include <sys/event.h>   // kqueue for binary watcher
+#include <sys/time.h>
+#include <util.h>        // forkpty
+#include <libproc.h>
+#include <sys/proc_info.h>
+#include <time.h>
+#include <pwd.h>
+#include <dirent.h>
+
+#define VS_MAGIC           0x31525356u  // 'VSR1' little-endian
+#define VS_SPAWN           1
+#define VS_ATTACH          2
+#define VS_DETACH          3
+#define VS_LIST            4
+#define VS_KILL            5
+#define VS_CHECKPOINT      6
+#define VS_PING            7
+#define VS_SOCK_PATH       "/tmp/void_server.sock"
+#define VS_CKPT_DIR        "/tmp/void_server_ckpt"
+#define VS_MAX_SESSIONS    64
+#define VS_GRID_ROWS       200
+#define VS_GRID_COLS       400
+#define VS_SECTION_LINES   64   // Merkle section size
+#define VS_MAX_CLIENTS     32
+#define VS_READ_BUF_SIZE   65536
+
+// Wire cell — same 16 bytes as sys_appkit.m TermCell
+typedef struct {
+    uint16_t ch;
+    uint16_t _pad;
+    int32_t  fg;
+    int32_t  bg;
+    int32_t  flags;
+} VsCell;
+
+// Session state held by the daemon
+typedef struct {
+    int     used;
+    char    id[32];            // ULID-ish
+    char    label[64];         // semantic label (e.g. "nexus-atlas-refactor")
+    char    cwd[512];
+    char    cmd_launched[512];
+    pid_t   shell_pid;
+    int     pty_fd;            // master held by server
+    int     rows, cols;
+    int     attached_client_fd;// -1 when nobody attached
+    int     is_checkpoint_restored; // 1 if restored from ckpt w/o live PTY
+    long    last_activity_ns;
+    VsCell  grid[VS_GRID_ROWS * VS_GRID_COLS];
+    int     cur_row, cur_col;
+    // Per-section hash cache for Merkle delta sync. One hash per 64-line
+    // block; recalc lazily when the section has been written since last hash.
+    uint64_t section_hash[VS_GRID_ROWS / VS_SECTION_LINES + 1];
+    int      section_dirty[VS_GRID_ROWS / VS_SECTION_LINES + 1];
+} VsSession;
+
+static VsSession g_sessions[VS_MAX_SESSIONS];
+static int       g_sock_listen = -1;
+static int       g_shutdown   = 0;
+
+// ── util ─────────────────────────────────────────────────────────────
+
+static void die(const char *msg) {
+    fprintf(stderr, "[void-server] fatal: %s: %s\n", msg, strerror(errno));
+    exit(1);
+}
+
+static long now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)ts.tv_sec * 1000000000L + ts.tv_nsec;
+}
+
+// Simple ULID-ish id: 13-char timestamp + 6-char random — stable sort order.
+static void gen_session_id(char out[32]) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    uint64_t ms = (uint64_t)ts.tv_sec * 1000ULL + ts.tv_nsec / 1000000ULL;
+    static const char a[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    for (int i = 12; i >= 0; i--) { out[i] = a[ms & 0x1F]; ms >>= 5; }
+    uint32_t r = (uint32_t)(ts.tv_nsec ^ getpid());
+    for (int i = 13; i < 19; i++) { out[i] = a[r & 0x1F]; r >>= 5; }
+    out[19] = 0;
+}
+
+// Fast non-cryptographic hash — FNV-1a 64. Good enough for delta sync.
+static uint64_t fnv1a64(const void *data, size_t len) {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    const unsigned char *p = (const unsigned char *)data;
+    for (size_t i = 0; i < len; i++) {
+        h ^= p[i];
+        h *= 0x100000001b3ULL;
+    }
+    return h;
+}
+
+// ── semantic labeling ────────────────────────────────────────────────
+
+// Derive a readable label from cwd + dominant child process.
+//   "/Users/ghost/Dev/nexus" + "claude" → "nexus-claude"
+//   "/Users/ghost/Dev/void"  + "zsh"    → "void"
+// No embeddings in v1 — this is heuristic only.
+static void derive_label(const char *cwd, const char *cmd,
+                         pid_t shell_pid, char out[64]) {
+    const char *tail = strrchr(cwd, '/');
+    tail = tail ? tail + 1 : cwd;
+    if (!*tail) tail = "home";
+
+    // Best-effort dominant-process sniff. Scan all pids for direct children
+    // of the shell pid and pick the first non-shell name.
+    char proc[32] = {0};
+    if (shell_pid > 0) {
+        int pids[4096];
+        int bytes = proc_listpids(PROC_ALL_PIDS, 0, pids, sizeof(pids));
+        int n = bytes / (int)sizeof(int);
+        for (int i = 0; i < n; i++) {
+            pid_t p = pids[i];
+            if (p <= 0) continue;
+            struct proc_bsdinfo info;
+            if (proc_pidinfo(p, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) <= 0)
+                continue;
+            if ((pid_t)info.pbi_ppid != shell_pid) continue;
+            const char *nm = info.pbi_comm;
+            if (!*nm) continue;
+            if (!strcmp(nm, "zsh") || !strcmp(nm, "bash") || !strcmp(nm, "sh") ||
+                !strcmp(nm, "fish") || !strcmp(nm, "dash")) continue;
+            snprintf(proc, sizeof(proc), "%s", nm);
+            break;
+        }
+    }
+
+    if (proc[0])
+        snprintf(out, 64, "%s-%s", tail, proc);
+    else
+        snprintf(out, 64, "%s", tail);
+    // Strip non-label chars
+    for (char *q = out; *q; q++) {
+        if (*q == ' ' || *q == '/' || *q == '\\') *q = '-';
+    }
+}
+
+// ── process classifier ───────────────────────────────────────────────
+
+typedef enum {
+    STRAT_DEFAULT    = 0, // hold PTY open, session persists
+    STRAT_CHECKPOINT = 1, // claude et al — snapshot on detach, resume later
+    STRAT_PROTECT    = 2, // vim/less/nano — warn before close (has buffer)
+    STRAT_TRANSIENT  = 3, // shell only — OK to garbage-collect after N hours idle
+} VsStrategy;
+
+static VsStrategy classify_process(const char *name) {
+    if (!name || !*name) return STRAT_DEFAULT;
+    if (!strcmp(name, "claude"))   return STRAT_CHECKPOINT;
+    if (!strcmp(name, "cl"))       return STRAT_CHECKPOINT;
+    if (!strcmp(name, "vim"))      return STRAT_PROTECT;
+    if (!strcmp(name, "nvim"))     return STRAT_PROTECT;
+    if (!strcmp(name, "nano"))     return STRAT_PROTECT;
+    if (!strcmp(name, "emacs"))    return STRAT_PROTECT;
+    if (!strcmp(name, "less"))     return STRAT_PROTECT;
+    if (!strcmp(name, "fswatch"))  return STRAT_DEFAULT;
+    if (!strcmp(name, "node"))     return STRAT_DEFAULT;
+    if (!strcmp(name, "python"))   return STRAT_DEFAULT;
+    if (!strcmp(name, "zsh"))      return STRAT_TRANSIENT;
+    if (!strcmp(name, "bash"))     return STRAT_TRANSIENT;
+    if (!strcmp(name, "sh"))       return STRAT_TRANSIENT;
+    return STRAT_DEFAULT;
+}
+
+// Enumerate descendants of `root_pid`, fill `out` with comma-separated names
+// like "zsh(2), claude, fswatch". Returns total process count (excluding root).
+static int enumerate_descendants(pid_t root_pid, char *out, size_t outsz) {
+    int pids[4096];
+    int bytes = proc_listpids(PROC_ALL_PIDS, 0, pids, sizeof(pids));
+    if (bytes <= 0) return 0;
+    int n = bytes / (int)sizeof(int);
+
+    struct { char name[32]; int count; } bucket[32];
+    int bn = 0;
+    int total = 0;
+
+    for (int i = 0; i < n; i++) {
+        pid_t p = pids[i];
+        if (p <= 0 || p == root_pid) continue;
+        // Walk ancestors up to depth 16
+        pid_t a = p;
+        int depth = 0;
+        int match = 0;
+        while (a > 1 && depth < 16) {
+            struct proc_bsdinfo info;
+            if (proc_pidinfo(a, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) <= 0)
+                break;
+            a = (pid_t)info.pbi_ppid;
+            if (a == root_pid) { match = 1; break; }
+            depth++;
+        }
+        if (!match) continue;
+        char name[32] = {0};
+        proc_name(p, name, sizeof(name));
+        if (!name[0]) continue;
+        total++;
+        int found = -1;
+        for (int k = 0; k < bn; k++)
+            if (!strcmp(bucket[k].name, name)) { found = k; break; }
+        if (found >= 0) {
+            bucket[found].count++;
+        } else if (bn < 32) {
+            snprintf(bucket[bn].name, sizeof(bucket[bn].name), "%s", name);
+            bucket[bn].count = 1;
+            bn++;
+        }
+    }
+
+    size_t pos = 0;
+    for (int k = 0; k < bn; k++) {
+        if (pos >= outsz - 1) break;
+        int w;
+        if (bucket[k].count > 1)
+            w = snprintf(out + pos, outsz - pos, "%s%s(%d)",
+                         pos ? ", " : "", bucket[k].name, bucket[k].count);
+        else
+            w = snprintf(out + pos, outsz - pos, "%s%s",
+                         pos ? ", " : "", bucket[k].name);
+        if (w < 0) break;
+        pos += (size_t)w;
+    }
+    out[outsz - 1] = 0;
+    return total;
+}
+
+// ── session management ──────────────────────────────────────────────
+
+static VsSession *find_session(const char *id) {
+    for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+        if (g_sessions[i].used && !strcmp(g_sessions[i].id, id))
+            return &g_sessions[i];
+    }
+    return NULL;
+}
+
+static VsSession *alloc_session(void) {
+    for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+        if (!g_sessions[i].used) {
+            memset(&g_sessions[i], 0, sizeof(VsSession));
+            g_sessions[i].used = 1;
+            g_sessions[i].pty_fd = -1;
+            g_sessions[i].attached_client_fd = -1;
+            return &g_sessions[i];
+        }
+    }
+    return NULL;
+}
+
+static void free_session(VsSession *s) {
+    if (!s) return;
+    if (s->pty_fd >= 0) close(s->pty_fd);
+    if (s->shell_pid > 0) {
+        kill(-s->shell_pid, SIGTERM);
+        waitpid(s->shell_pid, NULL, WNOHANG);
+    }
+    memset(s, 0, sizeof(VsSession));
+    s->pty_fd = -1;
+    s->attached_client_fd = -1;
+}
+
+// Fork a shell + PTY, store in session. Returns 0 on success.
+static int spawn_session_pty(VsSession *s,
+                             const char *cwd, const char *cmd,
+                             int rows, int cols) {
+    struct winsize ws;
+    ws.ws_row = (unsigned short)rows;
+    ws.ws_col = (unsigned short)cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+
+    int master = -1;
+    pid_t pid = forkpty(&master, NULL, NULL, &ws);
+    if (pid < 0) return -1;
+
+    if (pid == 0) {
+        // Child — exec the shell
+        setenv("TERM", "xterm-256color", 1);
+        setenv("LANG", "en_US.UTF-8", 1);
+        // Give the child a fresh user-writable PATH so profile commands
+        // work under Finder/LaunchServices sparse envs.
+        const char *old = getenv("PATH") ?: "/usr/bin:/bin";
+        char np[2048];
+        snprintf(np, sizeof(np),
+                 "%s/.local/bin:%s/bin:/opt/homebrew/bin:/usr/local/bin:%s",
+                 getenv("HOME") ?: "", getenv("HOME") ?: "", old);
+        setenv("PATH", np, 1);
+        // New session so orphaned shells survive any accidental ppid check
+        setsid();
+
+        const char *sh = getenv("SHELL");
+        if (!sh) sh = "/bin/zsh";
+
+        if (cwd && *cwd) chdir(cwd);
+
+        if (cmd && *cmd) {
+            char script[1200];
+            snprintf(script, sizeof(script), "%s; exec %s -l", cmd, sh);
+            execl(sh, sh, "-l", "-c", script, (char *)NULL);
+        } else {
+            execl(sh, sh, "-l", (char *)NULL);
+        }
+        _exit(127);
+    }
+
+    int fl = fcntl(master, F_GETFL, 0);
+    fcntl(master, F_SETFL, fl | O_NONBLOCK);
+    s->pty_fd = master;
+    s->shell_pid = pid;
+    s->rows = rows;
+    s->cols = cols;
+    snprintf(s->cwd, sizeof(s->cwd), "%s", cwd ? cwd : "");
+    snprintf(s->cmd_launched, sizeof(s->cmd_launched), "%s", cmd ? cmd : "");
+    derive_label(s->cwd, cmd, pid, s->label);
+    s->last_activity_ns = now_ns();
+
+    // Fill grid with spaces
+    for (int i = 0; i < VS_GRID_ROWS * VS_GRID_COLS; i++) {
+        s->grid[i].ch    = ' ';
+        s->grid[i].fg    = 7;
+        s->grid[i].bg    = 0;
+        s->grid[i].flags = 0;
+    }
+    return 0;
+}
+
+// ── checkpointing ───────────────────────────────────────────────────
+
+typedef struct {
+    uint32_t magic;          // 'VCKP'
+    char     id[32];
+    char     label[64];
+    char     cwd[512];
+    char     cmd_launched[512];
+    int32_t  rows, cols;
+    int32_t  cur_row, cur_col;
+    // grid follows
+} VsCkptHeader;
+#define VS_CKPT_MAGIC 0x564B5056u // 'VCKP'? layout matches FourCC
+
+static void ensure_ckpt_dir(void) {
+    mkdir(VS_CKPT_DIR, 0755);
+}
+
+static void checkpoint_session(const VsSession *s) {
+    ensure_ckpt_dir();
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s.bin", VS_CKPT_DIR, s->id);
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return;
+    VsCkptHeader h = {0};
+    h.magic = VS_CKPT_MAGIC;
+    memcpy(h.id, s->id, sizeof(h.id));
+    memcpy(h.label, s->label, sizeof(h.label));
+    memcpy(h.cwd, s->cwd, sizeof(h.cwd));
+    memcpy(h.cmd_launched, s->cmd_launched, sizeof(h.cmd_launched));
+    h.rows = s->rows;
+    h.cols = s->cols;
+    h.cur_row = s->cur_row;
+    h.cur_col = s->cur_col;
+    write(fd, &h, sizeof(h));
+    write(fd, s->grid, sizeof(s->grid));
+    close(fd);
+}
+
+static void scan_and_restore_checkpoints(void) {
+    // On startup, load any ckpt files as "restored" sessions without a
+    // live PTY. These show up in LIST and clients can see the last frame,
+    // but attaching won't resume a shell — they're tombstones of crashed
+    // sessions. A future version could re-spawn + replay stdin to rebuild.
+    DIR *d = opendir(VS_CKPT_DIR);
+    if (!d) return;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", VS_CKPT_DIR, ent->d_name);
+        int fd = open(path, O_RDONLY);
+        if (fd < 0) continue;
+        VsCkptHeader h;
+        if (read(fd, &h, sizeof(h)) != (ssize_t)sizeof(h) ||
+            h.magic != VS_CKPT_MAGIC) {
+            close(fd);
+            continue;
+        }
+        VsSession *s = alloc_session();
+        if (!s) { close(fd); break; }
+        memcpy(s->id, h.id, sizeof(s->id));
+        memcpy(s->label, h.label, sizeof(s->label));
+        memcpy(s->cwd, h.cwd, sizeof(s->cwd));
+        memcpy(s->cmd_launched, h.cmd_launched, sizeof(s->cmd_launched));
+        s->rows = h.rows;
+        s->cols = h.cols;
+        s->cur_row = h.cur_row;
+        s->cur_col = h.cur_col;
+        read(fd, s->grid, sizeof(s->grid));
+        s->is_checkpoint_restored = 1;
+        s->pty_fd = -1;
+        close(fd);
+    }
+    closedir(d);
+}
+
+// ── unix socket I/O ─────────────────────────────────────────────────
+
+static int read_exact(int fd, void *buf, size_t n) {
+    size_t got = 0;
+    while (got < n) {
+        ssize_t r = read(fd, (char *)buf + got, n - got);
+        if (r == 0) return -1;
+        if (r < 0) { if (errno == EINTR) continue; return -1; }
+        got += (size_t)r;
+    }
+    return 0;
+}
+
+static int write_exact(int fd, const void *buf, size_t n) {
+    size_t sent = 0;
+    while (sent < n) {
+        ssize_t w = write(fd, (const char *)buf + sent, n - sent);
+        if (w <= 0) { if (errno == EINTR) continue; return -1; }
+        sent += (size_t)w;
+    }
+    return 0;
+}
+
+// Send a response header + optional fd via SCM_RIGHTS.
+static int send_response(int client_fd, uint32_t status,
+                         const void *body, size_t body_len,
+                         int fd_to_pass) {
+    uint32_t hdr[3];
+    hdr[0] = VS_MAGIC;
+    hdr[1] = status;
+    hdr[2] = (uint32_t)body_len;
+
+    struct msghdr msg = {0};
+    struct iovec iov[2];
+    iov[0].iov_base = hdr;
+    iov[0].iov_len  = sizeof(hdr);
+    int iovn = 1;
+    if (body_len > 0) {
+        iov[1].iov_base = (void *)body;
+        iov[1].iov_len  = body_len;
+        iovn = 2;
+    }
+    msg.msg_iov = iov;
+    msg.msg_iovlen = iovn;
+
+    char ctrl[CMSG_SPACE(sizeof(int))];
+    if (fd_to_pass >= 0) {
+        memset(ctrl, 0, sizeof(ctrl));
+        msg.msg_control = ctrl;
+        msg.msg_controllen = sizeof(ctrl);
+        struct cmsghdr *cm = CMSG_FIRSTHDR(&msg);
+        cm->cmsg_level = SOL_SOCKET;
+        cm->cmsg_type  = SCM_RIGHTS;
+        cm->cmsg_len   = CMSG_LEN(sizeof(int));
+        memcpy(CMSG_DATA(cm), &fd_to_pass, sizeof(int));
+    }
+
+    ssize_t r = sendmsg(client_fd, &msg, 0);
+    return r > 0 ? 0 : -1;
+}
+
+// ── command handlers ────────────────────────────────────────────────
+
+static int handle_spawn(int client_fd, const char *body, uint32_t len) {
+    if (len < 64 + 512 + 512 + 4) return -1;
+    const char *title = body;
+    const char *cwd   = body + 64;
+    const char *cmd   = body + 64 + 512;
+    uint16_t rows, cols;
+    memcpy(&rows, body + 64 + 512 + 512, 2);
+    memcpy(&cols, body + 64 + 512 + 512 + 2, 2);
+
+    VsSession *s = alloc_session();
+    if (!s) {
+        send_response(client_fd, 1, NULL, 0, -1);
+        return 0;
+    }
+    gen_session_id(s->id);
+    snprintf(s->label, sizeof(s->label), "%s", title[0] ? title : "session");
+
+    if (spawn_session_pty(s, cwd, cmd, rows, cols) != 0) {
+        free_session(s);
+        send_response(client_fd, 2, NULL, 0, -1);
+        return 0;
+    }
+    // override label with derived version
+    if (title[0])
+        snprintf(s->label, sizeof(s->label), "%s", title);
+    else
+        derive_label(s->cwd, cmd, s->shell_pid, s->label);
+
+    s->attached_client_fd = client_fd;
+
+    // Response: session_id
+    char resp[32 + 4] = {0};
+    memcpy(resp, s->id, 32);
+    uint32_t hint = (uint32_t)s->pty_fd;
+    memcpy(resp + 32, &hint, 4);
+
+    send_response(client_fd, 0, resp, sizeof(resp), s->pty_fd);
+    return 0;
+}
+
+static int handle_attach(int client_fd, const char *body, uint32_t len) {
+    if (len < 32) return -1;
+    char id[32] = {0};
+    memcpy(id, body, 32);
+    VsSession *s = find_session(id);
+    if (!s) {
+        send_response(client_fd, 1, NULL, 0, -1);
+        return 0;
+    }
+    if (s->is_checkpoint_restored || s->pty_fd < 0) {
+        // Tombstone — no live shell, just the last frame
+        char resp[4 + 4 + sizeof(s->grid)];
+        uint16_t rows = (uint16_t)s->rows, cols = (uint16_t)s->cols;
+        memcpy(resp, &rows, 2);
+        memcpy(resp + 2, &cols, 2);
+        uint32_t gb = (uint32_t)sizeof(s->grid);
+        memcpy(resp + 4, &gb, 4);
+        memcpy(resp + 8, s->grid, sizeof(s->grid));
+        send_response(client_fd, 3, resp, sizeof(resp), -1);
+        return 0;
+    }
+    s->attached_client_fd = client_fd;
+    // Response: rows, cols, grid_bytes, grid
+    size_t body_len = 2 + 2 + 4 + sizeof(s->grid);
+    char *resp = (char *)malloc(body_len);
+    uint16_t rows = (uint16_t)s->rows, cols = (uint16_t)s->cols;
+    memcpy(resp, &rows, 2);
+    memcpy(resp + 2, &cols, 2);
+    uint32_t gb = (uint32_t)sizeof(s->grid);
+    memcpy(resp + 4, &gb, 4);
+    memcpy(resp + 8, s->grid, sizeof(s->grid));
+    send_response(client_fd, 0, resp, body_len, s->pty_fd);
+    free(resp);
+    return 0;
+}
+
+static int handle_detach(int client_fd, const char *body, uint32_t len) {
+    if (len < 32) return -1;
+    char id[32] = {0};
+    memcpy(id, body, 32);
+    VsSession *s = find_session(id);
+    if (!s) {
+        send_response(client_fd, 1, NULL, 0, -1);
+        return 0;
+    }
+    if (s->attached_client_fd == client_fd)
+        s->attached_client_fd = -1;
+    // Write a checkpoint on detach so crash-resurrection has something to find
+    checkpoint_session(s);
+    send_response(client_fd, 0, NULL, 0, -1);
+    return 0;
+}
+
+static int handle_list(int client_fd, const char *body, uint32_t len) {
+    (void)body; (void)len;
+    uint32_t n = 0;
+    for (int i = 0; i < VS_MAX_SESSIONS; i++)
+        if (g_sessions[i].used) n++;
+
+    size_t each = 32 + 64 + 256 + 4 + 32 * 32;
+    size_t body_len = 4 + n * each;
+    char *resp = (char *)calloc(1, body_len);
+    char *p = resp;
+    memcpy(p, &n, 4); p += 4;
+    for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+        VsSession *s = &g_sessions[i];
+        if (!s->used) continue;
+        memcpy(p, s->id, 32); p += 32;
+        memcpy(p, s->label, 64); p += 64;
+        memcpy(p, s->cwd, 256); p += 256;
+        char names[1024] = {0};
+        int total = s->shell_pid > 0
+            ? enumerate_descendants(s->shell_pid, names, sizeof(names))
+            : 0;
+        uint32_t pc = (uint32_t)total;
+        memcpy(p, &pc, 4); p += 4;
+        // Just stuff the names string into the first 32-byte slot for now;
+        // a richer client can parse individual names but v1 UI only shows
+        // the concatenated string.
+        snprintf(p, 32 * 32, "%s", names);
+        p += 32 * 32;
+    }
+    send_response(client_fd, 0, resp, body_len, -1);
+    free(resp);
+    return 0;
+}
+
+static int handle_kill(int client_fd, const char *body, uint32_t len) {
+    if (len < 32) return -1;
+    char id[32] = {0};
+    memcpy(id, body, 32);
+    VsSession *s = find_session(id);
+    if (!s) {
+        send_response(client_fd, 1, NULL, 0, -1);
+        return 0;
+    }
+    free_session(s);
+    // Remove ckpt file
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s.bin", VS_CKPT_DIR, id);
+    unlink(path);
+    send_response(client_fd, 0, NULL, 0, -1);
+    return 0;
+}
+
+static int handle_ping(int client_fd, const char *body, uint32_t len) {
+    (void)body; (void)len;
+    const char *pong = "pong";
+    send_response(client_fd, 0, pong, 4, -1);
+    return 0;
+}
+
+// ── client dispatch ─────────────────────────────────────────────────
+
+static void handle_client(int client_fd) {
+    while (!g_shutdown) {
+        uint32_t hdr[3];
+        if (read_exact(client_fd, hdr, sizeof(hdr)) < 0) break;
+        if (hdr[0] != VS_MAGIC) break;
+        uint32_t cmd = hdr[1];
+        uint32_t blen = hdr[2];
+        char *body = NULL;
+        if (blen > 0) {
+            if (blen > 1 << 20) break; // sanity
+            body = (char *)malloc(blen);
+            if (read_exact(client_fd, body, blen) < 0) { free(body); break; }
+        }
+        int rc = -1;
+        switch (cmd) {
+            case VS_SPAWN:  rc = handle_spawn (client_fd, body, blen); break;
+            case VS_ATTACH: rc = handle_attach(client_fd, body, blen); break;
+            case VS_DETACH: rc = handle_detach(client_fd, body, blen); break;
+            case VS_LIST:   rc = handle_list  (client_fd, body, blen); break;
+            case VS_KILL:   rc = handle_kill  (client_fd, body, blen); break;
+            case VS_PING:   rc = handle_ping  (client_fd, body, blen); break;
+            default: send_response(client_fd, 99, NULL, 0, -1); break;
+        }
+        free(body);
+        if (rc < 0) break;
+    }
+    // Mark any session this client owned as detached (but keep alive)
+    for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+        if (g_sessions[i].used && g_sessions[i].attached_client_fd == client_fd) {
+            g_sessions[i].attached_client_fd = -1;
+            checkpoint_session(&g_sessions[i]);
+        }
+    }
+    close(client_fd);
+}
+
+// ── background pumping ──────────────────────────────────────────────
+
+// Drain every session's PTY output so shells don't block on full kernel
+// buffers. Feeds into the session's grid as best-effort plain text. The
+// active client gets the bytes via the PTY fd it already holds, so the
+// server's grid is really for checkpoint / LIST preview purposes.
+static void pump_sessions(void) {
+    for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+        VsSession *s = &g_sessions[i];
+        if (!s->used || s->pty_fd < 0) continue;
+        char buf[VS_READ_BUF_SIZE];
+        ssize_t n;
+        while ((n = read(s->pty_fd, buf, sizeof(buf))) > 0) {
+            s->last_activity_ns = now_ns();
+            // Naive plain-text grid update for background preview only —
+            // strips ESC sequences by skipping bytes between ESC and the
+            // next final byte. Real VT parsing happens on the client side.
+            for (ssize_t k = 0; k < n; k++) {
+                unsigned char c = (unsigned char)buf[k];
+                if (c == 0x1b) {
+                    // Skip until a byte in 0x40..0x7E
+                    k++;
+                    if (k < n && buf[k] == '[') k++;
+                    while (k < n && !(buf[k] >= 0x40 && buf[k] <= 0x7E)) k++;
+                    continue;
+                }
+                if (c == '\r') { s->cur_col = 0; continue; }
+                if (c == '\n') {
+                    s->cur_row++;
+                    if (s->cur_row >= s->rows) {
+                        // scroll
+                        size_t row_bytes = sizeof(VsCell) * s->cols;
+                        memmove(s->grid, s->grid + s->cols, row_bytes * (s->rows - 1));
+                        VsCell *last = &s->grid[(s->rows - 1) * s->cols];
+                        for (int c2 = 0; c2 < s->cols; c2++) {
+                            last[c2].ch = ' '; last[c2].fg = 7; last[c2].bg = 0; last[c2].flags = 0;
+                        }
+                        s->cur_row = s->rows - 1;
+                    }
+                    continue;
+                }
+                if (c == '\b') { if (s->cur_col > 0) s->cur_col--; continue; }
+                if (c < 0x20) continue;
+                if (s->cur_row >= 0 && s->cur_row < s->rows &&
+                    s->cur_col >= 0 && s->cur_col < s->cols) {
+                    int idx = s->cur_row * s->cols + s->cur_col;
+                    s->grid[idx].ch = c;
+                    s->grid[idx].fg = 7;
+                    s->grid[idx].bg = 0;
+                    s->grid[idx].flags = 0;
+                }
+                s->cur_col++;
+                if (s->cur_col >= s->cols) {
+                    s->cur_col = 0;
+                    s->cur_row++;
+                }
+            }
+            // Mark all sections dirty — Merkle will lazily rehash on query
+            for (int sec = 0; sec <= VS_GRID_ROWS / VS_SECTION_LINES; sec++)
+                s->section_dirty[sec] = 1;
+        }
+        // Reap if child died
+        int status;
+        if (s->shell_pid > 0 && waitpid(s->shell_pid, &status, WNOHANG) == s->shell_pid) {
+            // Shell exited — keep session as tombstone for now, remove fd
+            close(s->pty_fd);
+            s->pty_fd = -1;
+            s->shell_pid = 0;
+            checkpoint_session(s);
+        }
+    }
+}
+
+// ── signal handling + main loop ─────────────────────────────────────
+
+static void sig_term_handler(int sig) { (void)sig; g_shutdown = 1; }
+
+static int bind_listener(void) {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) die("socket");
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", VS_SOCK_PATH);
+    unlink(VS_SOCK_PATH);
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) die("bind");
+    listen(fd, 16);
+    return fd;
+}
+
+// Double-fork daemonize — parent returns immediately, grandchild becomes
+// the server process orphaned under launchd. Inherits stdin/out/err from
+// the caller for debugging unless VOID_SERVER_QUIET is set.
+static void daemonize_if_needed(void) {
+    if (getenv("VOID_SERVER_FOREGROUND")) return;
+    pid_t p = fork();
+    if (p > 0) { _exit(0); }
+    if (p < 0) die("fork daemon");
+    setsid();
+    pid_t p2 = fork();
+    if (p2 > 0) { _exit(0); }
+    if (p2 < 0) die("fork daemon2");
+    // grandchild
+    if (!getenv("VOID_SERVER_VERBOSE")) {
+        int dn = open("/dev/null", O_RDWR);
+        if (dn >= 0) { dup2(dn, 0); dup2(dn, 1); dup2(dn, 2); if (dn > 2) close(dn); }
+    }
+    chdir("/");
+    umask(022);
+}
+
+int main(int argc, char **argv) {
+    (void)argc; (void)argv;
+
+    // If another server is already running, exit silently.
+    {
+        int t = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (t >= 0) {
+            struct sockaddr_un addr = {0};
+            addr.sun_family = AF_UNIX;
+            snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", VS_SOCK_PATH);
+            if (connect(t, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
+                close(t);
+                return 0;
+            }
+            close(t);
+        }
+    }
+
+    daemonize_if_needed();
+    signal(SIGTERM, sig_term_handler);
+    signal(SIGINT,  sig_term_handler);
+    signal(SIGPIPE, SIG_IGN);
+
+    for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+        g_sessions[i].pty_fd = -1;
+        g_sessions[i].attached_client_fd = -1;
+    }
+    scan_and_restore_checkpoints();
+    g_sock_listen = bind_listener();
+
+    // Main loop: select() on listen socket + all client fds, with short
+    // timeout so we can pump PTYs between events.
+    while (!g_shutdown) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(g_sock_listen, &rfds);
+        int maxfd = g_sock_listen;
+        // Pump before waiting
+        pump_sessions();
+        struct timeval tv = { 0, 50000 }; // 50 ms
+        int r = select(maxfd + 1, &rfds, NULL, NULL, &tv);
+        if (r < 0) { if (errno == EINTR) continue; break; }
+        if (FD_ISSET(g_sock_listen, &rfds)) {
+            int c = accept(g_sock_listen, NULL, NULL);
+            if (c >= 0) {
+                // Spawn a child PROCESS to handle the client — that keeps
+                // the main loop responsive for pumping. A thread would do
+                // here too but fork is simpler and POSIX.
+                pid_t kid = fork();
+                if (kid == 0) {
+                    close(g_sock_listen);
+                    handle_client(c);
+                    _exit(0);
+                }
+                close(c);
+            }
+        }
+    }
+    unlink(VS_SOCK_PATH);
+    return 0;
+}

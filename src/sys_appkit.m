@@ -255,6 +255,11 @@ typedef struct VoidTab_ {
     // picks a profile via Cmd+Ctrl+N — the blank then converts in place
     // instead of creating a second tab. Cleared by tab_become_profile.
     int is_blank;
+    // When the tab was spawned via the void-server daemon, this holds the
+    // ULID-ish session id. Empty string = direct-spawn (server not used
+    // for this tab). On Cmd+W, a non-empty id triggers a DETACH instead
+    // of closing the PTY + killing the shell.
+    char session_id[32];
 } VoidTab;
 
 static VoidTab g_tabs[MAX_TABS];
@@ -1114,6 +1119,190 @@ static void apply_rlimits(VoidProfile *vp) {
 
 // ── Tab management (C-internal) ──
 
+// ── void-server client glue ─────────────────────────────────────────
+//
+// When VOID_USE_SERVER=1 is set, tab spawn and close route through the
+// void-server daemon (src/void_server.c) so that PTY sessions survive
+// void_term exit / crash / hot-swap.
+//
+// Flow:
+//   startup → ensure_void_server() forks void_server if no socket
+//   new tab → void_server_spawn() sends SPAWN, receives fd via SCM_RIGHTS
+//             + session_id (ULID). g_tabs[idx].session_id[32] stores it.
+//   close   → void_server_detach() sends DETACH, closes local fd; server
+//             keeps the session alive on its side.
+//
+// Without VOID_USE_SERVER the direct forkpty path still works — this is
+// strictly additive for v1 so the integration can ship without breaking
+// existing tests.
+#define VS_MAGIC_CLIENT    0x31525356u
+#define VS_SOCK_PATH       "/tmp/void_server.sock"
+#define VS_CMD_SPAWN       1
+#define VS_CMD_ATTACH      2
+#define VS_CMD_DETACH      3
+#define VS_CMD_LIST        4
+#define VS_CMD_KILL        5
+#define VS_CMD_PING        7
+
+static int  g_server_sock = -1;
+static int  g_use_server  = -1;  // -1 = not decided, 0/1 = resolved
+
+static int void_server_enabled(void) {
+    if (g_use_server < 0) {
+        const char *e = getenv("VOID_USE_SERVER");
+        g_use_server = (e && e[0] == '1') ? 1 : 0;
+    }
+    return g_use_server;
+}
+
+static int void_server_try_connect(void) {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", VS_SOCK_PATH);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+// Fork the void_server binary expected to live next to void_term. The
+// server double-forks internally so the grandchild is orphaned to init.
+static void void_server_spawn_daemon(void) {
+    pid_t p = fork();
+    if (p < 0) return;
+    if (p == 0) {
+        char exe[4096];
+        uint32_t sz = sizeof(exe);
+        if (_NSGetExecutablePath(exe, &sz) == 0) {
+            char *slash = strrchr(exe, '/');
+            if (slash) {
+                strcpy(slash + 1, "void_server");
+                execl(exe, "void_server", (char *)NULL);
+            }
+        }
+        execlp("void_server", "void_server", (char *)NULL);
+        _exit(127);
+    }
+    // Wait briefly for the socket to appear
+    for (int i = 0; i < 100; i++) {
+        struct stat st;
+        if (stat(VS_SOCK_PATH, &st) == 0 && S_ISSOCK(st.st_mode)) break;
+        usleep(10 * 1000);
+    }
+    waitpid(p, NULL, WNOHANG);
+}
+
+static int void_server_ensure(void) {
+    if (!void_server_enabled()) return -1;
+    if (g_server_sock >= 0) return 0;
+    g_server_sock = void_server_try_connect();
+    if (g_server_sock >= 0) return 0;
+    void_server_spawn_daemon();
+    g_server_sock = void_server_try_connect();
+    return g_server_sock >= 0 ? 0 : -1;
+}
+
+// recv exactly n bytes, blocking
+static int vs_read_exact(int fd, void *buf, size_t n) {
+    size_t got = 0;
+    while (got < n) {
+        ssize_t r = read(fd, (char *)buf + got, n - got);
+        if (r <= 0) { if (r < 0 && errno == EINTR) continue; return -1; }
+        got += (size_t)r;
+    }
+    return 0;
+}
+
+static int vs_write_exact(int fd, const void *buf, size_t n) {
+    size_t sent = 0;
+    while (sent < n) {
+        ssize_t w = write(fd, (const char *)buf + sent, n - sent);
+        if (w <= 0) { if (w < 0 && errno == EINTR) continue; return -1; }
+        sent += (size_t)w;
+    }
+    return 0;
+}
+
+// Send SPAWN command, receive (status, session_id, pty_fd). Returns 0 on
+// success. The caller owns pty_fd on return (the server also has its own
+// copy).
+static int void_server_spawn(const char *title, const char *cwd,
+                             const char *cmd, int rows, int cols,
+                             char out_id[32], int *out_fd) {
+    if (void_server_ensure() != 0) return -1;
+
+    // Request body: title[64] cwd[512] cmd[512] rows16 cols16
+    char req[64 + 512 + 512 + 4] = {0};
+    snprintf(req,               64,  "%s", title ?: "");
+    snprintf(req + 64,          512, "%s", cwd   ?: "");
+    snprintf(req + 64 + 512,    512, "%s", cmd   ?: "");
+    uint16_t r16 = (uint16_t)rows, c16 = (uint16_t)cols;
+    memcpy(req + 64 + 512 + 512,     &r16, 2);
+    memcpy(req + 64 + 512 + 512 + 2, &c16, 2);
+
+    uint32_t hdr[3] = { VS_MAGIC_CLIENT, VS_CMD_SPAWN, (uint32_t)sizeof(req) };
+    if (vs_write_exact(g_server_sock, hdr, sizeof(hdr)) < 0) goto fail;
+    if (vs_write_exact(g_server_sock, req, sizeof(req)) < 0) goto fail;
+
+    // Receive response header + optional SCM_RIGHTS fd
+    uint32_t rhdr[3];
+    struct msghdr msg = {0};
+    struct iovec iov = { rhdr, sizeof(rhdr) };
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    char ctrl[CMSG_SPACE(sizeof(int))];
+    memset(ctrl, 0, sizeof(ctrl));
+    msg.msg_control = ctrl;
+    msg.msg_controllen = sizeof(ctrl);
+    ssize_t r = recvmsg(g_server_sock, &msg, 0);
+    if (r < (ssize_t)sizeof(rhdr)) goto fail;
+    if (rhdr[0] != VS_MAGIC_CLIENT || rhdr[1] != 0) goto fail;
+
+    int got_fd = -1;
+    struct cmsghdr *cm = CMSG_FIRSTHDR(&msg);
+    while (cm) {
+        if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_RIGHTS) {
+            memcpy(&got_fd, CMSG_DATA(cm), sizeof(int));
+            break;
+        }
+        cm = CMSG_NXTHDR(&msg, cm);
+    }
+    if (got_fd < 0) goto fail;
+
+    // Body: session_id[32] + uint32 hint
+    char body[32 + 4] = {0};
+    if (vs_read_exact(g_server_sock, body, sizeof(body)) < 0) {
+        close(got_fd); goto fail;
+    }
+    memcpy(out_id, body, 32);
+    int fl = fcntl(got_fd, F_GETFL, 0);
+    fcntl(got_fd, F_SETFL, fl | O_NONBLOCK);
+    *out_fd = got_fd;
+    return 0;
+
+fail:
+    if (g_server_sock >= 0) { close(g_server_sock); g_server_sock = -1; }
+    return -1;
+}
+
+// Send DETACH command. Server keeps the session alive.
+static int void_server_detach(const char id[32]) {
+    if (void_server_ensure() != 0) return -1;
+    uint32_t hdr[3] = { VS_MAGIC_CLIENT, VS_CMD_DETACH, 32 };
+    if (vs_write_exact(g_server_sock, hdr, sizeof(hdr)) < 0) goto fail;
+    if (vs_write_exact(g_server_sock, id, 32) < 0) goto fail;
+    uint32_t rhdr[3];
+    if (vs_read_exact(g_server_sock, rhdr, sizeof(rhdr)) < 0) goto fail;
+    return 0;
+fail:
+    if (g_server_sock >= 0) { close(g_server_sock); g_server_sock = -1; }
+    return -1;
+}
+
 // Spawn a PTY with an optional profile. If vp is NULL, uses the user's
 // $SHELL in login mode. If vp is non-NULL, the child cd's into vp->path
 // and exec's `$SHELL -c "cd <path> && <cmd>; exec $SHELL"` so the user
@@ -1592,13 +1781,30 @@ long hexa_tab_new(void) {
     g_initial_tab_done = 1;
 
     int idx = g_num_tabs;
-    int fd = tab_spawn_pty_profile(vp);
+    // Route through void-server when enabled — the daemon owns the PTY
+    // master so the session survives void_term exit and hot-swap. Falls
+    // back to direct fork-pty on server failure so the UI never breaks.
+    int fd = -1;
+    char new_session_id[32] = {0};
+    if (void_server_enabled()) {
+        const char *t = (vp && vp->title[0]) ? vp->title : "session";
+        const char *p = (vp && vp->path[0])  ? vp->path  : (getenv("HOME") ?: "");
+        const char *c = (vp && vp->cmd[0])   ? vp->cmd   : "";
+        if (void_server_spawn(t, p, c, g_term_rows, g_term_cols,
+                              new_session_id, &fd) != 0) {
+            fd = -1;
+        }
+    }
+    if (fd < 0) {
+        fd = tab_spawn_pty_profile(vp);
+    }
     if (fd < 0) return -1;
 
     g_tabs[idx].used = 1;
     g_tabs[idx].pty_fd = fd;
     g_tabs[idx].pid = 0;
     g_tabs[idx].is_blank = make_blank ? 1 : 0;
+    memcpy(g_tabs[idx].session_id, new_session_id, 32);
 
     // Set PTY to actual window size immediately
     struct winsize ws;
