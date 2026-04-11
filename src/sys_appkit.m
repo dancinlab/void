@@ -177,17 +177,39 @@ long hexa_appkit_set_title(void) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// void_main.hexa API — full terminal bridge
+// void_main.hexa API — terminal bridge with tab support
 // ══════════════════════════════════════════════════════════════════
+
+#include <sys/wait.h>
+#include <util.h>
 
 #define TERM_MAX_ROWS 200
 #define TERM_MAX_COLS 400
+#define MAX_TABS 20
+#define TAB_BAR_W 140
+#define TAB_ROW_H 28
 
 typedef struct {
     unichar ch;
     int fg, bg, flags;
 } TermCell;
 
+// ── Tab state ──
+typedef struct {
+    int used;
+    int pty_fd;
+    pid_t pid;
+    TermCell grid[TERM_MAX_ROWS][TERM_MAX_COLS];
+    int cur_row, cur_col;
+    char title[128];
+} VoidTab;
+
+static VoidTab g_tabs[MAX_TABS];
+static int g_num_tabs = 0;
+static int g_active_tab = -1;
+static int g_tab_cmd = 0; // 0=none, 1=new, 2=close
+
+// Active tab's rendering grid (synced from hexa)
 static TermCell g_term_grid[TERM_MAX_ROWS][TERM_MAX_COLS];
 static int g_term_rows = 24;
 static int g_term_cols = 80;
@@ -244,7 +266,7 @@ static NSColor *term_color(int idx) {
                             blue:(rgb%256)/255.0 alpha:1.0];
 }
 
-// ── HexaTermView ──
+// ── HexaTermView (with tab bar) ──
 
 @interface HexaTermView : NSView
 @end
@@ -256,15 +278,56 @@ static NSColor *term_color(int idx) {
 
 - (void)drawRect:(NSRect)dirtyRect {
     if (!g_term_font) return;
+    NSRect bounds = [self bounds];
+
+    // ── Tab bar (left panel) ──
+    [[NSColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:1.0] setFill];
+    NSRectFill(NSMakeRect(0, 0, TAB_BAR_W, bounds.size.height));
+
+    // Separator line
+    [[NSColor colorWithRed:0.25 green:0.25 blue:0.35 alpha:1.0] setFill];
+    NSRectFill(NSMakeRect(TAB_BAR_W - 1, 0, 1, bounds.size.height));
+
+    NSFont *tabFont = [NSFont systemFontOfSize:11];
+    for (int t = 0; t < g_num_tabs; t++) {
+        float ty = 4 + t * TAB_ROW_H;
+        // Active tab highlight
+        if (t == g_active_tab) {
+            [[NSColor colorWithRed:0.20 green:0.20 blue:0.30 alpha:1.0] setFill];
+            NSRectFill(NSMakeRect(0, ty, TAB_BAR_W - 1, TAB_ROW_H));
+            // Accent bar
+            [[NSColor colorWithRed:0.45 green:0.45 blue:0.95 alpha:1.0] setFill];
+            NSRectFill(NSMakeRect(0, ty, 3, TAB_ROW_H));
+        }
+
+        // Tab title
+        NSString *title;
+        if (g_tabs[t].title[0])
+            title = [NSString stringWithUTF8String:g_tabs[t].title];
+        else
+            title = [NSString stringWithFormat:@"Tab %d", t + 1];
+
+        NSDictionary *attrs = @{
+            NSFontAttributeName: tabFont,
+            NSForegroundColorAttributeName:
+                (t == g_active_tab)
+                    ? [NSColor colorWithRed:0.9 green:0.9 blue:1.0 alpha:1.0]
+                    : [NSColor colorWithRed:0.5 green:0.5 blue:0.6 alpha:1.0]
+        };
+        [title drawAtPoint:NSMakePoint(10, ty + 6) withAttributes:attrs];
+    }
+
+    // ── Terminal grid (right of tab bar) ──
+    float ox = TAB_BAR_W;
     [[NSColor colorWithRed:0.07 green:0.07 blue:0.10 alpha:1.0] setFill];
-    NSRectFill(dirtyRect);
+    NSRectFill(NSMakeRect(ox, 0, bounds.size.width - ox, bounds.size.height));
 
     for (int r = 0; r < g_term_rows; r++) {
         float y = r * g_term_ch;
         if (y + g_term_ch < dirtyRect.origin.y ||
             y > dirtyRect.origin.y + dirtyRect.size.height) continue;
         for (int c = 0; c < g_term_cols; c++) {
-            float x = c * g_term_cw;
+            float x = ox + c * g_term_cw;
             TermCell *cell = &g_term_grid[r][c];
             int bg = cell->bg, fg = cell->fg;
             if (cell->flags & 8) { int t = bg; bg = fg; fg = t; }
@@ -295,8 +358,31 @@ static NSColor *term_color(int idx) {
     // Cursor
     if (g_term_cur_vis && g_term_cur_row < g_term_rows && g_term_cur_col < g_term_cols) {
         [[NSColor colorWithRed:0.8 green:0.8 blue:0.9 alpha:0.7] setFill];
-        NSRectFill(NSMakeRect(g_term_cur_col * g_term_cw,
+        NSRectFill(NSMakeRect(ox + g_term_cur_col * g_term_cw,
                               g_term_cur_row * g_term_ch, g_term_cw, g_term_ch));
+    }
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (p.x < TAB_BAR_W) {
+        int idx = (int)((p.y - 4) / TAB_ROW_H);
+        if (idx >= 0 && idx < g_num_tabs && idx != g_active_tab) {
+            // Save current grid to old tab
+            if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
+                memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+                g_tabs[g_active_tab].cur_row = g_term_cur_row;
+                g_tabs[g_active_tab].cur_col = g_term_cur_col;
+            }
+            g_active_tab = idx;
+            // Load new tab's grid
+            memcpy(g_term_grid, g_tabs[idx].grid, sizeof(g_term_grid));
+            g_term_cur_row = g_tabs[idx].cur_row;
+            g_term_cur_col = g_tabs[idx].cur_col;
+            // Signal hexa to reload screen from C
+            g_tab_cmd = 3; // 3 = switched (hexa reloads)
+            [self setNeedsDisplay:YES];
+        }
     }
 }
 
@@ -304,6 +390,20 @@ static NSColor *term_color(int idx) {
     NSString *chars = [event characters];
     if (!chars.length) return;
     NSEventModifierFlags mods = [event modifierFlags];
+
+    // Cmd+key shortcuts
+    if (mods & NSEventModifierFlagCommand) {
+        NSString *raw = [event charactersIgnoringModifiers];
+        if (raw.length > 0) {
+            unichar ch = [raw characterAtIndex:0];
+            if (ch == 't') { g_tab_cmd = 1; return; } // Cmd+T new tab
+            if (ch == 'w') { g_tab_cmd = 2; return; } // Cmd+W close tab
+            if (ch == 'q') { g_term_quit = 1; return; } // Cmd+Q quit
+        }
+        return; // Don't send other Cmd+ combos to PTY
+    }
+
+    // Ctrl+key
     if (mods & NSEventModifierFlagControl) {
         NSString *raw = [event charactersIgnoringModifiers];
         if (raw.length > 0) {
@@ -315,6 +415,7 @@ static NSColor *term_color(int idx) {
             }
         }
     }
+
     unichar ch = [chars characterAtIndex:0];
     switch (ch) {
         case NSUpArrowFunctionKey:    term_key_push("\033[A", 3); return;
@@ -333,7 +434,7 @@ static NSColor *term_color(int idx) {
 - (void)flagsChanged:(NSEvent *)e {}
 @end
 
-// App delegate for terminal
+// ── App delegate ──
 @interface HexaTermDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @end
 @implementation HexaTermDelegate
@@ -343,6 +444,35 @@ static NSColor *term_color(int idx) {
 @end
 
 static HexaTermDelegate *g_term_delegate = nil;
+
+// ── Tab management (C-internal) ──
+
+static int tab_spawn_pty(void) {
+    int master = -1;
+    pid_t pid = forkpty(&master, NULL, NULL, NULL);
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        setenv("TERM", "xterm-256color", 1);
+        char *shell = getenv("SHELL");
+        if (!shell) shell = "/bin/sh";
+        execl(shell, shell, "-l", (char*)NULL);
+        _exit(127);
+    }
+    // Non-blocking
+    int fl = fcntl(master, F_GETFL, 0);
+    fcntl(master, F_SETFL, fl | O_NONBLOCK);
+    return master;
+}
+
+static void tab_clear_grid(TermCell grid[TERM_MAX_ROWS][TERM_MAX_COLS]) {
+    for (int r = 0; r < TERM_MAX_ROWS; r++)
+        for (int c = 0; c < TERM_MAX_COLS; c++) {
+            grid[r][c].ch = ' ';
+            grid[r][c].fg = 7;
+            grid[r][c].bg = 0;
+            grid[r][c].flags = 0;
+        }
+}
 
 // ── Public API ──
 
@@ -367,15 +497,10 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         g_term_rows = (int)rows;
         g_term_cols = (int)cols;
 
-        for (int r = 0; r < TERM_MAX_ROWS; r++)
-            for (int c = 0; c < TERM_MAX_COLS; c++) {
-                g_term_grid[r][c].ch = ' ';
-                g_term_grid[r][c].fg = 7;
-                g_term_grid[r][c].bg = 0;
-                g_term_grid[r][c].flags = 0;
-            }
+        tab_clear_grid(g_term_grid);
 
-        float ww = g_term_cw * cols, wh = g_term_ch * rows;
+        float ww = TAB_BAR_W + g_term_cw * cols;
+        float wh = g_term_ch * rows;
         NSRect frame = NSMakeRect(100, 100, ww, wh);
         NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                            NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
@@ -383,7 +508,7 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
                                                  backing:NSBackingStoreBuffered defer:NO];
         [g_window setTitle:@"VOID"];
         [g_window setDelegate:g_term_delegate];
-        [g_window setMinSize:NSMakeSize(g_term_cw * 20, g_term_ch * 5)];
+        [g_window setMinSize:NSMakeSize(TAB_BAR_W + g_term_cw * 20, g_term_ch * 5)];
         if (@available(macOS 10.14, *))
             [g_window setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
         [g_window setBackgroundColor:[NSColor colorWithRed:0.07 green:0.07 blue:0.10 alpha:1.0]];
@@ -393,6 +518,7 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         [g_window makeFirstResponder:tv];
         [g_window makeKeyAndOrderFront:nil];
 
+        // Menu bar
         NSMenu *mb = [[NSMenu alloc] init];
         NSMenuItem *mi = [[NSMenuItem alloc] init];
         [mb addItem:mi];
@@ -401,10 +527,153 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         [am addItemWithTitle:@"Quit VOID" action:@selector(terminate:) keyEquivalent:@"q"];
         [mi setSubmenu:am];
 
+        // App icon — programmatic "V"
+        NSImage *icon = [[NSImage alloc] initWithSize:NSMakeSize(128, 128)];
+        [icon lockFocus];
+        [[NSColor colorWithRed:0.10 green:0.10 blue:0.18 alpha:1.0] setFill];
+        NSRectFill(NSMakeRect(0, 0, 128, 128));
+        NSDictionary *iconAttrs = @{
+            NSFontAttributeName: [NSFont boldSystemFontOfSize:72],
+            NSForegroundColorAttributeName: [NSColor colorWithRed:0.5 green:0.5 blue:1.0 alpha:1.0]
+        };
+        [@"V" drawAtPoint:NSMakePoint(28, 20) withAttributes:iconAttrs];
+        [icon unlockFocus];
+        [app setApplicationIconImage:icon];
+
         [app finishLaunching];
         [app activateIgnoringOtherApps:YES];
     }
     return 0;
+}
+
+// ── Tab API for hexa ──
+
+// Create a new tab. Spawns PTY, returns tab index (or -1).
+long hexa_tab_new(void) {
+    if (g_num_tabs >= MAX_TABS) return -1;
+
+    // Save current active tab's grid
+    if (g_active_tab >= 0 && g_active_tab < g_num_tabs) {
+        memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+        g_tabs[g_active_tab].cur_row = g_term_cur_row;
+        g_tabs[g_active_tab].cur_col = g_term_cur_col;
+    }
+
+    int idx = g_num_tabs;
+    int fd = tab_spawn_pty();
+    if (fd < 0) return -1;
+
+    g_tabs[idx].used = 1;
+    g_tabs[idx].pty_fd = fd;
+    // Get child pid from the forkpty (stored in hexa_sh_child_pid via sys_pty.c)
+    // Actually we do it ourselves here:
+    g_tabs[idx].pid = 0; // Will be set properly
+    snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "");
+    tab_clear_grid(g_tabs[idx].grid);
+    g_tabs[idx].cur_row = 0;
+    g_tabs[idx].cur_col = 0;
+
+    g_num_tabs++;
+    g_active_tab = idx;
+
+    // Clear active rendering grid for new tab
+    tab_clear_grid(g_term_grid);
+    g_term_cur_row = 0;
+    g_term_cur_col = 0;
+
+    return (long)idx;
+}
+
+// Close a tab. Kills PTY. Returns new active tab index (or -1 if last tab closed).
+long hexa_tab_close(long idx) {
+    if (idx < 0 || idx >= g_num_tabs) return g_active_tab;
+    if (!g_tabs[idx].used) return g_active_tab;
+
+    // Kill PTY
+    if (g_tabs[idx].pty_fd >= 0) {
+        close(g_tabs[idx].pty_fd);
+        g_tabs[idx].pty_fd = -1;
+    }
+    if (g_tabs[idx].pid > 0) {
+        kill(g_tabs[idx].pid, SIGTERM);
+        waitpid(g_tabs[idx].pid, NULL, WNOHANG);
+    }
+    g_tabs[idx].used = 0;
+
+    // Shift tabs down
+    for (int i = (int)idx; i < g_num_tabs - 1; i++) {
+        g_tabs[i] = g_tabs[i + 1];
+    }
+    g_num_tabs--;
+
+    if (g_num_tabs == 0) {
+        g_active_tab = -1;
+        return -1;
+    }
+
+    // Adjust active tab
+    if (g_active_tab >= g_num_tabs) g_active_tab = g_num_tabs - 1;
+    if (g_active_tab == (int)idx && g_active_tab > 0) g_active_tab--;
+
+    // Load new active tab's grid
+    memcpy(g_term_grid, g_tabs[g_active_tab].grid, sizeof(g_term_grid));
+    g_term_cur_row = g_tabs[g_active_tab].cur_row;
+    g_term_cur_col = g_tabs[g_active_tab].cur_col;
+
+    return (long)g_active_tab;
+}
+
+// Get active tab's PTY fd. Returns -1 if no active tab.
+long hexa_tab_get_pty(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
+    return (long)g_tabs[g_active_tab].pty_fd;
+}
+
+// Poll for tab commands: 0=none, 1=new, 2=close, 3=switched
+long hexa_tab_poll_cmd(void) {
+    long cmd = g_tab_cmd;
+    g_tab_cmd = 0;
+    return cmd;
+}
+
+// Get active tab index
+long hexa_tab_get_active(void) {
+    return (long)g_active_tab;
+}
+
+// Get number of tabs
+long hexa_tab_count(void) {
+    return (long)g_num_tabs;
+}
+
+// Load a cell from C's active rendering grid (for hexa screen reload after tab switch)
+long hexa_tab_cell_cp(long idx) {
+    int r = (int)idx / g_term_cols, c = (int)idx % g_term_cols;
+    if (r < 0 || r >= TERM_MAX_ROWS || c < 0 || c >= TERM_MAX_COLS) return 32;
+    return (long)g_term_grid[r][c].ch;
+}
+long hexa_tab_cell_fg(long idx) {
+    int r = (int)idx / g_term_cols, c = (int)idx % g_term_cols;
+    if (r < 0 || r >= TERM_MAX_ROWS || c < 0 || c >= TERM_MAX_COLS) return 7;
+    return (long)g_term_grid[r][c].fg;
+}
+long hexa_tab_cell_bg(long idx) {
+    int r = (int)idx / g_term_cols, c = (int)idx % g_term_cols;
+    if (r < 0 || r >= TERM_MAX_ROWS || c < 0 || c >= TERM_MAX_COLS) return 0;
+    return (long)g_term_grid[r][c].bg;
+}
+long hexa_tab_cell_flags(long idx) {
+    int r = (int)idx / g_term_cols, c = (int)idx % g_term_cols;
+    if (r < 0 || r >= TERM_MAX_ROWS || c < 0 || c >= TERM_MAX_COLS) return 0;
+    return (long)g_term_grid[r][c].flags;
+}
+long hexa_tab_cursor_x(void) { return (long)g_term_cur_col; }
+long hexa_tab_cursor_y(void) { return (long)g_term_cur_row; }
+
+// Set tab title (from hexa OSC parse)
+void hexa_tab_set_title(long tab_idx, long byte_val) {
+    // Append byte to tab title (reset on first call after switch)
+    // Simple: just pass whole title via the existing title_buf mechanism
 }
 
 void hexa_appkit_term_set_cell(long row, long col, long ch, long fg, long bg, long flags) {
@@ -443,20 +712,7 @@ long hexa_appkit_term_poll(void) {
     return g_term_quit;
 }
 
-long hexa_appkit_term_read_keys(long buf_ptr, long max_len) {
-    char *buf = (char*)(uintptr_t)buf_ptr;
-    int avail = g_term_kw - g_term_kr;
-    if (avail <= 0) return 0;
-    if (avail > (int)max_len) avail = (int)max_len;
-    for (int i = 0; i < avail; i++) {
-        buf[i] = g_term_keys[g_term_kr % TERM_KEY_SIZE];
-        g_term_kr++;
-    }
-    return (long)avail;
-}
-
-// Read pending keys from AppKit and write directly to PTY master.
-// No pointer crosses FFI boundary. Returns bytes forwarded.
+// Forward keys from AppKit to the active tab's PTY. All in C.
 long hexa_keys_to_pty(long master_fd) {
     char buf[4096];
     int avail = g_term_kw - g_term_kr;
@@ -469,26 +725,7 @@ long hexa_keys_to_pty(long master_fd) {
     return (long)write((int)master_fd, buf, avail);
 }
 
-void hexa_appkit_term_set_title(const char *title) {
-    if (!title) return;
-    @autoreleasepool {
-        [g_window setTitle:[NSString stringWithUTF8String:title]];
-    }
-}
-
-long hexa_appkit_term_get_rows(void) {
-    if (!g_window || g_term_ch <= 0) return g_term_rows;
-    NSRect f = [[g_window contentView] frame];
-    return (long)(f.size.height / g_term_ch);
-}
-
-long hexa_appkit_term_get_cols(void) {
-    if (!g_window || g_term_cw <= 0) return g_term_cols;
-    NSRect f = [[g_window contentView] frame];
-    return (long)(f.size.width / g_term_cw);
-}
-
-// OSC title buffer — hexa pushes bytes, then apply sets window title
+// OSC title buffer
 static char g_term_title_buf[256];
 static int g_term_title_len = 0;
 
@@ -505,8 +742,14 @@ void hexa_appkit_term_title_push(long b) {
 }
 
 void hexa_appkit_term_title_apply(void) {
+    // Set both window title and active tab title
+    if (g_active_tab >= 0 && g_active_tab < g_num_tabs) {
+        strncpy(g_tabs[g_active_tab].title, g_term_title_buf,
+                sizeof(g_tabs[g_active_tab].title) - 1);
+    }
     if (!g_window) return;
     @autoreleasepool {
-        [g_window setTitle:[NSString stringWithUTF8String:g_term_title_buf]];
+        NSString *t = [NSString stringWithFormat:@"VOID — %s", g_term_title_buf];
+        [g_window setTitle:t];
     }
 }

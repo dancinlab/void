@@ -29,6 +29,17 @@ extern fn hexa_appkit_term_set_cursor(row: int, col: int, vis: int)
 extern fn hexa_appkit_term_flush()
 extern fn hexa_appkit_term_poll() -> int
 extern fn hexa_keys_to_pty(master_fd: int) -> int
+extern fn hexa_tab_new() -> int
+extern fn hexa_tab_close(idx: int) -> int
+extern fn hexa_tab_get_pty() -> int
+extern fn hexa_tab_poll_cmd() -> int
+extern fn hexa_tab_count() -> int
+extern fn hexa_tab_cell_cp(idx: int) -> int
+extern fn hexa_tab_cell_fg(idx: int) -> int
+extern fn hexa_tab_cell_bg(idx: int) -> int
+extern fn hexa_tab_cell_flags(idx: int) -> int
+extern fn hexa_tab_cursor_x() -> int
+extern fn hexa_tab_cursor_y() -> int
 extern fn hexa_appkit_term_title_reset()
 extern fn hexa_appkit_term_title_push(b: int)
 extern fn hexa_appkit_term_title_apply()
@@ -986,6 +997,43 @@ fn self_test() {
 // ═══════════════════════════════════════════════════════════════
 // MAIN — entry point
 // ═══════════════════════════════════════════════════════════════
+// Load screen buffer from C's grid (after tab switch)
+fn load_from_bridge() {
+    let mut i = 0
+    while i < TOTAL {
+        scr_cells[i] = hexa_tab_cell_cp(i)
+        scr_fg[i] = hexa_tab_cell_fg(i)
+        scr_bg[i] = hexa_tab_cell_bg(i)
+        scr_flags[i] = hexa_tab_cell_flags(i)
+        i = i + 1
+    }
+    scr_cur_x = hexa_tab_cursor_x()
+    scr_cur_y = hexa_tab_cursor_y()
+    return 0
+}
+
+// Reset VT parser state (for new/switched tab)
+fn vt_reset_state() {
+    vt_state = 0
+    vt_param = 0
+    vt_params = []
+    vt_param_started = 0
+    vt_private = 0
+    cur_fg = 7
+    cur_bg = 0
+    cur_bold = 0
+    cur_underline = 0
+    cur_inverse = 0
+    osc_num = 0
+    osc_title_bytes = []
+    saved_cur_x = 0
+    saved_cur_y = 0
+    cur_charset = 0
+    scr_scroll_top = 0
+    scr_scroll_bot = ROWS - 1
+    return 0
+}
+
 fn main() {
     // Test mode: VOID_TEST=1
     if hexa_check_test_mode() == 1 {
@@ -994,17 +1042,17 @@ fn main() {
 
     let _ = scr_init()
 
-    // Spawn login shell
-    let m = hexa_pty_spawn_login_shell()
-    if m < 0 {
-        println("[void] FAIL: PTY spawn")
-        return 1
-    }
-
     // Init AppKit terminal window
     let _ = hexa_appkit_init_term(ROWS, COLS, 14)
 
-    // Main loop — no pointers cross FFI boundary
+    // Create first tab (spawns PTY inside C)
+    let t0 = hexa_tab_new()
+    if t0 < 0 {
+        println("[void] FAIL: initial tab")
+        return 1
+    }
+
+    // Main loop
     let mut running = 1
     while running == 1 {
         // 1. Process AppKit events
@@ -1013,29 +1061,61 @@ fn main() {
             running = 0
         }
 
-        // 2. Read keys → forward to PTY (all in C, no pointer in hexa)
-        let _ = hexa_keys_to_pty(m)
-
-        // 3. Poll PTY → VT parse → sync
-        let nread = hexa_pty_poll_read(m, 5)
-        if nread > 0 {
-            let mut i = 0
-            while i < nread {
-                let b = hexa_pty_read_byte(i)
-                if b >= 0 {
-                    let _ = scr_feed_byte(b)
-                }
-                i = i + 1
-            }
+        // 2. Handle tab commands (Cmd+T, Cmd+W, click switch)
+        let cmd = hexa_tab_poll_cmd()
+        if cmd == 1 {
+            // Cmd+T: new tab
             let _ = sync_to_bridge()
+            let nt = hexa_tab_new()
+            if nt >= 0 {
+                let _ = scr_init()
+                let _ = vt_reset_state()
+            }
+        }
+        if cmd == 2 {
+            // Cmd+W: close active tab
+            let _ = sync_to_bridge()
+            let active = hexa_tab_close(0)
+            if hexa_tab_count() == 0 {
+                running = 0
+            } else {
+                let _ = load_from_bridge()
+                let _ = vt_reset_state()
+            }
+        }
+        if cmd == 3 {
+            // Tab switched (via click) — reload screen from C
+            let _ = load_from_bridge()
+            let _ = vt_reset_state()
         }
 
-        // Avoid busy-loop when idle
-        if nread == 0 {
-            let _ = hexa_sleep_us(2000)
+        // 3. Get active PTY
+        let m = hexa_tab_get_pty()
+        if m < 0 {
+            let _ = hexa_sleep_us(10000)
+        } else {
+            // 4. Forward keys to active PTY
+            let _ = hexa_keys_to_pty(m)
+
+            // 5. Poll PTY → VT parse → sync
+            let nread = hexa_pty_poll_read(m, 5)
+            if nread > 0 {
+                let mut i = 0
+                while i < nread {
+                    let b = hexa_pty_read_byte(i)
+                    if b >= 0 {
+                        let _ = scr_feed_byte(b)
+                    }
+                    i = i + 1
+                }
+                let _ = sync_to_bridge()
+            }
+
+            if nread == 0 {
+                let _ = hexa_sleep_us(2000)
+            }
         }
     }
 
-    let _ = hexa_sh_reap()
     return 0
 }
