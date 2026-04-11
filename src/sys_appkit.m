@@ -246,6 +246,11 @@ typedef struct VoidTab_ {
     // Used to renumber sibling tabs when one is added or removed: a single
     // sibling stays bare ("nexus"), two or more become "nexus (1)", "nexus (2)".
     char profile_base[64];
+    // Blank tab: no PTY spawned, no shell, no input/output. The initial tab
+    // at app launch is blank so the user starts from a clean screen and
+    // picks a profile via Cmd+Ctrl+N — the blank then converts in place
+    // instead of creating a second tab. Cleared by tab_become_profile.
+    int is_blank;
 } VoidTab;
 
 static VoidTab g_tabs[MAX_TABS];
@@ -1126,7 +1131,55 @@ static void void_tabs_renumber_profiles(void) {
     }
 }
 
+// Convert a blank tab to a live profile (or plain shell) tab in place.
+// Spawns the PTY, locks the title, clears is_blank, and triggers a
+// full redraw. Used by Cmd+Ctrl+N / Cmd+T when the active tab is blank,
+// so the shortcut replaces the initial empty screen instead of creating
+// a sibling tab.
+static int tab_become_profile(int idx, VoidProfile *vp) {
+    if (idx < 0 || idx >= g_num_tabs) return -1;
+    if (!g_tabs[idx].used) return -1;
+    if (!g_tabs[idx].is_blank) return -1; // never clobber a live tab
+
+    int fd = tab_spawn_pty_profile(vp);
+    if (fd < 0) return -1;
+
+    g_tabs[idx].pty_fd = fd;
+    g_tabs[idx].pid = 0;
+    g_tabs[idx].is_blank = 0;
+
+    // Size the PTY to the current grid.
+    struct winsize ws;
+    ws.ws_row = (unsigned short)g_term_rows;
+    ws.ws_col = (unsigned short)g_term_cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+    ioctl(fd, TIOCSWINSZ, &ws);
+
+    // Title / profile metadata (mirrors the hexa_tab_new logic).
+    g_tabs[idx].title_locked = 0;
+    g_tabs[idx].profile_base[0] = 0;
+    if (vp && vp->title[0]) {
+        snprintf(g_tabs[idx].profile_base, sizeof(g_tabs[idx].profile_base),
+                 "%s", vp->title);
+        snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "%s", vp->title);
+        g_tabs[idx].title_locked = 1;
+        snprintf(g_tabs[idx].cwd, sizeof(g_tabs[idx].cwd), "%s", vp->path);
+    } else {
+        g_tabs[idx].title[0] = 0;
+        g_tabs[idx].cwd[0] = 0;
+    }
+
+    void_tabs_renumber_profiles();
+    g_full_redraw = 1;
+    return 0;
+}
+
 // Create a new tab. Spawns PTY, returns tab index (or -1).
+// Special case: the very first call (before any tab exists) with no
+// pending profile produces a BLANK tab — no PTY, no shell, black screen.
+// The user picks a profile via Cmd+Ctrl+N which then converts the blank
+// in place via tab_become_profile, so the app opens with zero clutter.
 long hexa_tab_new(void) {
     if (g_num_tabs >= MAX_TABS) return -1;
 
@@ -1142,21 +1195,29 @@ long hexa_tab_new(void) {
     VoidProfile *vp = g_pending_profile;
     g_pending_profile = NULL;
 
+    // Blank-initial rule: the very first tab, opened with no profile,
+    // is created without a PTY. Any later hexa_tab_new call (Cmd+T from
+    // a live tab, or a profile shortcut) spawns a real shell.
+    static int g_initial_tab_done = 0;
+    int make_blank = (!g_initial_tab_done && !vp);
+    g_initial_tab_done = 1;
+
     int idx = g_num_tabs;
-    int fd = tab_spawn_pty_profile(vp);
-    if (fd < 0) return -1;
+    int fd = make_blank ? -1 : tab_spawn_pty_profile(vp);
+    if (!make_blank && fd < 0) return -1;
 
     g_tabs[idx].used = 1;
     g_tabs[idx].pty_fd = fd;
     g_tabs[idx].pid = 0;
+    g_tabs[idx].is_blank = make_blank ? 1 : 0;
 
-    // Set PTY to actual window size immediately
+    // Set PTY to actual window size immediately (skip for blank tabs).
     struct winsize ws;
     ws.ws_row = (unsigned short)g_term_rows;
     ws.ws_col = (unsigned short)g_term_cols;
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
-    ioctl(fd, TIOCSWINSZ, &ws);
+    if (fd >= 0) ioctl(fd, TIOCSWINSZ, &ws);
 
     // Title: profile tabs are renumbered as a group by void_tabs_renumber_profiles.
     // 1 sibling → "nexus", 2+ siblings → "nexus (1)", "nexus (2)", … in tab order.
@@ -1416,18 +1477,47 @@ long hexa_appkit_term_poll(void) {
                         unichar ch = [raw characterAtIndex:0];
                         int with_ctrl = (mods & NSEventModifierFlagControl) != 0;
 
-                        // Cmd+Ctrl+0~9 → profile-based new tab (10 slots)
+                        // Cmd+Ctrl+0~9 → profile-based new tab (10 slots).
+                        // Special case: if the active tab is blank (no
+                        // PTY — happens at app launch), convert it in
+                        // place instead of opening a second tab.
                         if (with_ctrl && ch >= '0' && ch <= '9') {
                             VoidProfile *vp = profile_by_key((char)ch);
                             if (vp) {
-                                g_pending_profile = vp;
-                                g_tab_cmd = 1; // new tab signal to hexa
+                                if (g_active_tab >= 0 &&
+                                    g_active_tab < g_num_tabs &&
+                                    g_tabs[g_active_tab].is_blank &&
+                                    tab_become_profile(g_active_tab, vp) == 0) {
+                                    g_tab_cmd = 3; // hexa reload screen
+                                    clear_active_alarm();
+                                    if (g_window)
+                                        [[g_window contentView] setNeedsDisplay:YES];
+                                } else {
+                                    g_pending_profile = vp;
+                                    g_tab_cmd = 1; // new tab signal to hexa
+                                }
                             }
                             continue;
                         }
 
                         if (ch >= 'A' && ch <= 'Z') ch += 32; // tolower
-                        if (ch == 't') { g_tab_cmd = 1; continue; }
+                        if (ch == 't') {
+                            // Blank active tab → convert to a plain shell
+                            // in place; otherwise hand off to hexa for a
+                            // fresh new tab.
+                            if (g_active_tab >= 0 &&
+                                g_active_tab < g_num_tabs &&
+                                g_tabs[g_active_tab].is_blank &&
+                                tab_become_profile(g_active_tab, NULL) == 0) {
+                                g_tab_cmd = 3;
+                                clear_active_alarm();
+                                if (g_window)
+                                    [[g_window contentView] setNeedsDisplay:YES];
+                            } else {
+                                g_tab_cmd = 1;
+                            }
+                            continue;
+                        }
                         if (ch == 'w') { g_tab_cmd = 2; continue; }
                         if (ch == 'q') { g_term_quit = 1; continue; }
                         // Cmd+1~9 → tab 1..9, Cmd+0 → tab 10
