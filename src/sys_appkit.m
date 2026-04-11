@@ -671,6 +671,16 @@ static CTFontRef g_term_font_bold = NULL;
 static int g_font_size = 13;       // current point size (Cmd+=/-/0 mutable)
 static NSColor *g_term_color_cache[16] = {0}; // retained ANSI palette
 
+// Pure sRGB (0,0,0,1) black — NSColor.blackColor is the generic device
+// black which, on P3 wide-gamut displays, renders a hair darker than
+// Terminal.app's sRGB-pinned background. Lazily cached.
+static NSColor *g_srgb_black = nil;
+static NSColor *srgb_black(void) {
+    if (!g_srgb_black)
+        g_srgb_black = [[NSColor colorWithSRGBRed:0.0 green:0.0 blue:0.0 alpha:1.0] retain];
+    return g_srgb_black;
+}
+
 // (Re)create the monospaced body font + bold variant at `sz` points, then
 // recompute cell width/height from the M glyph advance. Used by init AND
 // the Cmd+=/-/0 zoom handlers — the init path and the zoom path share the
@@ -1000,11 +1010,14 @@ static void search_close(void) {
 
 // ANSI color
 static NSColor *term_color(int idx) {
-    // macOS Terminal.app Basic palette — the actual NeXTSTEP-lineage
-    // values Apple ships, NOT the Windows Terminal Campbell values we
-    // had before. These are the same 16 slots xterm-256color and
-    // urxvt advertise as "default VGA", matching what zsh/vim/claude
-    // render when TERM=xterm-256color in macOS Terminal.app.
+    // macOS Terminal.app Basic palette — NeXTSTEP-lineage values Apple
+    // ships. Forced to sRGB color space because on P3 wide-gamut
+    // displays (all modern MacBook / Studio Display / iMac) the
+    // default colorWithRed: uses device-RGB which is a wider gamut,
+    // and the rendered primaries don't match what Terminal.app puts on
+    // screen (Terminal.app pins to sRGB for the Basic profile). The
+    // difference is invisible on old 72% NTSC displays but very visible
+    // on Retina: reds look orangey, greens neon, etc.
     //
     //   0 Black   1 Red     2 Green   3 Yellow
     //   4 Blue    5 Magenta 6 Cyan    7 White (= light gray)
@@ -1021,28 +1034,29 @@ static NSColor *term_color(int idx) {
         // never released. Avoids ~3840 NSColor allocs per drawRect.
         if (!g_term_color_cache[idx]) {
             uint32_t c = a16[idx];
-            g_term_color_cache[idx] = [[NSColor colorWithRed:((c>>16)&0xFF)/255.0
-                                                       green:((c>>8)&0xFF)/255.0
-                                                        blue:(c&0xFF)/255.0
-                                                       alpha:1.0] retain];
+            g_term_color_cache[idx] =
+                [[NSColor colorWithSRGBRed:((c>>16)&0xFF)/255.0
+                                     green:((c>>8)&0xFF)/255.0
+                                      blue:(c&0xFF)/255.0
+                                     alpha:1.0] retain];
         }
         return g_term_color_cache[idx];
     }
     if (idx < 232) {
         int v = idx - 16;
         int r = v/36, g = (v%36)/6, b = v%6;
-        return [NSColor colorWithRed:r?(r*40+55)/255.0:0
-                               green:g?(g*40+55)/255.0:0
-                                blue:b?(b*40+55)/255.0:0 alpha:1.0];
+        return [NSColor colorWithSRGBRed:r?(r*40+55)/255.0:0
+                                   green:g?(g*40+55)/255.0:0
+                                    blue:b?(b*40+55)/255.0:0 alpha:1.0];
     }
     if (idx < 256) {
         int g = (idx-232)*10+8;
-        return [NSColor colorWithRed:g/255.0 green:g/255.0 blue:g/255.0 alpha:1.0];
+        return [NSColor colorWithSRGBRed:g/255.0 green:g/255.0 blue:g/255.0 alpha:1.0];
     }
     int rgb = idx - 256;
-    return [NSColor colorWithRed:(rgb/65536)/255.0
-                           green:((rgb%65536)/256)/255.0
-                            blue:(rgb%256)/255.0 alpha:1.0];
+    return [NSColor colorWithSRGBRed:(rgb/65536)/255.0
+                               green:((rgb%65536)/256)/255.0
+                                blue:(rgb%256)/255.0 alpha:1.0];
 }
 
 // ── HexaTermView (with tab bar) ──
@@ -1068,9 +1082,9 @@ static NSColor *term_color(int idx) {
     // supported range (1-9), render every tab simultaneously. 10+ tabs
     // falls back to the stacked path below via effective_tab_bar_w().
     if (g_layout_mode == LAYOUT_GRID && g_num_tabs >= 1 && g_num_tabs <= 9) {
-        // Paint the whole canvas black so tile gutters (the 2px inset)
-        // read as a distinct separator instead of showing bare bounds.
-        [[NSColor blackColor] setFill];
+        // Paint the whole canvas sRGB-pinned black so tile gutters read
+        // as a distinct separator instead of showing bare bounds.
+        [srgb_black() setFill];
         NSRectFill(bounds);
 
         NSMutableDictionary *attrBuf = [NSMutableDictionary dictionaryWithCapacity:3];
@@ -1082,7 +1096,7 @@ static NSColor *term_color(int idx) {
             if (tile.size.width <= 0 || tile.size.height <= 0) continue;
 
             // Tile background
-            [[NSColor blackColor] setFill];
+            [srgb_black() setFill];
             NSRectFill(tile);
 
             int tile_rows = g_tabs[t].tile_rows > 0 ? g_tabs[t].tile_rows : g_term_rows;
@@ -1253,7 +1267,7 @@ static NSColor *term_color(int idx) {
 
     // ── Terminal grid (right of tab bar, or full width when tab bar hidden) ──
     float ox = eff_tbw;
-    [[NSColor blackColor] setFill];
+    [srgb_black() setFill];
     NSRectFill(NSMakeRect(ox, 0, bounds.size.width - ox, bounds.size.height));
 
     VoidTab *atab = (g_active_tab >= 0 && g_active_tab < g_num_tabs) ? &g_tabs[g_active_tab] : NULL;
@@ -3121,7 +3135,7 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         [g_window setMinSize:NSMakeSize(TAB_BAR_W + g_term_cw * 20, g_term_ch * 5)];
         if (@available(macOS 10.14, *))
             [g_window setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
-        [g_window setBackgroundColor:[NSColor blackColor]];
+        [g_window setBackgroundColor:srgb_black()];
 
         NSView *tv = [[HexaTermView alloc] initWithFrame:frame];
         [g_window setContentView:tv];
