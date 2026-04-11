@@ -1,0 +1,35 @@
+{
+  "_meta": {
+    "purpose": "void 프로젝트 규칙 — 모든 세션에서 준수",
+    "updated": "2026-04-11"
+  },
+  "rules": {
+    "VD1": {
+      "title": "Terminal.app 단일 참조",
+      "desc": "macOS Terminal.app만 참조. iTerm2/kitty/Warp/Ghostty/Alacritty 참조 금지."
+    },
+    "VD2": {
+      "title": "hexa-only 로직",
+      "desc": "모든 로직 .hexa. OS 시스템콜만 sys_*.{c,m} helper 위임."
+    },
+    "VD3": {
+      "title": "빌드 후 반드시 테스트",
+      "desc": "코드 변경 시 VOID_TEST=1 ./void_term 실행. 전 테스트 pass 확인 후에만 커밋/배포.",
+      "enforce": "test fail → 코드 수정 → 재테스트. 절대 fail 상태로 배포 금지."
+    },
+    "VD4": {
+      "title": "/Applications 자동 패치",
+      "desc": "테스트 통과 후 반드시 /Applications/VOID.app까지 업데이트.",
+      "steps": [
+        "cp void_term VOID.app/Contents/MacOS/void_term",
+        "cp -r VOID.app /Applications/VOID.app"
+      ],
+      "enforce": "유저 요청 없어도 자동 실행. 빌드만 하고 앱 패치 안 하는 것 금지."
+    },
+    "VD5": {
+      "title": "포인터 FFI 금지",
+      "desc": "hexa↔C 간 포인터 전달 금지. hexa int는 32비트 — 64비트 포인터 절삭됨.",
+      "enforce": "모든 버퍼/메모리 조작은 C-side에서 완결. hexa는 int 값만 주고받음."
+    }
+  }
+}
