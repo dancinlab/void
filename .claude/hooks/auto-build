@@ -1,0 +1,61 @@
+#!/bin/bash
+# auto-build: PostToolUse hook for the void project.
+# After any Write/Edit on a file under ~/Dev/void/src/*.m,c,hexa, rebuild
+# void_term, reinstall both VOID.app locations, and run VOID_TEST.
+# This runs MID-TURN so compile errors surface before Claude finishes
+# responding. Commit/push is the Stop hook's job (auto-ship), not ours.
+# Silent on success; emits a Claude systemMessage on failure.
+set -uo pipefail
+
+# Claude Code hooks get a sparse PATH — ensure clang/git/etc are found.
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# Pull the edited file path from the hook's stdin JSON payload.
+PAYLOAD=$(cat 2>/dev/null || true)
+FILE=$(printf '%s' "$PAYLOAD" | python3 -c '
+import sys, json
+try:
+    d = json.loads(sys.stdin.read() or "{}")
+except Exception:
+    print("")
+    sys.exit(0)
+ti = d.get("tool_input") or {}
+tr = d.get("tool_response") or {}
+print(ti.get("file_path") or tr.get("filePath") or "")
+' 2>/dev/null)
+
+# Only rebuild when an edited file is in the void src tree.
+case "$FILE" in
+    */Dev/void/src/*.m|*/Dev/void/src/*.c|*/Dev/void/src/*.hexa)
+        ;;
+    *)
+        exit 0
+        ;;
+esac
+
+cd ~/Dev/void 2>/dev/null || exit 0
+
+LOG=$(mktemp -t auto-build.XXXXXX)
+trap 'rm -f "$LOG"' EXIT
+
+(
+    set -e
+    clang -O2 -w -ObjC /tmp/void_main.c src/sys_pty.c src/sys_appkit.m \
+        -framework Cocoa -o void_term
+    cp void_term VOID.app/Contents/MacOS/void_term
+    cp void_term /Applications/VOID.app/Contents/MacOS/void_term 2>/dev/null || true
+    VOID_TEST=1 ./void_term 2>&1 | tail -3
+) > "$LOG" 2>&1
+
+rc=$?
+if [ $rc -ne 0 ]; then
+    python3 - "$LOG" <<'PY' 2>/dev/null || { echo "[auto-build FAILED]" >&2; tail -50 "$LOG" >&2; }
+import sys, json
+with open(sys.argv[1]) as f:
+    log = f.read()[-2000:]
+print(json.dumps({"systemMessage": "[auto-build FAILED]\n" + log}))
+PY
+    exit 0
+fi
+
+exit 0

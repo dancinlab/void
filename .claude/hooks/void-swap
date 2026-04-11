@@ -1,0 +1,63 @@
+#!/bin/bash
+# void-swap: speculative hot-reload helper.
+#
+# Builds void_term from ~/Dev/void/src, installs to both VOID.app bundles,
+# then sends SIGUSR1 to any running void_term. The running process forks
+# a shadow child that execs the new binary, adopts the current PTY fds
+# (claude sessions and all), shows its window, and the old parent exits.
+# claude conversation history is preserved because the PTY master fds
+# survive the fork+execv unchanged.
+#
+# Usage: void-swap [--build-only|--signal-only]
+#
+# Exit codes:
+#   0 — success (build + swap, or no running void_term to swap)
+#   1 — build failed
+#   2 — signal failed (running void_term refused or crashed)
+set -uo pipefail
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+cd ~/Dev/void || exit 1
+
+mode="${1:-all}"
+
+if [ "$mode" != "--signal-only" ]; then
+    LOG=$(mktemp -t void-swap.XXXXXX)
+    trap 'rm -f "$LOG"' EXIT
+    (
+        set -e
+        clang -O2 -w -ObjC /tmp/void_main.c src/sys_pty.c src/sys_appkit.m \
+            -framework Cocoa -o void_term
+        cp void_term VOID.app/Contents/MacOS/void_term
+        cp void_term /Applications/VOID.app/Contents/MacOS/void_term 2>/dev/null || true
+        VOID_TEST=1 ./void_term 2>&1 | tail -3
+    ) > "$LOG" 2>&1
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "[void-swap] BUILD FAILED (exit $rc):" >&2
+        tail -40 "$LOG" >&2
+        exit 1
+    fi
+fi
+
+if [ "$mode" = "--build-only" ]; then
+    exit 0
+fi
+
+# Find and signal all running void_term processes (there should only be
+# one, but be defensive). pgrep -x matches the basename exactly.
+pids=$(pgrep -x void_term 2>/dev/null || true)
+if [ -z "$pids" ]; then
+    # Nothing to swap — either first launch or app closed. Just start it.
+    open ~/Dev/void/VOID.app 2>/dev/null || true
+    exit 0
+fi
+
+for pid in $pids; do
+    if ! kill -USR1 "$pid" 2>/dev/null; then
+        echo "[void-swap] failed to signal $pid" >&2
+        exit 2
+    fi
+done
+
+exit 0

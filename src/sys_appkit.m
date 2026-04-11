@@ -281,12 +281,200 @@ static int g_drag_target = -1;
 static int g_drag_active = 0;
 static NSPoint g_drag_origin;
 
-// Active tab's rendering grid (synced from hexa)
+// Forward-declare file-scope globals that the hot-swap serializer needs
+// to touch. These are tentative definitions — the initialised version
+// further down in the file merges with these under C's tentative-def rule.
 static TermCell g_term_grid[TERM_MAX_ROWS][TERM_MAX_COLS];
-static int g_term_rows = 24;
-static int g_term_cols = 80;
-static int g_term_cur_row = 0;
-static int g_term_cur_col = 0;
+static int g_term_rows;
+static int g_term_cols;
+static int g_term_cur_row;
+static int g_term_cur_col;
+
+// ── Speculative Hot Swap state ───────────────────────────────────────
+// Self-replace across a rebuild while keeping PTY file descriptors (and
+// therefore claude/shell subprocesses and their conversation history)
+// alive across the exec. Flow:
+//
+//   parent void_term (PID N, old image)
+//     ↓ SIGUSR1 from void-swap helper
+//   g_want_swap = 1
+//     ↓ main loop tick
+//   save_handoff(/tmp/void_handoff_N.bin) — tab count, per-tab grid/title/fd/flags
+//   clear FD_CLOEXEC on every g_tabs[i].pty_fd and on g_lock_fd
+//   socketpair(sp) for RDY/GO signaling
+//   fork() → child
+//     child: execv(g_argv0, argv) with VOID_SHADOW=1, HANDOFF_PATH, HANDOFF_SOCK,
+//            HANDOFF_LOCK_FD, HANDOFF_PID in env
+//   parent: close child's end of sp, read "RDY\n"
+//     parent orderOut window, write "GO\n", exit
+//   child (new image): init_term sees VOID_SHADOW, restores state from handoff
+//     file, creates hidden window, writes "RDY\n", waits for "GO\n", orderFronts
+//
+// PTY fds survive execv because fork() already duplicated them and we
+// clear FD_CLOEXEC before exec. The child adopts the same integer fd
+// numbers via the handoff file and resumes reading claude's output.
+static int g_want_swap = 0;
+static int g_shadow_restored = 0;   // 1 after successful VOID_SHADOW restore
+static int g_shadow_sock = -1;       // our half of the RDY/GO socketpair
+static char g_argv0[4096] = {0};     // captured at init for re-exec
+// Signal handler can only set sig_atomic_t safely.
+#include <signal.h>
+static volatile sig_atomic_t g_swap_flag = 0;
+static void handle_sigusr1(int sig) {
+    (void)sig;
+    g_swap_flag = 1;
+}
+
+// Handoff file format (packed, little-endian, same endian on a single
+// machine so byte order not a concern). No versioning for v1 — the
+// binary that reads is always the one that wrote the format (we rebuild
+// both in one go). If the format changes, bump the magic below.
+#define VOID_HANDOFF_MAGIC 0x564F4944u  // "VOID"
+typedef struct {
+    unsigned int magic;
+    int          num_tabs;
+    int          active_tab;
+    int          term_rows;
+    int          term_cols;
+    // Window frame (points)
+    double       win_x, win_y, win_w, win_h;
+} HandoffHeader;
+
+typedef struct {
+    int          pty_fd;
+    int          is_blank;
+    int          title_locked;
+    int          cur_row;
+    int          cur_col;
+    char         title[128];
+    char         profile_base[64];
+    char         cwd[1024];
+    // Full live grid, fixed size so we can blit it straight into g_tabs[i].grid.
+    TermCell     grid[TERM_MAX_ROWS][TERM_MAX_COLS];
+} HandoffTab;
+
+// Strip FD_CLOEXEC so fds survive execv into the shadow.
+static void handoff_keep_fd(int fd) {
+    if (fd < 0) return;
+    int flags = fcntl(fd, F_GETFD, 0);
+    if (flags < 0) return;
+    fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC);
+}
+
+// Capture whatever the shell-resolved executable path is, regardless of
+// relative launch. Used as argv[0] for the child execv.
+#include <mach-o/dyld.h>
+static void capture_argv0_once(void) {
+    if (g_argv0[0]) return;
+    uint32_t bufsize = sizeof(g_argv0);
+    if (_NSGetExecutablePath(g_argv0, &bufsize) != 0) {
+        // buffer too small — unlikely, but fall back to a sensible default
+        snprintf(g_argv0, sizeof(g_argv0),
+                 "%s/Dev/void/void_term",
+                 getenv("HOME") ?: "/Users/ghost");
+    }
+}
+
+// Write the live tab state to a handoff file so a freshly-exec'd shadow
+// process can read it back and resume. Must be called from the main
+// loop (single-threaded, so g_tabs[] is stable). Returns 0 on success.
+static int save_handoff_to_file(const char *path) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return -1;
+
+    // Save the ACTIVE tab's live grid into its own g_tabs entry first
+    // — otherwise the most recent frame lives only in g_term_grid and
+    // would be lost.
+    if (g_active_tab >= 0 && g_active_tab < g_num_tabs) {
+        memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+        g_tabs[g_active_tab].cur_row = g_term_cur_row;
+        g_tabs[g_active_tab].cur_col = g_term_cur_col;
+    }
+
+    HandoffHeader h = {0};
+    h.magic      = VOID_HANDOFF_MAGIC;
+    h.num_tabs   = g_num_tabs;
+    h.active_tab = g_active_tab;
+    h.term_rows  = g_term_rows;
+    h.term_cols  = g_term_cols;
+    if (g_window) {
+        NSRect fr = [g_window frame];
+        h.win_x = fr.origin.x;
+        h.win_y = fr.origin.y;
+        h.win_w = fr.size.width;
+        h.win_h = fr.size.height;
+    }
+    if (fwrite(&h, sizeof(h), 1, f) != 1) { fclose(f); return -1; }
+
+    for (int i = 0; i < g_num_tabs; i++) {
+        HandoffTab t = {0};
+        t.pty_fd       = g_tabs[i].pty_fd;
+        t.is_blank     = g_tabs[i].is_blank;
+        t.title_locked = g_tabs[i].title_locked;
+        t.cur_row      = g_tabs[i].cur_row;
+        t.cur_col      = g_tabs[i].cur_col;
+        memcpy(t.title,        g_tabs[i].title,        sizeof(t.title));
+        memcpy(t.profile_base, g_tabs[i].profile_base, sizeof(t.profile_base));
+        memcpy(t.cwd,          g_tabs[i].cwd,          sizeof(t.cwd));
+        memcpy(t.grid,         g_tabs[i].grid,         sizeof(t.grid));
+        if (fwrite(&t, sizeof(t), 1, f) != 1) { fclose(f); return -1; }
+    }
+    fclose(f);
+    return 0;
+}
+
+// Restore tabs from a handoff file. Called from hexa_appkit_init_term
+// when VOID_SHADOW is set. Returns 0 on success. The inherited pty_fd
+// values are adopted verbatim — fork+exec guarantees they're still
+// open in this process since we cleared FD_CLOEXEC before execv.
+static int restore_handoff_from_file(const char *path, HandoffHeader *hout) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+
+    HandoffHeader h;
+    if (fread(&h, sizeof(h), 1, f) != 1 || h.magic != VOID_HANDOFF_MAGIC) {
+        fclose(f);
+        return -1;
+    }
+    if (h.num_tabs < 0 || h.num_tabs > MAX_TABS) { fclose(f); return -1; }
+
+    for (int i = 0; i < h.num_tabs; i++) {
+        HandoffTab t;
+        if (fread(&t, sizeof(t), 1, f) != 1) { fclose(f); return -1; }
+        memset(&g_tabs[i], 0, sizeof(VoidTab));
+        g_tabs[i].used         = 1;
+        g_tabs[i].pty_fd       = t.pty_fd;
+        g_tabs[i].pid          = 0; // we don't track the child pid across swaps
+        g_tabs[i].is_blank     = t.is_blank;
+        g_tabs[i].title_locked = t.title_locked;
+        g_tabs[i].cur_row      = t.cur_row;
+        g_tabs[i].cur_col      = t.cur_col;
+        memcpy(g_tabs[i].title,        t.title,        sizeof(t.title));
+        memcpy(g_tabs[i].profile_base, t.profile_base, sizeof(t.profile_base));
+        memcpy(g_tabs[i].cwd,          t.cwd,          sizeof(t.cwd));
+        memcpy(g_tabs[i].grid,         t.grid,         sizeof(t.grid));
+    }
+    g_num_tabs   = h.num_tabs;
+    g_active_tab = h.active_tab;
+    g_term_rows  = h.term_rows;
+    g_term_cols  = h.term_cols;
+    if (g_active_tab >= 0 && g_active_tab < g_num_tabs)
+        memcpy(g_term_grid, g_tabs[g_active_tab].grid, sizeof(g_term_grid));
+
+    fclose(f);
+    if (hout) *hout = h;
+    g_shadow_restored = 1;
+    return 0;
+}
+
+// Active tab's rendering grid (synced from hexa). g_term_grid +
+// g_term_rows/cols/cur_row/cur_col are forward-declared above for the
+// hot-swap serializer. C's tentative-definition rule merges those with
+// the initialised definitions below into a single object each. The
+// scalars need initial values (rows=24 cols=80) for the normal init
+// path that runs before hexa_appkit_term_set_rows/cols fire.
+static int g_term_rows_default __attribute__((unused)) = 24;
+static int g_term_cols_default __attribute__((unused)) = 80;
 static int g_term_cur_vis = 1;
 static float g_term_cw = 0;
 static float g_term_ch = 0;
@@ -1020,7 +1208,26 @@ static int try_single_instance(void) {
 }
 
 long hexa_appkit_init_term(long rows, long cols, long font_size) {
-    if (!try_single_instance()) {
+    capture_argv0_once();
+
+    // Shadow mode: our parent is about to hand over control. Skip the
+    // single-instance lock (parent still holds it, will release on exit),
+    // adopt the inherited handoff socket, and read the state file.
+    const char *shadow_env      = getenv("VOID_SHADOW");
+    const char *handoff_path    = getenv("VOID_HANDOFF_PATH");
+    const char *handoff_sock    = getenv("VOID_HANDOFF_SOCK");
+    int is_shadow = (shadow_env && shadow_env[0] == '1');
+    HandoffHeader restored_hdr = {0};
+    if (is_shadow) {
+        if (handoff_sock) g_shadow_sock = atoi(handoff_sock);
+        if (handoff_path) {
+            if (restore_handoff_from_file(handoff_path, &restored_hdr) != 0) {
+                fprintf(stderr, "[void] shadow: handoff restore failed\n");
+                return -1;
+            }
+            unlink(handoff_path); // one-shot
+        }
+    } else if (!try_single_instance()) {
         fprintf(stderr, "[void] already running\n");
         return -1;
     }
@@ -1053,26 +1260,36 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         g_term_cw = adv.width;
         g_term_ch = CTFontGetAscent(g_term_font) + CTFontGetDescent(g_term_font) +
                     CTFontGetLeading(g_term_font) + 2;
-        // Auto-size from screen (ignore passed rows/cols)
+        // Auto-size from screen (ignore passed rows/cols). In shadow
+        // mode we reuse the restored rows/cols + window frame so the
+        // user sees no geometry change across the swap.
         NSRect screenFrame = [[NSScreen mainScreen] visibleFrame];
-        float ww = screenFrame.size.width * 0.85;
-        float wh = screenFrame.size.height * 0.85;
-        // At init g_num_tabs is still 0, so effective_tab_bar_w() is 0 and
-        // the first window already takes the full width with no tab reserve.
-        int init_tbw = effective_tab_bar_w();
-        g_term_cols = (int)((ww - init_tbw) / g_term_cw);
-        g_term_rows = (int)(wh / g_term_ch);
-        if (g_term_cols < 80) g_term_cols = 80;
-        if (g_term_rows < 24) g_term_rows = 24;
-        if (g_term_cols > TERM_MAX_COLS) g_term_cols = TERM_MAX_COLS;
-        if (g_term_rows > TERM_MAX_ROWS) g_term_rows = TERM_MAX_ROWS;
-
-        tab_clear_grid(g_term_grid);
-
-        ww = init_tbw + g_term_cw * g_term_cols;
-        wh = g_term_ch * g_term_rows;
-        float wx = screenFrame.origin.x + (screenFrame.size.width - ww) / 2;
-        float wy = screenFrame.origin.y + (screenFrame.size.height - wh) / 2;
+        float ww, wh, wx, wy;
+        if (is_shadow && restored_hdr.win_w > 0) {
+            g_term_cols = restored_hdr.term_cols;
+            g_term_rows = restored_hdr.term_rows;
+            // grids already populated by restore_handoff_from_file; do
+            // NOT reset g_term_grid (it holds the active tab's state).
+            ww = restored_hdr.win_w;
+            wh = restored_hdr.win_h;
+            wx = restored_hdr.win_x;
+            wy = restored_hdr.win_y;
+        } else {
+            ww = screenFrame.size.width * 0.85;
+            wh = screenFrame.size.height * 0.85;
+            int init_tbw = effective_tab_bar_w();
+            g_term_cols = (int)((ww - init_tbw) / g_term_cw);
+            g_term_rows = (int)(wh / g_term_ch);
+            if (g_term_cols < 80) g_term_cols = 80;
+            if (g_term_rows < 24) g_term_rows = 24;
+            if (g_term_cols > TERM_MAX_COLS) g_term_cols = TERM_MAX_COLS;
+            if (g_term_rows > TERM_MAX_ROWS) g_term_rows = TERM_MAX_ROWS;
+            tab_clear_grid(g_term_grid);
+            ww = init_tbw + g_term_cw * g_term_cols;
+            wh = g_term_ch * g_term_rows;
+            wx = screenFrame.origin.x + (screenFrame.size.width - ww) / 2;
+            wy = screenFrame.origin.y + (screenFrame.size.height - wh) / 2;
+        }
         NSRect frame = NSMakeRect(wx, wy, ww, wh);
         NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                            NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
@@ -1090,7 +1307,11 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         NSView *tv = [[HexaTermView alloc] initWithFrame:frame];
         [g_window setContentView:tv];
         [g_window makeFirstResponder:tv];
-        [g_window makeKeyAndOrderFront:nil];
+        // Shadow process keeps its window off-screen until the parent
+        // hands over (RDY/GO protocol). Everyone else shows it now.
+        if (!is_shadow) {
+            [g_window makeKeyAndOrderFront:nil];
+        }
 
         // Menu bar
         NSMenu *mb = [[NSMenu alloc] init];
@@ -1162,7 +1383,29 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         }
 
         [app finishLaunching];
-        [app activateIgnoringOtherApps:YES];
+        if (!is_shadow)
+            [app activateIgnoringOtherApps:YES];
+    }
+
+    // Install the swap signal so void-swap can trigger a seamless exec.
+    // SIGUSR1 just sets a flag; the real work happens in the main loop.
+    struct sigaction sa = {0};
+    sa.sa_handler = handle_sigusr1;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGUSR1, &sa, NULL);
+
+    // Shadow handshake: tell parent we're ready, wait for go.
+    if (is_shadow && g_shadow_sock >= 0) {
+        write(g_shadow_sock, "RDY\n", 4);
+        char buf[8];
+        int n = (int)read(g_shadow_sock, buf, sizeof(buf));
+        (void)n; // we simply block until parent writes "GO\n" (or closes)
+        @autoreleasepool {
+            [g_window makeKeyAndOrderFront:nil];
+            [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
+        }
+        close(g_shadow_sock);
+        g_shadow_sock = -1;
     }
     return 0;
 }
@@ -1305,6 +1548,20 @@ static int tab_become_profile(int idx, VoidProfile *vp) {
 // The user picks a profile via Cmd+Ctrl+N which then converts the blank
 // in place via tab_become_profile, so the app opens with zero clutter.
 long hexa_tab_new(void) {
+    // Shadow restore swallow: after a hot-swap the parent already
+    // wrote the restored tabs into g_tabs[], and hexa's main() still
+    // calls hexa_tab_new() once for the "initial" tab. We return the
+    // restored active tab without spawning anything. Subsequent calls
+    // (Cmd+T, profile shortcuts) take the normal path.
+    static int g_shadow_restore_swallowed = 0;
+    if (g_shadow_restored && !g_shadow_restore_swallowed) {
+        g_shadow_restore_swallowed = 1;
+        // Signal hexa to reload its VT state from the restored grid.
+        g_resized = 1;
+        g_full_redraw = 1;
+        return (long)(g_active_tab >= 0 ? g_active_tab : 0);
+    }
+
     if (g_num_tabs >= MAX_TABS) return -1;
 
     // Save current active tab's grid
@@ -1550,6 +1807,96 @@ void hexa_appkit_term_invalidate_all(void) {
     g_full_redraw = 1;
 }
 
+// Parent-side hot swap. Spawns a shadow child that re-execs the current
+// binary with VOID_SHADOW=1, waits for the child's "RDY", hides our
+// window, writes "GO", and exits. PTY fds survive fork+execv because we
+// clear FD_CLOEXEC on them first, so the claude/shell subprocesses
+// continue running uninterrupted — the shadow adopts the same integer
+// fd numbers from the handoff file.
+static void perform_hot_swap(void) {
+    capture_argv0_once();
+    if (!g_argv0[0]) return;
+
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/void_handoff_%d.bin", (int)getpid());
+    if (save_handoff_to_file(path) != 0) {
+        fprintf(stderr, "[void] swap: save failed\n");
+        return;
+    }
+
+    // Clear FD_CLOEXEC on every live PTY fd so they survive the execv
+    // in the child. The child will adopt the same integer fd numbers
+    // via the handoff file, so the kernel keeps the refcounts right.
+    for (int i = 0; i < g_num_tabs; i++) {
+        if (g_tabs[i].used && g_tabs[i].pty_fd >= 0)
+            handoff_keep_fd(g_tabs[i].pty_fd);
+    }
+    // Single-instance lock fd also needs to travel (or be reopened
+    // later) — simplest is to let the shadow skip the check.
+
+    int sp[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sp) != 0) {
+        fprintf(stderr, "[void] swap: socketpair failed\n");
+        unlink(path);
+        return;
+    }
+    // Both ends of sp need to be inheritable across execv so the child's
+    // new image can find its end via an env var.
+    handoff_keep_fd(sp[0]);
+    handoff_keep_fd(sp[1]);
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "[void] swap: fork failed\n");
+        close(sp[0]); close(sp[1]);
+        unlink(path);
+        return;
+    }
+    if (pid == 0) {
+        // Child: exec the new binary with swap env wired up.
+        close(sp[0]); // parent's end
+        char sock_env[32];
+        snprintf(sock_env, sizeof(sock_env), "%d", sp[1]);
+        setenv("VOID_SHADOW",       "1",       1);
+        setenv("VOID_HANDOFF_PATH", path,      1);
+        setenv("VOID_HANDOFF_SOCK", sock_env,  1);
+        // argv[0] only — hexa's main doesn't consume any flags and we
+        // don't want --test or similar to bleed through.
+        char *new_argv[] = { g_argv0, NULL };
+        execv(g_argv0, new_argv);
+        // If we reach here, exec failed.
+        fprintf(stderr, "[void] swap: execv failed: %s\n", g_argv0);
+        _exit(127);
+    }
+
+    // Parent: wait for shadow to finish init and signal ready.
+    close(sp[1]);
+    char buf[16] = {0};
+    int n = (int)read(sp[0], buf, sizeof(buf) - 1);
+    if (n <= 0 || buf[0] != 'R') {
+        fprintf(stderr, "[void] swap: shadow never signalled RDY\n");
+        close(sp[0]);
+        return; // abort; parent keeps running
+    }
+
+    // Hide our window first (Cocoa defers until next runloop tick, but
+    // that's fine — we write "GO" immediately and exit).
+    @autoreleasepool {
+        if (g_window) {
+            [g_window orderOut:nil];
+            [g_window setReleasedWhenClosed:NO];
+        }
+    }
+    write(sp[0], "GO\n", 3);
+    close(sp[0]);
+
+    // Give Cocoa a few ms to actually drop our window before we exit —
+    // otherwise the dock sees both our window and the shadow's and the
+    // menu bar flickers between them.
+    usleep(30 * 1000);
+    _exit(0);
+}
+
 void hexa_appkit_term_flush(void) {
     @autoreleasepool {
         NSView *v = [g_window contentView];
@@ -1714,6 +2061,17 @@ long hexa_appkit_term_poll(void) {
         // Drain background tabs so their shells don't stall, and flag
         // alarm / update Dock badge as Terminal.app does.
         poll_background_tabs();
+
+        // SIGUSR1 → speculative hot swap. Handler only flips the flag;
+        // we do the real work here so the main loop (and all g_tabs[]
+        // state) is in a quiescent point between ticks.
+        if (g_swap_flag) {
+            g_swap_flag = 0;
+            perform_hot_swap();
+            // If perform_hot_swap returned we either aborted (child
+            // failed) or are about to _exit; fall through to the next
+            // tick so the runloop drains cleanly.
+        }
     }
     return g_term_quit;
 }
