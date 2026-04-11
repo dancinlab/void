@@ -1,0 +1,51 @@
+#!/bin/bash
+# auto-ship: Stop hook for the void project.
+# After every Claude turn, if any tracked source under src/*.m, src/*.c,
+# or src/*.hexa has changed, run the full ship cycle:
+#     git add -> commit -> push -> rebuild -> install -> tests
+# Silent on success. On failure, emits a Claude `systemMessage` JSON
+# blob so the user sees the error in the transcript.
+#
+# Extensionless filename intentional: HEXA-FIRST rule blocks new .sh/.py/.rs
+# files, but tooling scripts in .claude/hooks/ are still needed.
+set -uo pipefail
+
+# Claude Code hooks run with a sparse PATH that may not include /usr/bin,
+# so `clang`, `git`, etc. fail with "command not found". Set PATH explicitly.
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+cd ~/Dev/void 2>/dev/null || exit 0
+
+# Bail out fast if no source changes (untracked + modified + staged).
+if [ -z "$(git status --porcelain -- 'src/*.m' 'src/*.c' 'src/*.hexa' 2>/dev/null)" ]; then
+    exit 0
+fi
+
+LOG=$(mktemp -t auto-ship.XXXXXX)
+trap 'rm -f "$LOG"' EXIT
+
+(
+    set -e
+    git add -- 'src/*.m' 'src/*.c' 'src/*.hexa'
+    git commit -m "auto-ship: $(date +%H:%M)"
+    git push
+    clang -O2 -w -ObjC /tmp/void_main.c src/sys_pty.c src/sys_appkit.m \
+        -framework Cocoa -o void_term
+    cp void_term VOID.app/Contents/MacOS/void_term
+    cp void_term /Applications/VOID.app/Contents/MacOS/void_term 2>/dev/null || true
+    VOID_TEST=1 ./void_term 2>&1 | tail -3
+) > "$LOG" 2>&1
+
+rc=$?
+if [ $rc -ne 0 ]; then
+    # Emit a systemMessage so the failure surfaces in the Claude UI.
+    python3 - "$LOG" <<'PY' 2>/dev/null || { echo "[auto-ship FAILED]" >&2; tail -50 "$LOG" >&2; }
+import sys, json
+with open(sys.argv[1]) as f:
+    log = f.read()[-2000:]
+print(json.dumps({"systemMessage": "[auto-ship FAILED]\n" + log}))
+PY
+    exit 0
+fi
+
+exit 0

@@ -60,6 +60,18 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ghost/Dev/void/.claude/hooks/auto-ship",
+            "timeout": 120
+          }
+        ]
+      }
     ]
   }
 }
