@@ -521,14 +521,24 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         g_term_cw = adv.width;
         g_term_ch = CTFontGetAscent(g_term_font) + CTFontGetDescent(g_term_font) +
                     CTFontGetLeading(g_term_font) + 2;
-        g_term_rows = (int)rows;
-        g_term_cols = (int)cols;
+        // Auto-size from screen (ignore passed rows/cols)
+        NSRect screenFrame = [[NSScreen mainScreen] visibleFrame];
+        float ww = screenFrame.size.width * 0.85;
+        float wh = screenFrame.size.height * 0.85;
+        g_term_cols = (int)((ww - TAB_BAR_W) / g_term_cw);
+        g_term_rows = (int)(wh / g_term_ch);
+        if (g_term_cols < 80) g_term_cols = 80;
+        if (g_term_rows < 24) g_term_rows = 24;
+        if (g_term_cols > TERM_MAX_COLS) g_term_cols = TERM_MAX_COLS;
+        if (g_term_rows > TERM_MAX_ROWS) g_term_rows = TERM_MAX_ROWS;
 
         tab_clear_grid(g_term_grid);
 
-        float ww = TAB_BAR_W + g_term_cw * cols;
-        float wh = g_term_ch * rows;
-        NSRect frame = NSMakeRect(100, 100, ww, wh);
+        ww = TAB_BAR_W + g_term_cw * g_term_cols;
+        wh = g_term_ch * g_term_rows;
+        float wx = screenFrame.origin.x + (screenFrame.size.width - ww) / 2;
+        float wy = screenFrame.origin.y + (screenFrame.size.height - wh) / 2;
+        NSRect frame = NSMakeRect(wx, wy, ww, wh);
         NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                            NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
         g_window = [[NSWindow alloc] initWithContentRect:frame styleMask:style
@@ -723,6 +733,8 @@ void hexa_appkit_term_flush(void) {
     }
 }
 
+static int g_resized = 0;
+
 long hexa_appkit_term_poll(void) {
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
@@ -735,9 +747,34 @@ long hexa_appkit_term_poll(void) {
             [app sendEvent:ev];
             [app updateWindows];
         }
+        // Check for window resize
+        if (g_window && g_term_cw > 0 && g_term_ch > 0) {
+            NSRect f = [[g_window contentView] frame];
+            int new_cols = (int)((f.size.width - TAB_BAR_W) / g_term_cw);
+            int new_rows = (int)(f.size.height / g_term_ch);
+            if (new_cols < 20) new_cols = 20;
+            if (new_rows < 5) new_rows = 5;
+            if (new_cols > TERM_MAX_COLS) new_cols = TERM_MAX_COLS;
+            if (new_rows > TERM_MAX_ROWS) new_rows = TERM_MAX_ROWS;
+            if (new_cols != g_term_cols || new_rows != g_term_rows) {
+                g_term_cols = new_cols;
+                g_term_rows = new_rows;
+                g_resized = 1;
+            }
+        }
     }
     return g_term_quit;
 }
+
+// Returns 1 if window was resized since last check, 0 otherwise.
+long hexa_appkit_term_check_resize(void) {
+    if (g_resized) { g_resized = 0; return 1; }
+    return 0;
+}
+
+// Get current terminal dimensions
+long hexa_appkit_term_get_rows(void) { return (long)g_term_rows; }
+long hexa_appkit_term_get_cols(void) { return (long)g_term_cols; }
 
 // Forward keys from AppKit to the active tab's PTY. All in C.
 long hexa_keys_to_pty(long master_fd) {

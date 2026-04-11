@@ -374,6 +374,17 @@ long hexa_check_test_mode(void) {
     return getenv("VOID_TEST") ? 1 : 0;
 }
 
+// PTY resize via ioctl TIOCSWINSZ
+#include <sys/ioctl.h>
+long hexa_pty_resize(long fd, long rows, long cols) {
+    struct winsize ws;
+    ws.ws_row = (unsigned short)rows;
+    ws.ws_col = (unsigned short)cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+    return (long)ioctl((int)fd, TIOCSWINSZ, &ws);
+}
+
 // libc wrappers (hexa build_c adds hexa_user_ prefix to non-hexa_ names)
 long hexa_mem_alloc(long size) {
     return (long)(uintptr_t)malloc((size_t)size);

@@ -40,6 +40,10 @@ extern fn hexa_tab_cell_bg(idx: int) -> int
 extern fn hexa_tab_cell_flags(idx: int) -> int
 extern fn hexa_tab_cursor_x() -> int
 extern fn hexa_tab_cursor_y() -> int
+extern fn hexa_appkit_term_check_resize() -> int
+extern fn hexa_appkit_term_get_rows() -> int
+extern fn hexa_appkit_term_get_cols() -> int
+extern fn hexa_pty_resize(fd: int, rows: int, cols: int) -> int
 extern fn hexa_appkit_term_title_reset()
 extern fn hexa_appkit_term_title_push(b: int)
 extern fn hexa_appkit_term_title_apply()
@@ -47,9 +51,9 @@ extern fn hexa_appkit_term_title_apply()
 // ═══════════════════════════════════════════════════════════════
 // SCREEN BUFFER — flat arrays (VP-04 compatible)
 // ═══════════════════════════════════════════════════════════════
-let COLS = 80
-let ROWS = 24
-let TOTAL = 1920
+let mut COLS = 80
+let mut ROWS = 24
+let mut TOTAL = 1920
 
 let mut scr_cells = []
 let mut scr_fg = []
@@ -1075,11 +1079,17 @@ fn main() {
 
     let _ = scr_init()
 
-    // Init AppKit terminal window (single instance)
-    let init_r = hexa_appkit_init_term(ROWS, COLS, 14)
+    // Init AppKit terminal window (single instance, auto-sized)
+    let init_r = hexa_appkit_init_term(0, 0, 14)
     if init_r < 0 {
         return 1
     }
+
+    // Pick up auto-calculated size from C
+    COLS = hexa_appkit_term_get_cols()
+    ROWS = hexa_appkit_term_get_rows()
+    TOTAL = ROWS * COLS
+    let _ = scr_init()
 
     // Create first tab (spawns PTY inside C)
     let t0 = hexa_tab_new()
@@ -1125,7 +1135,27 @@ fn main() {
             let _ = vt_reset_state()
         }
 
-        // 3. Get active PTY
+        // 3. Handle window resize
+        if hexa_appkit_term_check_resize() == 1 {
+            let new_r = hexa_appkit_term_get_rows()
+            let new_c = hexa_appkit_term_get_cols()
+            if new_r != ROWS {
+                ROWS = new_r
+            }
+            if new_c != COLS {
+                COLS = new_c
+            }
+            TOTAL = ROWS * COLS
+            let _ = scr_init()
+            let _ = vt_reset_state()
+            // Notify PTY of new size
+            let rfd = hexa_tab_get_pty()
+            if rfd >= 0 {
+                let _ = hexa_pty_resize(rfd, ROWS, COLS)
+            }
+        }
+
+        // 4. Get active PTY
         let m = hexa_tab_get_pty()
         if m < 0 {
             let _ = hexa_sleep_us(10000)
