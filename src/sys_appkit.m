@@ -476,7 +476,34 @@ static void tab_clear_grid(TermCell grid[TERM_MAX_ROWS][TERM_MAX_COLS]) {
 
 // ── Public API ──
 
+// Single-instance lock via Unix domain socket
+#include <sys/un.h>
+#include <sys/socket.h>
+static int g_lock_fd = -1;
+
+static int try_single_instance(void) {
+    const char *path = "/tmp/void_term.lock";
+    g_lock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (g_lock_fd < 0) return 0;
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+    unlink(path);
+    if (bind(g_lock_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        close(g_lock_fd);
+        g_lock_fd = -1;
+        return 0; // Another instance holds the lock
+    }
+    listen(g_lock_fd, 1);
+    return 1;
+}
+
 long hexa_appkit_init_term(long rows, long cols, long font_size) {
+    if (!try_single_instance()) {
+        fprintf(stderr, "[void] already running\n");
+        return -1;
+    }
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
         [app setActivationPolicy:NSApplicationActivationPolicyRegular];

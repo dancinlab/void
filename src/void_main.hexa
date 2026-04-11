@@ -1042,8 +1042,11 @@ fn main() {
 
     let _ = scr_init()
 
-    // Init AppKit terminal window
-    let _ = hexa_appkit_init_term(ROWS, COLS, 14)
+    // Init AppKit terminal window (single instance)
+    let init_r = hexa_appkit_init_term(ROWS, COLS, 14)
+    if init_r < 0 {
+        return 1
+    }
 
     // Create first tab (spawns PTY inside C)
     let t0 = hexa_tab_new()
