@@ -348,29 +348,21 @@ long hexa_pty_spawn_login_shell(void) {
 static char g_pty_read_buf[PTY_READ_BUF_SIZE];
 static int g_pty_read_len = 0;
 
-// TUI startup shim — hexa VT has no alternate screen buffer, so full-
-// screen TUIs (claude, vim, htop, …) paint on top of whatever the
-// previous shell drew. We need a signal that distinguishes a TUI taking
-// over the terminal from a plain shell prompt redraw.
+// Historical TUI startup shim — watched for \x1b[?1004h (focus event
+// enable, emitted by every full-screen TUI) and injected \x1b[2J\x1b[1H
+// before it to fake "clear on entry". Worked for step 1 of alt-screen
+// but did nothing for step 2 (restore on exit), and corrupts TUIs that
+// emit ?1004h for focus events but don't want a clear.
 //
-// First attempt was \x1b[?2004h (bracketed paste enable), but zsh ALSO
-// emits that on every prompt — which caused the prompt + command output
-// to be wiped on every command execution ("bash> 안 뜨고 ls 순식간 사라짐").
-//
-// Reliable signal: \x1b[?1004h (focus event reporting). Full-screen TUIs
-// enable it so the app can know when the window gains/loses focus. Plain
-// interactive shells do not. Detecting ?1004h and injecting the clear
-// right before it gives us one clear per TUI entry and zero on shell
-// prompt redraws.
+// Superseded by real alt-screen support in the hexa VT parser. Left
+// compiled-out under NO_REAL_ALT_SCREEN for reference/regression escape.
+#ifdef NO_REAL_ALT_SCREEN
 #define TUI_CLEAR "\x1b[2J\x1b[1H"
 #define TUI_CLEAR_LEN 8
 
 static int alt_screen_rewrite(char *buf, int *plen, int cap) {
     int len = *plen;
     int subs = 0;
-    // Walk right-to-left so insertion doesn't invalidate later indices.
-    // At each ?1004h site, memmove the tail right by 8 and memcpy the
-    // clear sequence into the vacated slot.
     for (int i = len - 8; i >= 0; i--) {
         if (buf[i]     == '\x1b' &&
             buf[i + 1] == '['    &&
@@ -380,7 +372,7 @@ static int alt_screen_rewrite(char *buf, int *plen, int cap) {
             buf[i + 5] == '0'    &&
             buf[i + 6] == '4'    &&
             buf[i + 7] == 'h') {
-            if (len + TUI_CLEAR_LEN >= cap) break; // out of room, bail
+            if (len + TUI_CLEAR_LEN >= cap) break;
             memmove(&buf[i + TUI_CLEAR_LEN], &buf[i], len - i);
             memcpy(&buf[i], TUI_CLEAR, TUI_CLEAR_LEN);
             len += TUI_CLEAR_LEN;
@@ -390,6 +382,7 @@ static int alt_screen_rewrite(char *buf, int *plen, int cap) {
     *plen = len;
     return subs;
 }
+#endif
 
 long hexa_pty_poll_read(long fd, long timeout_ms) {
     struct pollfd pfd;
@@ -405,13 +398,17 @@ long hexa_pty_poll_read(long fd, long timeout_ms) {
     if (g_pty_read_len < 0) g_pty_read_len = 0;
     g_pty_read_buf[g_pty_read_len] = '\0';
 
+#ifdef NO_REAL_ALT_SCREEN
     int subs = alt_screen_rewrite(g_pty_read_buf, &g_pty_read_len,
                                   PTY_READ_BUF_SIZE - 1);
     g_pty_read_buf[g_pty_read_len] = '\0';
+#else
+    int subs = 0;
+#endif
 
     // Debug trace — when VOID_PTY_TRACE is set, append each read to a log.
-    // Used to diagnose sequences reaching hexa that shouldn't be, or to
-    // confirm alt-screen rewrite is firing. Off by default.
+    // Used to diagnose sequences reaching hexa that shouldn't be. Off
+    // by default.
     if (getenv("VOID_PTY_TRACE")) {
         FILE *tf = fopen("/tmp/void_pty_trace.log", "a");
         if (tf) {
@@ -429,6 +426,7 @@ long hexa_pty_poll_read(long fd, long timeout_ms) {
     return (long)g_pty_read_len;
 }
 
+#ifdef NO_REAL_ALT_SCREEN
 // Test entry: apply alt_screen_rewrite to caller-supplied bytes. `plen`
 // is in/out (length may grow due to injection). Returns substitution count.
 long hexa_pty_alt_screen_rewrite_test(long ptr, long plen, long cap) {
@@ -436,6 +434,7 @@ long hexa_pty_alt_screen_rewrite_test(long ptr, long plen, long cap) {
     int subs = alt_screen_rewrite((char *)(uintptr_t)ptr, &len, (int)cap);
     return ((long)subs << 32) | (long)len;
 }
+#endif
 
 long hexa_pty_read_byte(long idx) {
     if (idx < 0 || idx >= g_pty_read_len) return -1;

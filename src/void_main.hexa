@@ -71,6 +71,29 @@ let mut scr_cur_y = 0
 let mut scr_scroll_top = 0
 let mut scr_scroll_bot = 23
 
+// Alternate screen buffer (xterm ?1049/?1047/?47).
+// Strategy: "swap" model — the active buffer always lives in scr_*.
+// When a TUI enters the alt screen, we copy the normal buffer INTO the
+// alt_* arrays (so they hold the saved normal), then clear scr_*.
+// When the TUI exits, we copy alt_* back into scr_*. This keeps scr_put,
+// scroll, erase, and sync_to_bridge untouched — only the mode-set entry/
+// exit points need new logic.
+let mut alt_cells = []
+let mut alt_fg = []
+let mut alt_bg = []
+let mut alt_flags = []
+let mut alt_cur_x = 0
+let mut alt_cur_y = 0
+let mut alt_saved_cur_x = 0
+let mut alt_saved_cur_y = 0
+let mut alt_saved_fg = 7
+let mut alt_saved_bg = 0
+let mut alt_saved_bold = 0
+let mut alt_saved_underline = 0
+let mut alt_saved_inverse = 0
+let mut scr_is_alt = 0
+let mut alt_buf_len = 0
+
 fn scr_init() {
     scr_cells = []
     scr_fg = []
@@ -88,6 +111,115 @@ fn scr_init() {
     scr_cur_y = 0
     scr_scroll_top = 0
     scr_scroll_bot = ROWS - 1
+    // Reset alt buffer too — keep it sized to TOTAL in lockstep.
+    alt_cells = []
+    alt_fg = []
+    alt_bg = []
+    alt_flags = []
+    let mut ai = 0
+    while ai < TOTAL {
+        alt_cells = alt_cells.push(32)
+        alt_fg = alt_fg.push(7)
+        alt_bg = alt_bg.push(0)
+        alt_flags = alt_flags.push(0)
+        ai = ai + 1
+    }
+    alt_buf_len = TOTAL
+    alt_cur_x = 0
+    alt_cur_y = 0
+    alt_saved_cur_x = 0
+    alt_saved_cur_y = 0
+    alt_saved_fg = 7
+    alt_saved_bg = 0
+    alt_saved_bold = 0
+    alt_saved_underline = 0
+    alt_saved_inverse = 0
+    scr_is_alt = 0
+    return 0
+}
+
+// Save current scr_* into alt_* (used on enter-alt).
+fn alt_save_from_scr() {
+    let mut i = 0
+    while i < TOTAL {
+        alt_cells[i] = scr_cells[i]
+        alt_fg[i] = scr_fg[i]
+        alt_bg[i] = scr_bg[i]
+        alt_flags[i] = scr_flags[i]
+        i = i + 1
+    }
+    alt_cur_x = scr_cur_x
+    alt_cur_y = scr_cur_y
+    return 0
+}
+
+// Restore saved normal from alt_* into scr_* (used on leave-alt).
+fn alt_restore_to_scr() {
+    let mut i = 0
+    while i < TOTAL {
+        scr_cells[i] = alt_cells[i]
+        scr_fg[i] = alt_fg[i]
+        scr_bg[i] = alt_bg[i]
+        scr_flags[i] = alt_flags[i]
+        i = i + 1
+    }
+    scr_cur_x = alt_cur_x
+    scr_cur_y = alt_cur_y
+    return 0
+}
+
+// Clear scr_* (used after entering alt to give the TUI a blank canvas).
+fn scr_clear_all() {
+    let mut i = 0
+    while i < TOTAL {
+        scr_cells[i] = 32
+        scr_fg[i] = 7
+        scr_bg[i] = 0
+        scr_flags[i] = 0
+        i = i + 1
+    }
+    scr_cur_x = 0
+    scr_cur_y = 0
+    return 0
+}
+
+// ?1049h — save cursor+SGR, swap to alt, clear alt, cursor→(0,0).
+fn enter_alt_screen(do_save, do_clear) {
+    if scr_is_alt == 1 { return 0 }
+    if do_save == 1 {
+        alt_saved_cur_x = scr_cur_x
+        alt_saved_cur_y = scr_cur_y
+        alt_saved_fg = cur_fg
+        alt_saved_bg = cur_bg
+        alt_saved_bold = cur_bold
+        alt_saved_underline = cur_underline
+        alt_saved_inverse = cur_inverse
+    }
+    let _ = alt_save_from_scr()
+    if do_clear == 1 {
+        let _ = scr_clear_all()
+    } else {
+        scr_cur_x = 0
+        scr_cur_y = 0
+    }
+    scr_is_alt = 1
+    return 0
+}
+
+// ?1049l — swap back to normal, restore cursor+SGR.
+fn leave_alt_screen(do_restore) {
+    if scr_is_alt == 0 { return 0 }
+    let _ = alt_restore_to_scr()
+    if do_restore == 1 {
+        scr_cur_x = alt_saved_cur_x
+        scr_cur_y = alt_saved_cur_y
+        cur_fg = alt_saved_fg
+        cur_bg = alt_saved_bg
+        cur_bold = alt_saved_bold
+        cur_underline = alt_saved_underline
+        cur_inverse = alt_saved_inverse
+    }
+    scr_is_alt = 0
     return 0
 }
 
@@ -626,11 +758,55 @@ fn csi_dispatch(b) {
         scr_cur_x = 0
         scr_cur_y = 0
     } else if b == 104 {
-        // h — set mode (simplified)
-        let _ = 0
+        // h — set mode
+        if vt_private == 1 {
+            // ?Ph — private mode set. Handle alt-screen variants here.
+            let pn = vt_csi_get(0, 0)
+            if pn == 1049 {
+                // ?1049h — save cursor + switch to alt + clear
+                let _ = enter_alt_screen(1, 1)
+            } else if pn == 1047 {
+                // ?1047h — switch to alt + clear (xterm clears on entry)
+                let _ = enter_alt_screen(0, 1)
+            } else if pn == 47 {
+                // ?47h — oldest variant, switch to alt (no save, no clear)
+                let _ = enter_alt_screen(0, 0)
+            } else if pn == 1048 {
+                // ?1048h — save cursor only
+                alt_saved_cur_x = scr_cur_x
+                alt_saved_cur_y = scr_cur_y
+                alt_saved_fg = cur_fg
+                alt_saved_bg = cur_bg
+                alt_saved_bold = cur_bold
+                alt_saved_underline = cur_underline
+                alt_saved_inverse = cur_inverse
+            }
+        }
     } else if b == 108 {
-        // l — reset mode (simplified)
-        let _ = 0
+        // l — reset mode
+        if vt_private == 1 {
+            // ?Pl — private mode reset. Handle alt-screen variants.
+            let pn = vt_csi_get(0, 0)
+            if pn == 1049 {
+                // ?1049l — restore normal + restore cursor
+                let _ = leave_alt_screen(1)
+            } else if pn == 1047 {
+                // ?1047l — restore normal (no cursor restore)
+                let _ = leave_alt_screen(0)
+            } else if pn == 47 {
+                // ?47l — restore normal (no cursor restore)
+                let _ = leave_alt_screen(0)
+            } else if pn == 1048 {
+                // ?1048l — restore cursor only
+                scr_cur_x = alt_saved_cur_x
+                scr_cur_y = alt_saved_cur_y
+                cur_fg = alt_saved_fg
+                cur_bg = alt_saved_bg
+                cur_bold = alt_saved_bold
+                cur_underline = alt_saved_underline
+                cur_inverse = alt_saved_inverse
+            }
+        }
     } else if b == 115 {
         // s — save cursor
         saved_cur_x = scr_cur_x
@@ -1368,6 +1544,67 @@ fn self_test() {
         } else { println("[void-test] T17 FAIL  cell[1]=", scr_cells[1], " expected 68(D)"); fail = fail + 1 }
     } else { println("[void-test] T17 FAIL  cell[0]=", scr_cells[0], " expected 65(A)"); fail = fail + 1 }
 
+    // ── Test 18: ?1049 alt screen save/restore ──
+    // Write "NORM" on normal screen, enter alt (?1049h), clear+write "ALT",
+    // leave alt (?1049l), verify "NORM" is restored and "ALT" is gone.
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Write 'N' 'O' 'R' 'M' at (0,0)..(0,3)
+    let _ = scr_feed_byte(78)
+    let _ = scr_feed_byte(79)
+    let _ = scr_feed_byte(82)
+    let _ = scr_feed_byte(77)
+    // Move cursor to (0,10) via CUP ESC[1;11H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(72)
+    // ?1049h → enter alt screen: ESC [ ? 1 0 4 9 h
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(104)
+    // Alt should be blank and cursor at (0,0)
+    let t18_alt_ok = if scr_cells[0] == 32 { 1 } else { 0 }
+    // Write 'A','L','T' on alt at (0,0)..(0,2)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(76)
+    let _ = scr_feed_byte(84)
+    let t18_alt_write_ok = if scr_cells[0] == 65 { 1 } else { 0 }
+    // ?1049l → leave alt: ESC [ ? 1 0 4 9 l
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(108)
+    // Normal should be restored: cell[0..3] = N,O,R,M and cursor at (0,10)
+    if t18_alt_ok == 1 {
+        if t18_alt_write_ok == 1 {
+            if scr_cells[0] == 78 {
+                if scr_cells[3] == 77 {
+                    if scr_cur_x == 10 {
+                        if scr_cur_y == 0 {
+                            if scr_is_alt == 0 {
+                                println("[void-test] T18 PASS ?1049 alt screen save/restore")
+                                pass = pass + 1
+                            } else { println("[void-test] T18 FAIL  scr_is_alt=", scr_is_alt); fail = fail + 1 }
+                        } else { println("[void-test] T18 FAIL  cur_y=", scr_cur_y, " expected 0"); fail = fail + 1 }
+                    } else { println("[void-test] T18 FAIL  cur_x=", scr_cur_x, " expected 10"); fail = fail + 1 }
+                } else { println("[void-test] T18 FAIL  cell[3]=", scr_cells[3], " expected 77(M)"); fail = fail + 1 }
+            } else { println("[void-test] T18 FAIL  cell[0]=", scr_cells[0], " expected 78(N)"); fail = fail + 1 }
+        } else { println("[void-test] T18 FAIL  alt write cell[0]=", scr_cells[0]); fail = fail + 1 }
+    } else { println("[void-test] T18 FAIL  alt clear cell[0]=", scr_cells[0]); fail = fail + 1 }
+
     // ── Summary ──
     println("")
     println("[void-test] ", pass, "/", pass + fail, " passed")
@@ -1418,6 +1655,9 @@ fn vt_reset_state() {
     scr_scroll_bot = ROWS - 1
     utf8_cp = 0
     utf8_remain = 0
+    scr_is_alt = 0
+    alt_saved_cur_x = 0
+    alt_saved_cur_y = 0
     return 0
 }
 
