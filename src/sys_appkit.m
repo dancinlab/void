@@ -187,27 +187,57 @@ long hexa_appkit_set_title(void) {
 #define TERM_MAX_ROWS 200
 #define TERM_MAX_COLS 400
 #define MAX_TABS 20
-#define SCROLLBACK_LINES 1000
+#define SCROLLBACK_LINES 1000 // legacy cap (unused since section-based)
 #define TAB_BAR_W 140
 #define TAB_ROW_H 28
+
+// ── Section-based scrollback ──
+// Old: flat 1000-line ring (6.4 MB allocated up front on first push).
+// New: ring of SB_MAX_SECTIONS sections, each SB_SECTION_LINES lines.
+//      Sections are lazy-allocated, and the oldest is freed when the ring
+//      wraps — memory usage stays proportional to actual scrollback depth.
+//      Totals: 32 × 64 = 2048 lines max, ~410 KB per section.
+#define SB_SECTION_LINES 64
+#define SB_MAX_SECTIONS  32
+#define SB_TOTAL_LINES   (SB_SECTION_LINES * SB_MAX_SECTIONS)
 
 typedef struct {
     unichar ch;
     int fg, bg, flags;
 } TermCell;
 
-// ── Tab state ──
 typedef struct {
+    TermCell *cells; // NULL until first write; SB_SECTION_LINES * TERM_MAX_COLS
+    int lines;       // 0..SB_SECTION_LINES filled
+} SbSection;
+
+// Forward decl: needed by drawRect, defined after VoidTab.
+struct VoidTab_;
+static TermCell *sb_line_ptr(struct VoidTab_ *tab, int logical_line);
+// Forward decl for alarm helpers used in HexaTermView (defined much later).
+static void clear_active_alarm(void);
+static void update_dock_badge(void);
+static void poll_background_tabs(void);
+
+// ── Tab state ──
+typedef struct VoidTab_ {
     int used;
     int pty_fd;
     pid_t pid;
     TermCell grid[TERM_MAX_ROWS][TERM_MAX_COLS];
     int cur_row, cur_col;
     char title[128];
-    // Scrollback ring buffer (heap-allocated on first push)
-    TermCell *scrollback;   // SCROLLBACK_LINES * TERM_MAX_COLS cells
-    int sb_head;            // next write position in ring
-    int sb_count;           // lines stored (max SCROLLBACK_LINES)
+    // Section-based scrollback (see comment above).
+    SbSection sb[SB_MAX_SECTIONS];
+    int sb_head;        // oldest live section index in ring
+    int sb_num;         // count of live sections (0..SB_MAX_SECTIONS)
+    int sb_total;       // total lines across all live sections
+    // OSC 7 cwd (file://host/path) — updated by shell for autocomplete
+    char cwd[1024];
+    // Background activity indicator: set when the tab (while NOT active)
+    // received any PTY output. Cleared when the tab is activated. Drives
+    // the bell glyph in the tab bar and the Dock icon badge count.
+    int has_alarm;
 } VoidTab;
 
 static VoidTab g_tabs[MAX_TABS];
@@ -230,6 +260,18 @@ static NSColor *g_term_color_cache[16] = {0}; // retained ANSI palette
 static int g_term_quit = 0;
 static int g_scroll_offset = 0;    // 0 = live view, >0 = lines scrolled back
 static int g_sb_push_col = 0;      // temp column index during row push
+
+// ── Damage tracking (input-lag fix) ──
+// set_cell/set_cursor mark dirty rows; flush translates them into a minimal
+// setNeedsDisplayInRect call so drawRect's row loop culls untouched rows.
+// Key press → PTY → parse → set_cell only dirties the affected rows, not
+// the whole view, which caps redraw work at O(chars_changed) instead of
+// O(ROWS × COLS) and prevents Core Text throughput from throttling input.
+static int g_dirty_min = -1;
+static int g_dirty_max = -1;
+static int g_full_redraw = 1;      // force full redraw on next flush (tab switch, resize, init)
+static int g_prev_cur_row = 0;
+static int g_prev_cur_col = 0;
 
 // Key ring buffer
 #define TERM_KEY_SIZE 4096
@@ -336,6 +378,21 @@ static NSColor *term_color(int idx) {
                     : [NSColor colorWithRed:0.45 green:0.45 blue:0.45 alpha:1.0]
         };
         [title drawAtPoint:NSMakePoint(10, ty + 6) withAttributes:attrs];
+
+        // Activity bell: matches Terminal.app's inactive-tab indicator.
+        // Shown when a background tab received output since the user last
+        // looked at it. Cleared on activation via clear_active_alarm().
+        if (g_tabs[t].has_alarm && t != g_active_tab) {
+            NSDictionary *bellAttrs = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:11],
+                NSForegroundColorAttributeName:
+                    [NSColor colorWithRed:1.0 green:0.55 blue:0.15 alpha:1.0]
+            };
+            // U+1F514 is too heavy; U+2022 bullet or "●" works cleaner.
+            // Use a simple filled dot to stay legible at 11pt.
+            [@"\u25CF" drawAtPoint:NSMakePoint(TAB_BAR_W - 18, ty + 6)
+                    withAttributes:bellAttrs];
+        }
     }
 
     // ── Terminal grid (right of tab bar) ──
@@ -355,14 +412,13 @@ static NSColor *term_color(int idx) {
         if (y + g_term_ch < dirtyRect.origin.y ||
             y > dirtyRect.origin.y + dirtyRect.size.height) continue;
 
-        // Determine cell source: scrollback ring or live grid
+        // Determine cell source: scrollback section or live grid
         TermCell *cell_row = NULL;
         if (g_scroll_offset > 0 && atab) {
-            int sb_n = atab->sb_count;
+            int sb_n = atab->sb_total;
             int vline = sb_n - g_scroll_offset + r;
-            if (vline >= 0 && vline < sb_n && atab->scrollback) {
-                int ring = (atab->sb_head - sb_n + vline + SCROLLBACK_LINES) % SCROLLBACK_LINES;
-                cell_row = &atab->scrollback[ring * TERM_MAX_COLS];
+            if (vline >= 0 && vline < sb_n) {
+                cell_row = sb_line_ptr(atab, vline);
             } else if (vline >= sb_n) {
                 int sr = vline - sb_n;
                 if (sr >= 0 && sr < TERM_MAX_ROWS) cell_row = g_term_grid[sr];
@@ -410,7 +466,7 @@ static NSColor *term_color(int idx) {
     // Scrollback indicator
     if (g_scroll_offset > 0) {
         NSString *ind = [NSString stringWithFormat:@"[%d/%d]",
-                         g_scroll_offset, atab ? atab->sb_count : 0];
+                         g_scroll_offset, atab ? atab->sb_total : 0];
         NSDictionary *ia = @{
             NSFontAttributeName: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular],
             NSForegroundColorAttributeName:
@@ -441,6 +497,7 @@ static NSColor *term_color(int idx) {
             // Signal hexa to reload screen from C
             g_tab_cmd = 3; // 3 = switched (hexa reloads)
             g_scroll_offset = 0;
+            clear_active_alarm();
             [self setNeedsDisplay:YES];
         }
     }
@@ -457,9 +514,11 @@ static NSColor *term_color(int idx) {
     if (ch == 't') { g_tab_cmd = 1; return YES; } // Cmd+T new tab
     if (ch == 'w') { g_tab_cmd = 2; return YES; } // Cmd+W close tab
     if (ch == 'q') { g_term_quit = 1; return YES; } // Cmd+Q quit
-    // Cmd+1~9: switch to tab N-1
-    if (ch >= '1' && ch <= '9') {
-        int target = ch - '1';
+    // Cmd+1~9 → tab 1..9, Cmd+0 → tab 10
+    int target = -1;
+    if (ch >= '1' && ch <= '9') target = ch - '1';
+    else if (ch == '0')          target = 9;
+    if (target >= 0) {
         if (target < g_num_tabs && target != g_active_tab) {
             if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
                 memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
@@ -472,6 +531,7 @@ static NSColor *term_color(int idx) {
             g_term_cur_col = g_tabs[target].cur_col;
             g_tab_cmd = 3; // signal hexa to reload
             g_scroll_offset = 0;
+            clear_active_alarm();
             [self setNeedsDisplay:YES];
         }
         return YES;
@@ -494,7 +554,7 @@ static NSColor *term_color(int idx) {
         if (ch == NSPageUpFunctionKey) {
             VoidTab *tab = (g_active_tab >= 0 && g_active_tab < g_num_tabs) ? &g_tabs[g_active_tab] : NULL;
             g_scroll_offset += g_term_rows;
-            int max_sb = (tab && tab->scrollback) ? tab->sb_count : 0;
+            int max_sb = tab ? tab->sb_total : 0;
             if (g_scroll_offset > max_sb) g_scroll_offset = max_sb;
             [self setNeedsDisplay:YES];
             return;
@@ -568,7 +628,7 @@ static NSColor *term_color(int idx) {
         else if (dy < 0) g_scroll_offset -= 3;
     }
     if (g_scroll_offset < 0) g_scroll_offset = 0;
-    int max_sb = (tab->scrollback) ? tab->sb_count : 0;
+    int max_sb = tab->sb_total;
     if (g_scroll_offset > max_sb) g_scroll_offset = max_sb;
     [self setNeedsDisplay:YES];
 }
@@ -586,10 +646,186 @@ static NSColor *term_color(int idx) {
 
 static HexaTermDelegate *g_term_delegate = nil;
 
+// ── Profile-driven tab shortcuts (Cmd+Ctrl+1~9) ──
+//
+// Profiles are loaded from ~/.void/profiles.json at startup. Each profile
+// has: key ("1"~"9"), title, path, cmd. Cmd+Ctrl+N creates a new tab
+// that cd's into `path` and runs `cmd`.
+//
+// Title dedup: if a tab with that title already exists, the new tab is
+// titled "<title> (2)", "<title> (3)", etc.
+//
+// Resource isolation (docker-lite): each spawned child applies
+// setrlimit(RLIMIT_NOFILE / RLIMIT_CPU / RLIMIT_AS) and setpriority(nice)
+// so no single tab can monopolize the host's resources.
+
+#include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <pwd.h>
+
+#define MAX_PROFILES 16
+typedef struct {
+    char key[4];     // "0".."9"
+    char title[64];
+    char path[512];
+    char cmd[512];
+    // Per-profile resource limits (0 = use defaults)
+    long rl_mem_mb;  // RLIMIT_AS
+    long rl_cpu_sec; // RLIMIT_CPU
+    long rl_nofile;  // RLIMIT_NOFILE
+    int  rl_nice;    // setpriority increment
+} VoidProfile;
+
+static VoidProfile g_profiles[MAX_PROFILES];
+static int g_num_profiles = 0;
+
+// Default resource caps applied even when profile is silent.
+// These are per-child, enforced by the kernel, so a runaway shell
+// can't wedge the host.
+#define DEFAULT_RLIMIT_NOFILE 4096
+#define DEFAULT_RLIMIT_AS_MB  4096   // 4 GB virtual address space
+#define DEFAULT_RLIMIT_CPU    0      // 0 = don't cap cpu (interactive)
+#define DEFAULT_NICE          0      // 0 = normal priority
+
+static void expand_tilde(const char *in, char *out, size_t outsz) {
+    if (in[0] == '~' && (in[1] == '/' || in[1] == 0)) {
+        const char *home = getenv("HOME");
+        if (!home) {
+            struct passwd *pw = getpwuid(getuid());
+            home = pw ? pw->pw_dir : "/";
+        }
+        snprintf(out, outsz, "%s%s", home, in + 1);
+    } else {
+        snprintf(out, outsz, "%s", in);
+    }
+}
+
+// Load profiles from ~/.void/profiles.json. Silently no-ops if the file
+// doesn't exist. Uses NSJSONSerialization — we're already in ObjC so it's
+// free. If the file is missing, also write out a default template that
+// matches the user's request so they have something to edit.
+static void load_profiles(void) {
+    @autoreleasepool {
+        char cfg_dir[512], cfg_path[600];
+        expand_tilde("~/.void", cfg_dir, sizeof(cfg_dir));
+        snprintf(cfg_path, sizeof(cfg_path), "%s/profiles.json", cfg_dir);
+
+        NSString *pathNS = [NSString stringWithUTF8String:cfg_path];
+        NSData *data = [NSData dataWithContentsOfFile:pathNS];
+
+        if (!data) {
+            // Seed a default template so the user has something to edit.
+            mkdir(cfg_dir, 0755);
+            NSString *tpl = @"{\n"
+                "  \"profiles\": [\n"
+                "    { \"key\": \"1\", \"title\": \"nexus\",         \"path\": \"~/Dev/nexus\",            \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"2\", \"title\": \"anima\",         \"path\": \"~/Dev/anima\",            \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"3\", \"title\": \"airgenome\",     \"path\": \"~/Dev/airgenome\",        \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"4\", \"title\": \"n6-arch\",       \"path\": \"~/Dev/n6-architecture\",  \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"5\", \"title\": \"prism\",         \"path\": \"~/mango/hexa-lang\",      \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"6\", \"title\": \"prism-manager\", \"path\": \"~/mango/prism-manager\",  \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"7\", \"title\": \"void\",          \"path\": \"~/Dev/void\",             \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"8\", \"title\": \"airgenome\",     \"path\": \"~/Dev/airgenome\",        \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"9\", \"title\": \"hexa-lang\",     \"path\": \"~/Dev/hexa-lang\",        \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"0\", \"title\": \"home\",          \"path\": \"~\",                      \"cmd\": \"\" }\n"
+                "  ]\n"
+                "}\n";
+            [tpl writeToFile:pathNS atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            data = [NSData dataWithContentsOfFile:pathNS];
+            if (!data) return;
+        }
+
+        NSError *err = nil;
+        id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:&err];
+        if (err || ![root isKindOfClass:[NSDictionary class]]) return;
+        NSArray *arr = root[@"profiles"];
+        if (![arr isKindOfClass:[NSArray class]]) return;
+
+        g_num_profiles = 0;
+        for (NSDictionary *p in arr) {
+            if (g_num_profiles >= MAX_PROFILES) break;
+            if (![p isKindOfClass:[NSDictionary class]]) continue;
+            NSString *k = p[@"key"];
+            NSString *t = p[@"title"];
+            NSString *pa = p[@"path"];
+            NSString *c = p[@"cmd"];
+            if (![k isKindOfClass:[NSString class]] ||
+                ![t isKindOfClass:[NSString class]] ||
+                ![pa isKindOfClass:[NSString class]]) continue;
+
+            VoidProfile *vp = &g_profiles[g_num_profiles];
+            snprintf(vp->key,   sizeof(vp->key),   "%s", [k UTF8String]);
+            snprintf(vp->title, sizeof(vp->title), "%s", [t UTF8String]);
+            char expanded[512];
+            expand_tilde([pa UTF8String], expanded, sizeof(expanded));
+            snprintf(vp->path,  sizeof(vp->path),  "%s", expanded);
+            snprintf(vp->cmd,   sizeof(vp->cmd),   "%s", c ? [c UTF8String] : "");
+
+            NSNumber *mem = p[@"rl_mem_mb"];
+            NSNumber *cpu = p[@"rl_cpu_sec"];
+            NSNumber *nof = p[@"rl_nofile"];
+            NSNumber *nic = p[@"rl_nice"];
+            vp->rl_mem_mb  = [mem isKindOfClass:[NSNumber class]] ? [mem longValue] : 0;
+            vp->rl_cpu_sec = [cpu isKindOfClass:[NSNumber class]] ? [cpu longValue] : 0;
+            vp->rl_nofile  = [nof isKindOfClass:[NSNumber class]] ? [nof longValue] : 0;
+            vp->rl_nice    = [nic isKindOfClass:[NSNumber class]] ? [nic intValue]  : 0;
+
+            g_num_profiles++;
+        }
+    }
+}
+
+// Find profile by single-digit key ("0".."9"). NULL if no match.
+static VoidProfile *profile_by_key(char ch) {
+    char key[2] = { ch, 0 };
+    for (int i = 0; i < g_num_profiles; i++) {
+        if (strcmp(g_profiles[i].key, key) == 0) return &g_profiles[i];
+    }
+    return NULL;
+}
+
+// Apply docker-lite resource limits to the current (child) process.
+static void apply_rlimits(VoidProfile *vp) {
+    struct rlimit rl;
+
+    // RLIMIT_NOFILE — bound descriptor count
+    long nofile = (vp && vp->rl_nofile > 0) ? vp->rl_nofile : DEFAULT_RLIMIT_NOFILE;
+    rl.rlim_cur = (rlim_t)nofile;
+    rl.rlim_max = (rlim_t)nofile;
+    setrlimit(RLIMIT_NOFILE, &rl);
+
+    // RLIMIT_AS — virtual address space (cap memory)
+    long mem_mb = (vp && vp->rl_mem_mb > 0) ? vp->rl_mem_mb : DEFAULT_RLIMIT_AS_MB;
+    if (mem_mb > 0) {
+        rl.rlim_cur = (rlim_t)mem_mb * 1024L * 1024L;
+        rl.rlim_max = rl.rlim_cur;
+        setrlimit(RLIMIT_AS, &rl);
+    }
+
+    // RLIMIT_CPU — soft CPU cap in seconds (0 = unlimited)
+    long cpu_sec = (vp && vp->rl_cpu_sec > 0) ? vp->rl_cpu_sec : DEFAULT_RLIMIT_CPU;
+    if (cpu_sec > 0) {
+        rl.rlim_cur = (rlim_t)cpu_sec;
+        rl.rlim_max = (rlim_t)cpu_sec + 5;
+        setrlimit(RLIMIT_CPU, &rl);
+    }
+
+    // Nice level — lower CPU priority if requested
+    int nice_lvl = (vp && vp->rl_nice > 0) ? vp->rl_nice : DEFAULT_NICE;
+    if (nice_lvl > 0) setpriority(PRIO_PROCESS, 0, nice_lvl);
+
+    // Process group — decouple from parent so a crash doesn't kill void.
+    setsid();
+}
+
 // ── Tab management (C-internal) ──
 
-static int tab_spawn_pty(void) {
-    // Pass actual window size to forkpty so PTY starts correct
+// Spawn a PTY with an optional profile. If vp is NULL, uses the user's
+// $SHELL in login mode. If vp is non-NULL, the child cd's into vp->path
+// and exec's `$SHELL -c "cd <path> && <cmd>; exec $SHELL"` so the user
+// gets a live shell after the profile command finishes.
+static int tab_spawn_pty_profile(VoidProfile *vp) {
     struct winsize ws;
     ws.ws_row = (unsigned short)g_term_rows;
     ws.ws_col = (unsigned short)g_term_cols;
@@ -602,16 +838,37 @@ static int tab_spawn_pty(void) {
     if (pid == 0) {
         setenv("TERM", "xterm-256color", 1);
         setenv("LANG", "en_US.UTF-8", 1);
+        apply_rlimits(vp);
+
         char *shell = getenv("SHELL");
         if (!shell) shell = "/bin/sh";
-        execl(shell, shell, "-l", (char*)NULL);
+
+        if (vp) {
+            // Build: cd <path> && <cmd>; exec <shell>
+            // The trailing `exec $SHELL` keeps the tab alive after the
+            // profile command terminates (so the user can keep working).
+            if (chdir(vp->path) != 0) {
+                // path missing — fall through to shell anyway
+            }
+            if (vp->cmd[0]) {
+                char script[1200];
+                snprintf(script, sizeof(script),
+                         "%s; exec %s -l", vp->cmd, shell);
+                execl(shell, shell, "-c", script, (char*)NULL);
+            } else {
+                execl(shell, shell, "-l", (char*)NULL);
+            }
+        } else {
+            execl(shell, shell, "-l", (char*)NULL);
+        }
         _exit(127);
     }
-    // Non-blocking
     int fl = fcntl(master, F_GETFL, 0);
     fcntl(master, F_SETFL, fl | O_NONBLOCK);
     return master;
 }
+
+static int tab_spawn_pty(void) { return tab_spawn_pty_profile(NULL); }
 
 static void tab_clear_grid(TermCell grid[TERM_MAX_ROWS][TERM_MAX_COLS]) {
     for (int r = 0; r < TERM_MAX_ROWS; r++)
@@ -653,6 +910,8 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         fprintf(stderr, "[void] already running\n");
         return -1;
     }
+    // Load profile config (~/.void/profiles.json) — creates default if missing
+    load_profiles();
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
         [app setActivationPolicy:NSApplicationActivationPolicyRegular];
@@ -755,8 +1014,13 @@ long hexa_tab_new(void) {
         g_tabs[g_active_tab].cur_col = g_term_cur_col;
     }
 
+    // Pending profile? Set by Cmd+Ctrl+N intercept.
+    extern VoidProfile *g_pending_profile;
+    VoidProfile *vp = g_pending_profile;
+    g_pending_profile = NULL;
+
     int idx = g_num_tabs;
-    int fd = tab_spawn_pty();
+    int fd = tab_spawn_pty_profile(vp);
     if (fd < 0) return -1;
 
     g_tabs[idx].used = 1;
@@ -770,13 +1034,40 @@ long hexa_tab_new(void) {
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
     ioctl(fd, TIOCSWINSZ, &ws);
-    snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "");
+
+    // Title: profile title + (N) dedup, or empty (shell will OSC 0 it)
+    if (vp && vp->title[0]) {
+        // Count existing tabs with this base title to pick a suffix.
+        int dup = 0;
+        for (int i = 0; i < g_num_tabs; i++) {
+            if (!g_tabs[i].used) continue;
+            const char *t = g_tabs[i].title;
+            size_t bl = strlen(vp->title);
+            if (strncmp(t, vp->title, bl) == 0 &&
+                (t[bl] == 0 || t[bl] == ' ')) dup++;
+        }
+        if (dup == 0)
+            snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "%s", vp->title);
+        else
+            snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title),
+                     "%s (%d)", vp->title, dup + 1);
+        // Remember cwd so OSC 7 path-completion has a starting point
+        snprintf(g_tabs[idx].cwd, sizeof(g_tabs[idx].cwd), "%s", vp->path);
+    } else {
+        snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "");
+        g_tabs[idx].cwd[0] = 0;
+    }
     tab_clear_grid(g_tabs[idx].grid);
     g_tabs[idx].cur_row = 0;
     g_tabs[idx].cur_col = 0;
-    g_tabs[idx].scrollback = NULL;
+    for (int s = 0; s < SB_MAX_SECTIONS; s++) {
+        g_tabs[idx].sb[s].cells = NULL;
+        g_tabs[idx].sb[s].lines = 0;
+    }
     g_tabs[idx].sb_head = 0;
-    g_tabs[idx].sb_count = 0;
+    g_tabs[idx].sb_num = 0;
+    g_tabs[idx].sb_total = 0;
+    g_tabs[idx].has_alarm = 0;
 
     g_num_tabs++;
     g_active_tab = idx;
@@ -785,9 +1076,15 @@ long hexa_tab_new(void) {
     tab_clear_grid(g_term_grid);
     g_term_cur_row = 0;
     g_term_cur_col = 0;
+    g_full_redraw = 1;
 
     return (long)idx;
 }
+
+// Global used to hand a profile from the Cmd+Ctrl+N intercept to
+// hexa_tab_new (called on the hexa main-loop tick). Only valid
+// for the single new-tab request immediately following the keypress.
+VoidProfile *g_pending_profile = NULL;
 
 // Close a tab. Kills PTY. Returns new active tab index (or -1 if last tab closed).
 long hexa_tab_close(long idx) {
@@ -805,24 +1102,35 @@ long hexa_tab_close(long idx) {
     }
     g_tabs[idx].used = 0;
 
-    // Free scrollback before shift
-    if (g_tabs[idx].scrollback) {
-        free(g_tabs[idx].scrollback);
-        g_tabs[idx].scrollback = NULL;
+    // Free scrollback sections before shift
+    for (int s = 0; s < SB_MAX_SECTIONS; s++) {
+        if (g_tabs[idx].sb[s].cells) {
+            free(g_tabs[idx].sb[s].cells);
+            g_tabs[idx].sb[s].cells = NULL;
+            g_tabs[idx].sb[s].lines = 0;
+        }
     }
+    g_tabs[idx].sb_head = 0;
+    g_tabs[idx].sb_num = 0;
+    g_tabs[idx].sb_total = 0;
 
     // Shift tabs down
     for (int i = (int)idx; i < g_num_tabs - 1; i++) {
         g_tabs[i] = g_tabs[i + 1];
     }
     g_num_tabs--;
-    // NULL dead slot to prevent double-free (shift copies pointer)
+    // NULL dead slot to prevent double-free (shift copied pointers).
     if (g_num_tabs < MAX_TABS) {
-        g_tabs[g_num_tabs].scrollback = NULL;
+        for (int s = 0; s < SB_MAX_SECTIONS; s++) {
+            g_tabs[g_num_tabs].sb[s].cells = NULL;
+            g_tabs[g_num_tabs].sb[s].lines = 0;
+        }
         g_tabs[g_num_tabs].sb_head = 0;
-        g_tabs[g_num_tabs].sb_count = 0;
+        g_tabs[g_num_tabs].sb_num = 0;
+        g_tabs[g_num_tabs].sb_total = 0;
     }
     g_scroll_offset = 0;
+    g_full_redraw = 1;
 
     if (g_num_tabs == 0) {
         g_active_tab = -1;
@@ -896,21 +1204,67 @@ void hexa_tab_set_title(long tab_idx, long byte_val) {
 
 void hexa_appkit_term_set_cell(long row, long col, long ch, long fg, long bg, long flags) {
     if (row < 0 || row >= TERM_MAX_ROWS || col < 0 || col >= TERM_MAX_COLS) return;
-    g_term_grid[row][col].ch = (unichar)ch;
-    g_term_grid[row][col].fg = (int)fg;
-    g_term_grid[row][col].bg = (int)bg;
-    g_term_grid[row][col].flags = (int)flags;
+    TermCell *cp = &g_term_grid[row][col];
+    // Equal-cell early exit: hexa's sync_to_bridge writes the whole grid every
+    // frame; this cuts ~90% of writes for typing workloads.
+    if (cp->ch == (unichar)ch && cp->fg == (int)fg &&
+        cp->bg == (int)bg && cp->flags == (int)flags) return;
+    cp->ch = (unichar)ch;
+    cp->fg = (int)fg;
+    cp->bg = (int)bg;
+    cp->flags = (int)flags;
+    // Mark dirty range
+    if (g_dirty_min < 0 || (int)row < g_dirty_min) g_dirty_min = (int)row;
+    if ((int)row > g_dirty_max) g_dirty_max = (int)row;
 }
 
 void hexa_appkit_term_set_cursor(long row, long col, long vis) {
+    // Cursor move dirties both the old and new row
+    if (g_prev_cur_row != (int)row || g_prev_cur_col != (int)col ||
+        g_term_cur_row != (int)row || g_term_cur_col != (int)col) {
+        int r0 = g_term_cur_row, r1 = (int)row;
+        if (r0 > r1) { int t = r0; r0 = r1; r1 = t; }
+        if (g_dirty_min < 0 || r0 < g_dirty_min) g_dirty_min = r0;
+        if (r1 > g_dirty_max) g_dirty_max = r1;
+    }
+    g_prev_cur_row = g_term_cur_row;
+    g_prev_cur_col = g_term_cur_col;
     g_term_cur_row = (int)row;
     g_term_cur_col = (int)col;
     g_term_cur_vis = (int)vis;
 }
 
+// Request a full redraw on next flush. Called from tab switch, resize, init.
+void hexa_appkit_term_invalidate_all(void) {
+    g_full_redraw = 1;
+}
+
 void hexa_appkit_term_flush(void) {
     @autoreleasepool {
-        [[g_window contentView] setNeedsDisplay:YES];
+        NSView *v = [g_window contentView];
+        if (!v) return;
+        if (g_full_redraw || g_scroll_offset > 0) {
+            // Tab switch, resize, or scrollback view — redraw everything.
+            [v setNeedsDisplay:YES];
+            g_full_redraw = 0;
+            g_dirty_min = -1;
+            g_dirty_max = -1;
+            return;
+        }
+        if (g_dirty_min < 0) return; // nothing dirty
+        // Convert dirty row range → minimal setNeedsDisplayInRect.
+        // Expand by 1 row on each side to catch partial glyph overhang.
+        int r0 = g_dirty_min - 1; if (r0 < 0) r0 = 0;
+        int r1 = g_dirty_max + 1; if (r1 >= g_term_rows) r1 = g_term_rows - 1;
+        NSRect rect = NSMakeRect(TAB_BAR_W,
+                                  r0 * g_term_ch,
+                                  [v bounds].size.width - TAB_BAR_W,
+                                  (r1 - r0 + 1) * g_term_ch);
+        [v setNeedsDisplayInRect:rect];
+        // Tab bar also needs repaint if title changed — cheap, do always
+        [v setNeedsDisplayInRect:NSMakeRect(0, 0, TAB_BAR_W, [v bounds].size.height)];
+        g_dirty_min = -1;
+        g_dirty_max = -1;
     }
 }
 
@@ -927,19 +1281,34 @@ long hexa_appkit_term_poll(void) {
             if (!ev) break;
 
             // Intercept Cmd+key BEFORE sendEvent: — prevents macOS
-            // menu/system from stealing Cmd+T/W/Q/1~9.
+            // menu/system from stealing Cmd+T/W/Q/1~9/Cmd+Ctrl+1~9.
             if ([ev type] == NSEventTypeKeyDown) {
                 NSEventModifierFlags mods = [ev modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask;
                 if (mods & NSEventModifierFlagCommand) {
                     NSString *raw = [ev charactersIgnoringModifiers];
                     if (raw.length > 0) {
                         unichar ch = [raw characterAtIndex:0];
+                        int with_ctrl = (mods & NSEventModifierFlagControl) != 0;
+
+                        // Cmd+Ctrl+0~9 → profile-based new tab (10 slots)
+                        if (with_ctrl && ch >= '0' && ch <= '9') {
+                            VoidProfile *vp = profile_by_key((char)ch);
+                            if (vp) {
+                                g_pending_profile = vp;
+                                g_tab_cmd = 1; // new tab signal to hexa
+                            }
+                            continue;
+                        }
+
                         if (ch >= 'A' && ch <= 'Z') ch += 32; // tolower
                         if (ch == 't') { g_tab_cmd = 1; continue; }
                         if (ch == 'w') { g_tab_cmd = 2; continue; }
                         if (ch == 'q') { g_term_quit = 1; continue; }
-                        if (ch >= '1' && ch <= '9') {
-                            int target = ch - '1';
+                        // Cmd+1~9 → tab 1..9, Cmd+0 → tab 10
+                        int target = -1;
+                        if (ch >= '1' && ch <= '9') target = ch - '1';
+                        else if (ch == '0')          target = 9;
+                        if (target >= 0) {
                             if (target < g_num_tabs && target != g_active_tab) {
                                 if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
                                     memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
@@ -952,6 +1321,8 @@ long hexa_appkit_term_poll(void) {
                                 g_term_cur_col = g_tabs[target].cur_col;
                                 g_scroll_offset = 0;
                                 g_tab_cmd = 3;
+                                g_full_redraw = 1;
+                                clear_active_alarm();
                                 if (g_window)
                                     [[g_window contentView] setNeedsDisplay:YES];
                             }
@@ -991,6 +1362,9 @@ long hexa_appkit_term_poll(void) {
                 }
             }
         }
+        // Drain background tabs so their shells don't stall, and flag
+        // alarm / update Dock badge as Terminal.app does.
+        poll_background_tabs();
     }
     return g_term_quit;
 }
@@ -999,6 +1373,74 @@ long hexa_appkit_term_poll(void) {
 long hexa_appkit_term_check_resize(void) {
     if (g_resized) { g_resized = 0; return 1; }
     return 0;
+}
+
+// ── Background tab activity polling (alarm + dock badge) ──
+//
+// Why: the hexa main loop only reads the ACTIVE tab's PTY, so background
+// tabs' shells will stall once the kernel PTY buffer fills (~16 KB).
+// This polls all non-active tabs each loop tick, drains their PTY into
+// a discard buffer (so the shell doesn't block), and flags `has_alarm`
+// so the tab bar and Dock icon can show a pending indicator like
+// Terminal.app's bell/badge.
+//
+// Trade-off: background tab output is currently discarded. Switching to
+// a background tab shows the prompt but not the history between switches.
+// A follow-up milestone will store background bytes in a per-tab raw
+// ring buffer and replay them through the VT parser on activation.
+
+static int g_last_badge = -1;
+
+static void update_dock_badge(void) {
+    int count = 0;
+    for (int i = 0; i < g_num_tabs; i++)
+        if (g_tabs[i].used && g_tabs[i].has_alarm) count++;
+    if (count == g_last_badge) return;
+    g_last_badge = count;
+    @autoreleasepool {
+        NSDockTile *dock = [NSApp dockTile];
+        if (count > 0)
+            [dock setBadgeLabel:[NSString stringWithFormat:@"%d", count]];
+        else
+            [dock setBadgeLabel:nil];
+    }
+}
+
+static void poll_background_tabs(void) {
+    if (g_num_tabs < 2) return;
+    char discard[4096];
+    int changed = 0;
+    for (int i = 0; i < g_num_tabs; i++) {
+        if (i == g_active_tab) continue;
+        VoidTab *tab = &g_tabs[i];
+        if (!tab->used || tab->pty_fd < 0) continue;
+        // Drain non-blocking (fd is already O_NONBLOCK from spawn).
+        ssize_t total = 0;
+        while (1) {
+            ssize_t n = read(tab->pty_fd, discard, sizeof(discard));
+            if (n <= 0) break;
+            total += n;
+            if (total > 65536) break; // stay bounded per tick
+        }
+        if (total > 0 && !tab->has_alarm) {
+            tab->has_alarm = 1;
+            changed = 1;
+        }
+    }
+    if (changed) {
+        update_dock_badge();
+        if (g_window) [[g_window contentView] setNeedsDisplayInRect:
+                      NSMakeRect(0, 0, TAB_BAR_W, [[g_window contentView] bounds].size.height)];
+    }
+}
+
+// Clear alarm on the now-active tab. Called from every tab-switch path.
+static void clear_active_alarm(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
+    if (g_tabs[g_active_tab].has_alarm) {
+        g_tabs[g_active_tab].has_alarm = 0;
+        update_dock_badge();
+    }
 }
 
 // Get current terminal dimensions
@@ -1047,51 +1489,211 @@ void hexa_appkit_term_title_apply(void) {
     }
 }
 
-// ── Scrollback ring buffer ──
+// ── OSC 7 CWD handlers ──
+// Shell emits `ESC ] 7 ; file://host/path ST` on prompt. hexa VT parser
+// strips the OSC 7 payload and feeds it byte-by-byte through these
+// functions. We parse the URL into a plain filesystem path stored on
+// the active VoidTab, which is then the anchor for future file-completion.
+static char g_cwd_buf[1024];
+static int g_cwd_len = 0;
+
+void hexa_appkit_cwd_reset(void) {
+    g_cwd_len = 0;
+    g_cwd_buf[0] = '\0';
+}
+
+void hexa_appkit_cwd_push(long b) {
+    if (g_cwd_len < (int)sizeof(g_cwd_buf) - 1) {
+        g_cwd_buf[g_cwd_len++] = (char)b;
+        g_cwd_buf[g_cwd_len] = '\0';
+    }
+}
+
+// Decode a single percent-escape (%XX) hex pair. Returns the byte value
+// and advances `*i` past the escape if valid, else returns -1 and leaves
+// `*i` unchanged.
+static int url_unhex(const char *s, int *i, int len) {
+    if (*i + 2 >= len) return -1;
+    char h = s[*i + 1], l = s[*i + 2];
+    int hv, lv;
+    if      (h >= '0' && h <= '9') hv = h - '0';
+    else if (h >= 'a' && h <= 'f') hv = 10 + (h - 'a');
+    else if (h >= 'A' && h <= 'F') hv = 10 + (h - 'A');
+    else return -1;
+    if      (l >= '0' && l <= '9') lv = l - '0';
+    else if (l >= 'a' && l <= 'f') lv = 10 + (l - 'a');
+    else if (l >= 'A' && l <= 'F') lv = 10 + (l - 'A');
+    else return -1;
+    *i += 3;
+    return (hv << 4) | lv;
+}
+
+void hexa_appkit_cwd_apply(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
+    // OSC 7 payload format: "file://<host>/<path>"
+    // Skip the scheme and host to get the path.
+    const char *p = g_cwd_buf;
+    if (g_cwd_len >= 7 && strncmp(p, "file://", 7) == 0) {
+        p += 7;
+        // Skip host (up to next '/')
+        while (*p && *p != '/') p++;
+    }
+    if (!*p) return;
+
+    // URL-decode the path into the tab's cwd field.
+    VoidTab *tab = &g_tabs[g_active_tab];
+    char *out = tab->cwd;
+    size_t cap = sizeof(tab->cwd) - 1;
+    size_t o = 0;
+    int plen = (int)strlen(p);
+    int i = 0;
+    while (i < plen && o < cap) {
+        if (p[i] == '%') {
+            int dec = url_unhex(p, &i, plen);
+            if (dec < 0) { out[o++] = p[i++]; }
+            else         { out[o++] = (char)dec; }
+        } else {
+            out[o++] = p[i++];
+        }
+    }
+    out[o] = '\0';
+}
+
+// Accessor used by future autocomplete code (C-internal).
+// Returns NULL if no active tab or cwd unknown.
+const char *hexa_tab_cwd(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return NULL;
+    const char *c = g_tabs[g_active_tab].cwd;
+    return c[0] ? c : NULL;
+}
+
+// ── Section-based scrollback ──
+//
+// Data model:
+//   A VoidTab owns a ring of SB_MAX_SECTIONS SbSection slots. Each section
+//   holds SB_SECTION_LINES rows × TERM_MAX_COLS cells, lazy-allocated on
+//   first write (~410 KB/section). Sections are appended at the "tail"
+//   (head + num - 1); when the ring fills and a new line arrives, the
+//   oldest section is freed and the head advances.
+//
+// Benefit vs. the old flat 1000-line ring:
+//   - Idle tab: 0 bytes (was 0 bytes — same)
+//   - 100 lines of scrollback: 2 sections = ~820 KB (was 6.4 MB)
+//   - 2048 lines (full): 32 sections = ~13 MB (was 6.4 MB, fewer lines)
+//   - Load on ring overflow: free() one section instead of overwrite
+//     of 1000 lines' worth of slots — steady-state memory bounded and
+//     reclaimable.
+
+static TermCell *sb_cur_row_ptr = NULL; // cell[] pointer for active push row
 
 long hexa_scrollback_push_begin(void) {
     if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
     VoidTab *tab = &g_tabs[g_active_tab];
-    if (!tab->scrollback) {
-        tab->scrollback = calloc((size_t)SCROLLBACK_LINES * TERM_MAX_COLS, sizeof(TermCell));
-        if (!tab->scrollback) return -1;
+
+    // Determine which section gets the new line.
+    int tail;
+    if (tab->sb_num == 0) {
+        // First ever line for this tab
+        tab->sb_head = 0;
+        tab->sb_num = 1;
+        tail = 0;
+    } else {
+        tail = (tab->sb_head + tab->sb_num - 1) % SB_MAX_SECTIONS;
+        if (tab->sb[tail].lines >= SB_SECTION_LINES) {
+            // Current tail is full — advance.
+            if (tab->sb_num == SB_MAX_SECTIONS) {
+                // Ring full: free the oldest section before reusing slot.
+                int old = tab->sb_head;
+                if (tab->sb[old].cells) {
+                    free(tab->sb[old].cells);
+                    tab->sb[old].cells = NULL;
+                }
+                tab->sb_total -= tab->sb[old].lines;
+                tab->sb[old].lines = 0;
+                tab->sb_head = (tab->sb_head + 1) % SB_MAX_SECTIONS;
+                tab->sb_num--;
+            }
+            tail = (tab->sb_head + tab->sb_num) % SB_MAX_SECTIONS;
+            tab->sb_num++;
+        }
     }
+
+    // Lazy alloc the target section.
+    if (!tab->sb[tail].cells) {
+        tab->sb[tail].cells = calloc(
+            (size_t)SB_SECTION_LINES * TERM_MAX_COLS, sizeof(TermCell));
+        if (!tab->sb[tail].cells) {
+            // Allocation failed; roll back the advance.
+            if (tab->sb_num > 1) tab->sb_num--;
+            return -1;
+        }
+        tab->sb[tail].lines = 0;
+    }
+
+    sb_cur_row_ptr = &tab->sb[tail].cells[tab->sb[tail].lines * TERM_MAX_COLS];
     g_sb_push_col = 0;
     return 0;
 }
 
 long hexa_scrollback_push_cell(long ch, long fg, long bg, long flags) {
-    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
-    VoidTab *tab = &g_tabs[g_active_tab];
-    if (!tab->scrollback || g_sb_push_col >= TERM_MAX_COLS) return -1;
-    int off = tab->sb_head * TERM_MAX_COLS + g_sb_push_col;
-    tab->scrollback[off].ch = (unichar)ch;
-    tab->scrollback[off].fg = (int)fg;
-    tab->scrollback[off].bg = (int)bg;
-    tab->scrollback[off].flags = (int)flags;
+    if (!sb_cur_row_ptr || g_sb_push_col >= TERM_MAX_COLS) return -1;
+    TermCell *dst = &sb_cur_row_ptr[g_sb_push_col];
+    dst->ch = (unichar)ch;
+    dst->fg = (int)fg;
+    dst->bg = (int)bg;
+    dst->flags = (int)flags;
     g_sb_push_col++;
     return 0;
 }
 
 long hexa_scrollback_push_end(void) {
-    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs || !sb_cur_row_ptr) return -1;
     VoidTab *tab = &g_tabs[g_active_tab];
-    if (!tab->scrollback) return -1;
     // Pad remaining columns with spaces
     while (g_sb_push_col < TERM_MAX_COLS) {
-        int off = tab->sb_head * TERM_MAX_COLS + g_sb_push_col;
-        tab->scrollback[off].ch = ' ';
-        tab->scrollback[off].fg = 7;
-        tab->scrollback[off].bg = 0;
-        tab->scrollback[off].flags = 0;
+        TermCell *dst = &sb_cur_row_ptr[g_sb_push_col];
+        dst->ch = ' ';
+        dst->fg = 7;
+        dst->bg = 0;
+        dst->flags = 0;
         g_sb_push_col++;
     }
-    tab->sb_head = (tab->sb_head + 1) % SCROLLBACK_LINES;
-    if (tab->sb_count < SCROLLBACK_LINES) tab->sb_count++;
+    int tail = (tab->sb_head + tab->sb_num - 1) % SB_MAX_SECTIONS;
+    tab->sb[tail].lines++;
+    tab->sb_total++;
+    sb_cur_row_ptr = NULL;
     return 0;
 }
 
 long hexa_scrollback_count(void) {
     if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return 0;
-    return (long)g_tabs[g_active_tab].sb_count;
+    return (long)g_tabs[g_active_tab].sb_total;
+}
+
+// Fetch a scrollback line by logical index (0 = oldest live line).
+// Returns NULL if out of range.
+static TermCell *sb_line_ptr(struct VoidTab_ *tab, int logical_line) {
+    if (logical_line < 0 || logical_line >= tab->sb_total) return NULL;
+    // Walk sections from head until we've skipped `logical_line` lines.
+    int remain = logical_line;
+    for (int i = 0; i < tab->sb_num; i++) {
+        int idx = (tab->sb_head + i) % SB_MAX_SECTIONS;
+        SbSection *sec = &tab->sb[idx];
+        if (remain < sec->lines)
+            return &sec->cells[remain * TERM_MAX_COLS];
+        remain -= sec->lines;
+    }
+    return NULL;
+}
+
+// Memory usage report (in bytes) for the active tab's scrollback — used
+// by the section-eviction test and for debugging.
+long hexa_scrollback_mem_bytes(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return 0;
+    VoidTab *tab = &g_tabs[g_active_tab];
+    long n = 0;
+    for (int s = 0; s < SB_MAX_SECTIONS; s++) {
+        if (tab->sb[s].cells) n += (long)SB_SECTION_LINES * TERM_MAX_COLS * sizeof(TermCell);
+    }
+    return n;
 }
