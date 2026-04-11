@@ -283,11 +283,11 @@ static NSColor *term_color(int idx) {
     NSRect bounds = [self bounds];
 
     // ── Tab bar (left panel) ──
-    [[NSColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:1.0] setFill];
+    [[NSColor colorWithRed:0.11 green:0.11 blue:0.11 alpha:1.0] setFill];
     NSRectFill(NSMakeRect(0, 0, TAB_BAR_W, bounds.size.height));
 
     // Separator line
-    [[NSColor colorWithRed:0.25 green:0.25 blue:0.35 alpha:1.0] setFill];
+    [[NSColor colorWithRed:0.20 green:0.20 blue:0.20 alpha:1.0] setFill];
     NSRectFill(NSMakeRect(TAB_BAR_W - 1, 0, 1, bounds.size.height));
 
     NSFont *tabFont = [NSFont systemFontOfSize:11];
@@ -295,10 +295,10 @@ static NSColor *term_color(int idx) {
         float ty = 4 + t * TAB_ROW_H;
         // Active tab highlight
         if (t == g_active_tab) {
-            [[NSColor colorWithRed:0.20 green:0.20 blue:0.30 alpha:1.0] setFill];
+            [[NSColor colorWithRed:0.18 green:0.18 blue:0.18 alpha:1.0] setFill];
             NSRectFill(NSMakeRect(0, ty, TAB_BAR_W - 1, TAB_ROW_H));
             // Accent bar
-            [[NSColor colorWithRed:0.45 green:0.45 blue:0.95 alpha:1.0] setFill];
+            [[NSColor colorWithRed:0.40 green:0.40 blue:0.40 alpha:1.0] setFill];
             NSRectFill(NSMakeRect(0, ty, 3, TAB_ROW_H));
         }
 
@@ -313,8 +313,8 @@ static NSColor *term_color(int idx) {
             NSFontAttributeName: tabFont,
             NSForegroundColorAttributeName:
                 (t == g_active_tab)
-                    ? [NSColor colorWithRed:0.9 green:0.9 blue:1.0 alpha:1.0]
-                    : [NSColor colorWithRed:0.5 green:0.5 blue:0.6 alpha:1.0]
+                    ? [NSColor colorWithRed:0.9 green:0.9 blue:0.9 alpha:1.0]
+                    : [NSColor colorWithRed:0.45 green:0.45 blue:0.45 alpha:1.0]
         };
         [title drawAtPoint:NSMakePoint(10, ty + 6) withAttributes:attrs];
     }
