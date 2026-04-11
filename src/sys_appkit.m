@@ -449,11 +449,19 @@ static HexaTermDelegate *g_term_delegate = nil;
 // ── Tab management (C-internal) ──
 
 static int tab_spawn_pty(void) {
+    // Pass actual window size to forkpty so PTY starts correct
+    struct winsize ws;
+    ws.ws_row = (unsigned short)g_term_rows;
+    ws.ws_col = (unsigned short)g_term_cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+
     int master = -1;
-    pid_t pid = forkpty(&master, NULL, NULL, NULL);
+    pid_t pid = forkpty(&master, NULL, NULL, &ws);
     if (pid < 0) return -1;
     if (pid == 0) {
         setenv("TERM", "xterm-256color", 1);
+        setenv("LANG", "en_US.UTF-8", 1);
         char *shell = getenv("SHELL");
         if (!shell) shell = "/bin/sh";
         execl(shell, shell, "-l", (char*)NULL);

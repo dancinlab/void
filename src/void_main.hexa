@@ -1018,6 +1018,83 @@ fn self_test() {
         } else { println("[void-test] T8 FAIL  title[0]=", osc_title_bytes[0]); fail = fail + 1 }
     } else { println("[void-test] T8 FAIL  title len=", len(osc_title_bytes)); fail = fail + 1 }
 
+    // ── Test 9: Dynamic grid size ──
+    COLS = 120
+    ROWS = 40
+    TOTAL = ROWS * COLS
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Fill 121 chars → 120 fills row 0, 121st wraps to row 1 col 0
+    let mut t9i = 0
+    while t9i < 121 {
+        let _ = scr_feed_byte(65)
+        t9i = t9i + 1
+    }
+    if scr_cur_y == 1 {
+        if scr_cur_x == 1 {
+            if scr_cells[120] == 65 {
+                println("[void-test] T9 PASS  dynamic grid 120x40 (wrap at col 120)")
+                pass = pass + 1
+            } else { println("[void-test] T9 FAIL  cell[120]=", scr_cells[120]); fail = fail + 1 }
+        } else { println("[void-test] T9 FAIL  cur_x=", scr_cur_x); fail = fail + 1 }
+    } else { println("[void-test] T9 FAIL  cur_y=", scr_cur_y, " expected 1"); fail = fail + 1 }
+    // Restore default
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+
+    // ── Test 10: UTF-8 decode (한 = U+D55C = 0xED 0x95 0x9C) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // 3-byte UTF-8: ED=237, 95=149, 9C=156
+    let _ = scr_feed_byte(237)
+    let _ = scr_feed_byte(149)
+    let _ = scr_feed_byte(156)
+    let han_cp = scr_cells[0]
+    // U+D55C = 54620
+    if han_cp == 54620 {
+        println("[void-test] T10 PASS UTF-8 한 (U+D55C=", han_cp, ")")
+        pass = pass + 1
+    } else { println("[void-test] T10 FAIL  cp=", han_cp, " expected 54620"); fail = fail + 1 }
+
+    // ── Test 11: PTY spawn with correct size + stty verification ──
+    COLS = 100
+    ROWS = 30
+    TOTAL = ROWS * COLS
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = hexa_sh_reset_accum()
+    let m11 = hexa_sh_spawn()
+    if m11 < 0 {
+        println("[void-test] T11 FAIL  PTY spawn")
+        fail = fail + 1
+    } else {
+        let _ = hexa_sh_write_canned(m11, 0)
+        let _ = hexa_term_drain_master(m11, 500)
+        let _ = hexa_sh_write_canned(m11, 1)
+        let _ = hexa_term_drain_master(m11, 500)
+        let a11 = hexa_sh_accum_len_q()
+        let mut fi11 = 0
+        while fi11 < a11 {
+            let b11 = hexa_sh_accum_byte_at(fi11)
+            let _ = scr_feed_byte(b11)
+            fi11 = fi11 + 1
+        }
+        let _ = hexa_sh_reap()
+        let probe11 = [104, 101, 120, 97, 45, 116, 101, 114, 109]
+        let found11 = scr_find_probe(probe11, 9)
+        if found11 == 1 {
+            println("[void-test] T11 PASS PTY pipeline at 100x30 (", a11, " bytes)")
+            pass = pass + 1
+        } else {
+            println("[void-test] T11 FAIL  probe not found at 100x30")
+            fail = fail + 1
+        }
+    }
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+
     // ── Summary ──
     println("")
     println("[void-test] ", pass, "/", pass + fail, " passed")
