@@ -161,6 +161,10 @@ let mut osc_title_bytes = []
 let mut saved_cur_x = 0
 let mut saved_cur_y = 0
 
+// UTF-8 decoder state
+let mut utf8_cp = 0
+let mut utf8_remain = 0
+
 // Charset
 let mut cur_charset = 0
 
@@ -613,7 +617,34 @@ fn scr_feed_byte(b) {
             // BEL — ignore
             let _ = 0
         } else if b >= 32 {
-            let _ = scr_put(b)
+            if b < 128 {
+                // ASCII printable
+                let _ = scr_put(b)
+            } else if b >= 192 {
+                // UTF-8 lead byte
+                if b < 224 {
+                    // 2-byte: 110xxxxx
+                    utf8_cp = b - 192
+                    utf8_remain = 1
+                } else if b < 240 {
+                    // 3-byte: 1110xxxx
+                    utf8_cp = b - 224
+                    utf8_remain = 2
+                } else {
+                    // 4-byte: 11110xxx
+                    utf8_cp = b - 240
+                    utf8_remain = 3
+                }
+            } else {
+                // Continuation byte: 10xxxxxx (128-191)
+                if utf8_remain > 0 {
+                    utf8_cp = utf8_cp * 64 + (b - 128)
+                    utf8_remain = utf8_remain - 1
+                    if utf8_remain == 0 {
+                        let _ = scr_put(utf8_cp)
+                    }
+                }
+            }
         }
         return 0
     }
@@ -1031,6 +1062,8 @@ fn vt_reset_state() {
     cur_charset = 0
     scr_scroll_top = 0
     scr_scroll_bot = ROWS - 1
+    utf8_cp = 0
+    utf8_remain = 0
     return 0
 }
 
