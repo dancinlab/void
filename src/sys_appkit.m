@@ -253,6 +253,16 @@ static int g_num_tabs = 0;
 static int g_active_tab = -1;
 static int g_tab_cmd = 0; // 0=none, 1=new, 2=close
 
+// Effective tab bar width — 0 when there is only one tab (matches
+// Safari/Terminal.app: the chrome disappears so the user reclaims the pixels).
+// Becomes TAB_BAR_W the moment a second tab is created, and collapses back
+// when closed. A static cache of the last value drives the reflow check in
+// the main event loop so window columns recompute exactly once per transition.
+static int g_eff_tab_bar_w_cache = -1;
+static inline int effective_tab_bar_w(void) {
+    return (g_num_tabs <= 1) ? 0 : TAB_BAR_W;
+}
+
 // Active tab's rendering grid (synced from hexa)
 static TermCell g_term_grid[TERM_MAX_ROWS][TERM_MAX_COLS];
 static int g_term_rows = 24;
@@ -351,60 +361,64 @@ static NSColor *term_color(int idx) {
     @autoreleasepool {
     NSRect bounds = [self bounds];
 
-    // ── Tab bar (left panel) ──
-    [[NSColor colorWithRed:0.11 green:0.11 blue:0.11 alpha:1.0] setFill];
-    NSRectFill(NSMakeRect(0, 0, TAB_BAR_W, bounds.size.height));
+    // ── Tab bar (left panel) ── skipped entirely when there is only one
+    // tab, so the terminal grid reclaims the full width.
+    int eff_tbw = effective_tab_bar_w();
+    if (eff_tbw > 0) {
+        [[NSColor colorWithRed:0.11 green:0.11 blue:0.11 alpha:1.0] setFill];
+        NSRectFill(NSMakeRect(0, 0, eff_tbw, bounds.size.height));
 
-    // Separator line
-    [[NSColor colorWithRed:0.20 green:0.20 blue:0.20 alpha:1.0] setFill];
-    NSRectFill(NSMakeRect(TAB_BAR_W - 1, 0, 1, bounds.size.height));
+        // Separator line
+        [[NSColor colorWithRed:0.20 green:0.20 blue:0.20 alpha:1.0] setFill];
+        NSRectFill(NSMakeRect(eff_tbw - 1, 0, 1, bounds.size.height));
 
-    NSFont *tabFont = [NSFont systemFontOfSize:11];
-    for (int t = 0; t < g_num_tabs; t++) {
-        float ty = 4 + t * TAB_ROW_H;
-        // Active tab highlight
-        if (t == g_active_tab) {
-            [[NSColor colorWithRed:0.18 green:0.18 blue:0.18 alpha:1.0] setFill];
-            NSRectFill(NSMakeRect(0, ty, TAB_BAR_W - 1, TAB_ROW_H));
-            // Accent bar
-            [[NSColor colorWithRed:0.40 green:0.40 blue:0.40 alpha:1.0] setFill];
-            NSRectFill(NSMakeRect(0, ty, 3, TAB_ROW_H));
-        }
+        NSFont *tabFont = [NSFont systemFontOfSize:11];
+        for (int t = 0; t < g_num_tabs; t++) {
+            float ty = 4 + t * TAB_ROW_H;
+            // Active tab highlight
+            if (t == g_active_tab) {
+                [[NSColor colorWithRed:0.18 green:0.18 blue:0.18 alpha:1.0] setFill];
+                NSRectFill(NSMakeRect(0, ty, eff_tbw - 1, TAB_ROW_H));
+                // Accent bar
+                [[NSColor colorWithRed:0.40 green:0.40 blue:0.40 alpha:1.0] setFill];
+                NSRectFill(NSMakeRect(0, ty, 3, TAB_ROW_H));
+            }
 
-        // Tab title
-        NSString *title;
-        if (g_tabs[t].title[0])
-            title = [NSString stringWithUTF8String:g_tabs[t].title];
-        else
-            title = [NSString stringWithFormat:@"Tab %d", t + 1];
+            // Tab title
+            NSString *title;
+            if (g_tabs[t].title[0])
+                title = [NSString stringWithUTF8String:g_tabs[t].title];
+            else
+                title = [NSString stringWithFormat:@"Tab %d", t + 1];
 
-        NSDictionary *attrs = @{
-            NSFontAttributeName: tabFont,
-            NSForegroundColorAttributeName:
-                (t == g_active_tab)
-                    ? [NSColor colorWithRed:0.9 green:0.9 blue:0.9 alpha:1.0]
-                    : [NSColor colorWithRed:0.45 green:0.45 blue:0.45 alpha:1.0]
-        };
-        [title drawAtPoint:NSMakePoint(10, ty + 6) withAttributes:attrs];
-
-        // Activity bell: matches Terminal.app's inactive-tab indicator.
-        // Shown when a background tab received output since the user last
-        // looked at it. Cleared on activation via clear_active_alarm().
-        if (g_tabs[t].has_alarm && t != g_active_tab) {
-            NSDictionary *bellAttrs = @{
-                NSFontAttributeName: [NSFont systemFontOfSize:11],
+            NSDictionary *attrs = @{
+                NSFontAttributeName: tabFont,
                 NSForegroundColorAttributeName:
-                    [NSColor colorWithRed:1.0 green:0.55 blue:0.15 alpha:1.0]
+                    (t == g_active_tab)
+                        ? [NSColor colorWithRed:0.9 green:0.9 blue:0.9 alpha:1.0]
+                        : [NSColor colorWithRed:0.45 green:0.45 blue:0.45 alpha:1.0]
             };
-            // U+1F514 is too heavy; U+2022 bullet or "●" works cleaner.
-            // Use a simple filled dot to stay legible at 11pt.
-            [@"\u25CF" drawAtPoint:NSMakePoint(TAB_BAR_W - 18, ty + 6)
-                    withAttributes:bellAttrs];
+            [title drawAtPoint:NSMakePoint(10, ty + 6) withAttributes:attrs];
+
+            // Activity bell: matches Terminal.app's inactive-tab indicator.
+            // Shown when a background tab received output since the user last
+            // looked at it. Cleared on activation via clear_active_alarm().
+            if (g_tabs[t].has_alarm && t != g_active_tab) {
+                NSDictionary *bellAttrs = @{
+                    NSFontAttributeName: [NSFont systemFontOfSize:11],
+                    NSForegroundColorAttributeName:
+                        [NSColor colorWithRed:1.0 green:0.55 blue:0.15 alpha:1.0]
+                };
+                // U+1F514 is too heavy; U+2022 bullet or "●" works cleaner.
+                // Use a simple filled dot to stay legible at 11pt.
+                [@"\u25CF" drawAtPoint:NSMakePoint(eff_tbw - 18, ty + 6)
+                        withAttributes:bellAttrs];
+            }
         }
     }
 
-    // ── Terminal grid (right of tab bar) ──
-    float ox = TAB_BAR_W;
+    // ── Terminal grid (right of tab bar, or full width when tab bar hidden) ──
+    float ox = eff_tbw;
     [[NSColor blackColor] setFill];
     NSRectFill(NSMakeRect(ox, 0, bounds.size.width - ox, bounds.size.height));
 
@@ -488,7 +502,8 @@ static NSColor *term_color(int idx) {
 
 - (void)mouseDown:(NSEvent *)event {
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
-    if (p.x < TAB_BAR_W) {
+    int eff_tbw = effective_tab_bar_w();
+    if (eff_tbw > 0 && p.x < eff_tbw) {
         int idx = (int)((p.y - 4) / TAB_ROW_H);
         if (idx >= 0 && idx < g_num_tabs && idx != g_active_tab) {
             // Save current grid to old tab
@@ -951,7 +966,10 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         NSRect screenFrame = [[NSScreen mainScreen] visibleFrame];
         float ww = screenFrame.size.width * 0.85;
         float wh = screenFrame.size.height * 0.85;
-        g_term_cols = (int)((ww - TAB_BAR_W) / g_term_cw);
+        // At init g_num_tabs is still 0, so effective_tab_bar_w() is 0 and
+        // the first window already takes the full width with no tab reserve.
+        int init_tbw = effective_tab_bar_w();
+        g_term_cols = (int)((ww - init_tbw) / g_term_cw);
         g_term_rows = (int)(wh / g_term_ch);
         if (g_term_cols < 80) g_term_cols = 80;
         if (g_term_rows < 24) g_term_rows = 24;
@@ -960,7 +978,7 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
 
         tab_clear_grid(g_term_grid);
 
-        ww = TAB_BAR_W + g_term_cw * g_term_cols;
+        ww = init_tbw + g_term_cw * g_term_cols;
         wh = g_term_ch * g_term_rows;
         float wx = screenFrame.origin.x + (screenFrame.size.width - ww) / 2;
         float wy = screenFrame.origin.y + (screenFrame.size.height - wh) / 2;
@@ -971,6 +989,8 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
                                                  backing:NSBackingStoreBuffered defer:NO];
         [g_window setTitle:@"VOID"];
         [g_window setDelegate:g_term_delegate];
+        // Min size uses the worst-case tab bar width so the window stays
+        // sane even when the user later creates a second tab.
         [g_window setMinSize:NSMakeSize(TAB_BAR_W + g_term_cw * 20, g_term_ch * 5)];
         if (@available(macOS 10.14, *))
             [g_window setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
@@ -990,18 +1010,63 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         [am addItemWithTitle:@"Quit VOID" action:@selector(terminate:) keyEquivalent:@"q"];
         [mi setSubmenu:am];
 
-        // App icon — programmatic "V"
-        NSImage *icon = [[NSImage alloc] initWithSize:NSMakeSize(128, 128)];
-        [icon lockFocus];
-        [[NSColor colorWithRed:0.10 green:0.10 blue:0.18 alpha:1.0] setFill];
-        NSRectFill(NSMakeRect(0, 0, 128, 128));
-        NSDictionary *iconAttrs = @{
-            NSFontAttributeName: [NSFont boldSystemFontOfSize:72],
-            NSForegroundColorAttributeName: [NSColor colorWithRed:0.5 green:0.5 blue:1.0 alpha:1.0]
-        };
-        [@"V" drawAtPoint:NSMakePoint(28, 20) withAttributes:iconAttrs];
-        [icon unlockFocus];
-        [app setApplicationIconImage:icon];
+        // App icon — monochrome "V" on a rounded-square plate.
+        //
+        // Sized to Apple HIG for macOS Big Sur+ (1024×1024 canvas, content
+        // kept inside the ~80% safe area, corner radius ≈ 22.5% of canvas).
+        // Rendered at 1024 for retina quality and handed to NSImage at the
+        // same size — AppKit scales it down for the Dock / switcher.
+        //
+        // macOS does NOT apply rounded corners automatically (unlike iOS),
+        // so we fill a NSBezierPath manually. Palette stays monochrome:
+        // charcoal background + light-gray glyph, no color channels.
+        {
+            CGFloat S = 1024.0;          // canvas
+            CGFloat R = S * 0.2237;      // Big Sur corner radius (~229 on 1024)
+            CGFloat inset = S * 0.10;    // 10% safe-area margin per HIG
+            NSImage *icon = [[NSImage alloc] initWithSize:NSMakeSize(S, S)];
+            [icon lockFocus];
+
+            // Fully transparent canvas so macOS composites the rounded
+            // plate over the Dock background.
+            [[NSColor clearColor] set];
+            NSRectFill(NSMakeRect(0, 0, S, S));
+
+            // Rounded-square plate — dark charcoal, not pure black, so it
+            // reads on both light and dark Docks.
+            NSBezierPath *plate = [NSBezierPath
+                bezierPathWithRoundedRect:NSMakeRect(0, 0, S, S)
+                                  xRadius:R yRadius:R];
+            [[NSColor colorWithWhite:0.08 alpha:1.0] setFill];
+            [plate fill];
+
+            // Thin inner highlight for depth — still greyscale.
+            NSBezierPath *inner = [NSBezierPath
+                bezierPathWithRoundedRect:NSMakeRect(6, 6, S - 12, S - 12)
+                                  xRadius:R - 6 yRadius:R - 6];
+            [[NSColor colorWithWhite:0.14 alpha:1.0] setStroke];
+            [inner setLineWidth:2.0];
+            [inner stroke];
+
+            // "V" glyph centered inside the safe area. Point size tuned so
+            // the glyph fills the safe box vertically without touching the
+            // rounded corners.
+            CGFloat glyphBox = S - inset * 2;   // ~819
+            NSFont *gfont = [NSFont boldSystemFontOfSize:glyphBox * 0.82];
+            NSDictionary *gattrs = @{
+                NSFontAttributeName: gfont,
+                NSForegroundColorAttributeName:
+                    [NSColor colorWithWhite:0.78 alpha:1.0]
+            };
+            NSString *glyph = @"V";
+            NSSize gs = [glyph sizeWithAttributes:gattrs];
+            CGFloat gx = (S - gs.width) / 2.0;
+            CGFloat gy = (S - gs.height) / 2.0 - S * 0.02; // slight optical nudge
+            [glyph drawAtPoint:NSMakePoint(gx, gy) withAttributes:gattrs];
+
+            [icon unlockFocus];
+            [app setApplicationIconImage:icon];
+        }
 
         [app finishLaunching];
         [app activateIgnoringOtherApps:YES];
@@ -1297,13 +1362,15 @@ void hexa_appkit_term_flush(void) {
         // Expand by 1 row on each side to catch partial glyph overhang.
         int r0 = g_dirty_min - 1; if (r0 < 0) r0 = 0;
         int r1 = g_dirty_max + 1; if (r1 >= g_term_rows) r1 = g_term_rows - 1;
-        NSRect rect = NSMakeRect(TAB_BAR_W,
+        int eff_tbw = effective_tab_bar_w();
+        NSRect rect = NSMakeRect(eff_tbw,
                                   r0 * g_term_ch,
-                                  [v bounds].size.width - TAB_BAR_W,
+                                  [v bounds].size.width - eff_tbw,
                                   (r1 - r0 + 1) * g_term_ch);
         [v setNeedsDisplayInRect:rect];
         // Tab bar also needs repaint if title changed — cheap, do always
-        [v setNeedsDisplayInRect:NSMakeRect(0, 0, TAB_BAR_W, [v bounds].size.height)];
+        if (eff_tbw > 0)
+            [v setNeedsDisplayInRect:NSMakeRect(0, 0, eff_tbw, [v bounds].size.height)];
         g_dirty_min = -1;
         g_dirty_max = -1;
     }
@@ -1377,20 +1444,27 @@ long hexa_appkit_term_poll(void) {
             [app sendEvent:ev];
             [app updateWindows];
         }
-        // Check for window resize
+        // Check for window resize — and also for tab-bar-width transitions
+        // (1↔2 tab count). Reflow on either trigger so the terminal grid
+        // grows into the vacated pixels or shrinks to make room for the
+        // freshly-revealed tab bar.
         if (g_window && g_term_cw > 0 && g_term_ch > 0) {
             NSRect f = [[g_window contentView] frame];
-            int new_cols = (int)((f.size.width - TAB_BAR_W) / g_term_cw);
+            int eff_tbw = effective_tab_bar_w();
+            int new_cols = (int)((f.size.width - eff_tbw) / g_term_cw);
             int new_rows = (int)(f.size.height / g_term_ch);
             if (new_cols < 20) new_cols = 20;
             if (new_rows < 5) new_rows = 5;
             if (new_cols > TERM_MAX_COLS) new_cols = TERM_MAX_COLS;
             if (new_rows > TERM_MAX_ROWS) new_rows = TERM_MAX_ROWS;
-            if (new_cols != g_term_cols || new_rows != g_term_rows) {
+            int tbw_changed = (eff_tbw != g_eff_tab_bar_w_cache);
+            if (new_cols != g_term_cols || new_rows != g_term_rows || tbw_changed) {
                 g_term_cols = new_cols;
                 g_term_rows = new_rows;
+                g_eff_tab_bar_w_cache = eff_tbw;
                 g_resized = 1;
                 g_scroll_offset = 0;
+                g_full_redraw = 1;
                 // Notify ALL tabs' PTYs of new size
                 struct winsize ws;
                 ws.ws_row = (unsigned short)new_rows;
@@ -1470,8 +1544,10 @@ static void poll_background_tabs(void) {
     }
     if (changed) {
         update_dock_badge();
-        if (g_window) [[g_window contentView] setNeedsDisplayInRect:
-                      NSMakeRect(0, 0, TAB_BAR_W, [[g_window contentView] bounds].size.height)];
+        int eff_tbw = effective_tab_bar_w();
+        if (g_window && eff_tbw > 0)
+            [[g_window contentView] setNeedsDisplayInRect:
+                NSMakeRect(0, 0, eff_tbw, [[g_window contentView] bounds].size.height)];
     }
 }
 
