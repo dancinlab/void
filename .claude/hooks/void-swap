@@ -56,20 +56,20 @@ if [ "$mode" = "--build-only" ]; then
     exit 0
 fi
 
-# Find and signal running void_term processes.
+# Find running void_term processes and restart them via kill+open.
+# The SIGUSR1 self-exec path is blocked by macOS codesigning when the
+# parent is inside /Applications/VOID.app, so we use pkill+open which
+# LaunchServices treats as a fresh launch and inherits the bundle
+# identity. Sessions are preserved via void-server's PTY ownership
+# (once VOID_USE_SERVER=1 is the default).
 pids=$(pgrep -x void_term 2>/dev/null || true)
 if [ -z "$pids" ]; then
-    # Nothing running — launch via LaunchServices so the Dock tile
-    # inherits the bundle identity (single icon, not a bare-exec tile).
     open /Applications/VOID.app 2>/dev/null || true
     exit 0
 fi
 
-for pid in $pids; do
-    if ! kill -USR1 "$pid" 2>/dev/null; then
-        echo "[void-swap] failed to signal $pid" >&2
-        exit 2
-    fi
-done
+pkill -x void_term 2>/dev/null || true
+sleep 0.2
+open /Applications/VOID.app 2>/dev/null || true
 
 exit 0

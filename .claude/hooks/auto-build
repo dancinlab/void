@@ -70,4 +70,24 @@ PY
     exit 0
 fi
 
+# Auto-relaunch: after a successful build, if void_term is currently
+# running, kill it and launch via /Applications/VOID.app so the user
+# sees the new binary without typing anything. Skipped when
+# VOID_NO_RELAUNCH=1 is set (e.g. during heavy editing where the user
+# is still interacting with the current session).
+#
+# Session preservation note: without void-server backing, a kill loses
+# all PTY state (shells, claude sessions). With VOID_USE_SERVER=1 (which
+# we plan to make default next) the shells survive because the server
+# holds the PTY masters.
+if [ -z "${VOID_NO_RELAUNCH:-}" ]; then
+    if pgrep -x void_term >/dev/null 2>&1; then
+        pkill -x void_term 2>/dev/null || true
+        # Small wait so the old process releases its NSWindow before
+        # LaunchServices opens the new one.
+        sleep 0.2
+        open /Applications/VOID.app 2>/dev/null || true
+    fi
+fi
+
 exit 0

@@ -1919,7 +1919,7 @@ static int toolbar_button_at(NSPoint p, NSRect bounds) {
 @end
 
 // ── App delegate ──
-@interface HexaTermDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+@interface HexaTermDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate>
 // Menu bar action targets — thin wrappers over the same flags the
 // Cmd-intercept path uses.
 - (void)menuNewTab:(id)sender;
@@ -1934,6 +1934,10 @@ static int toolbar_button_at(NSPoint p, NSRect bounds) {
 - (void)menuLayoutStacked:(id)sender;
 - (void)menuLayoutGrid:(id)sender;
 - (void)menuCycleNext:(id)sender;
+// Hidden-sessions submenu: populated on open via menuNeedsUpdate:,
+// each item's representedObject holds the 32-byte session_id as
+// NSData, and menuAttachHiddenSession: sends ATTACH + adds a new tab.
+- (void)menuAttachHiddenSession:(id)sender;
 @end
 @implementation HexaTermDelegate
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)s { return YES; }
@@ -2286,8 +2290,11 @@ static int  g_use_server  = -1;  // -1 = not decided, 0/1 = resolved
 
 static int void_server_enabled(void) {
     if (g_use_server < 0) {
-        const char *e = getenv("VOID_USE_SERVER");
-        g_use_server = (e && e[0] == '1') ? 1 : 0;
+        // Server-backed mode is ON by default so PTY sessions survive
+        // void_term kill+relaunch (auto-build hook uses this path).
+        // Set VOID_NO_SERVER=1 to opt out and fall back to direct fork.
+        const char *off = getenv("VOID_NO_SERVER");
+        g_use_server = (off && off[0] == '1') ? 0 : 1;
     }
     return g_use_server;
 }
