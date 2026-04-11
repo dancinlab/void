@@ -480,7 +480,36 @@ static float g_term_cw = 0;
 static float g_term_ch = 0;
 static CTFontRef g_term_font = NULL;
 static CTFontRef g_term_font_bold = NULL;
+static int g_font_size = 13;       // current point size (Cmd+=/-/0 mutable)
 static NSColor *g_term_color_cache[16] = {0}; // retained ANSI palette
+
+// (Re)create the monospaced body font + bold variant at `sz` points, then
+// recompute cell width/height from the M glyph advance. Used by init AND
+// the Cmd+=/-/0 zoom handlers — the init path and the zoom path share the
+// exact same SFMono → Menlo → Monaco fallback chain.
+static void set_font_size(int sz) {
+    if (sz < 8)  sz = 8;
+    if (sz > 40) sz = 40;
+    if (g_term_font)      { CFRelease(g_term_font);      g_term_font      = NULL; }
+    if (g_term_font_bold) { CFRelease(g_term_font_bold); g_term_font_bold = NULL; }
+    g_term_font = CTFontCreateWithName(CFSTR("SFMono-Regular"), sz, NULL);
+    if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Menlo-Regular"), sz, NULL);
+    if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Monaco"), sz, NULL);
+    // Cache bold ONCE here (see note in hexa_appkit_init_term).
+    g_term_font_bold = CTFontCreateCopyWithSymbolicTraits(
+        g_term_font, 0, NULL, kCTFontBoldTrait, kCTFontBoldTrait);
+    if (!g_term_font_bold) g_term_font_bold = (CTFontRef)CFRetain(g_term_font);
+    UniChar mc = 'M';
+    CGGlyph gl;
+    CTFontGetGlyphsForCharacters(g_term_font, &mc, &gl, 1);
+    CGSize adv;
+    CTFontGetAdvancesForGlyphs(g_term_font, kCTFontOrientationHorizontal, &gl, &adv, 1);
+    g_term_cw = adv.width;
+    g_term_ch = CTFontGetAscent(g_term_font) + CTFontGetDescent(g_term_font) +
+                CTFontGetLeading(g_term_font) + 2;
+    g_font_size = sz;
+}
+
 static int g_term_quit = 0;
 static int g_scroll_offset = 0;    // 0 = live view, >0 = lines scrolled back
 static int g_sb_push_col = 0;      // temp column index during row push
@@ -1246,27 +1275,12 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         g_term_delegate = [[HexaTermDelegate alloc] init];
         [app setDelegate:g_term_delegate];
 
-        // Match Terminal.app: SFMono-Regular 13pt (fallback chain)
-        long fs = font_size > 0 ? font_size : 13;
-        g_term_font = CTFontCreateWithName(CFSTR("SFMono-Regular"), fs, NULL);
-        if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Menlo-Regular"), fs, NULL);
-        if (!g_term_font) g_term_font = CTFontCreateWithName(CFSTR("Monaco"), fs, NULL);
-
-        // Cache bold variant ONCE at startup. Creating it per-cell-per-frame
-        // (CTFontCreateCopyWithSymbolicTraits) thrashes CGFont cache and
-        // crashed Terminal.app via CGFontStrikeRelease → free_tiny.
-        g_term_font_bold = CTFontCreateCopyWithSymbolicTraits(
-            g_term_font, 0, NULL, kCTFontBoldTrait, kCTFontBoldTrait);
-        if (!g_term_font_bold) g_term_font_bold = (CTFontRef)CFRetain(g_term_font);
-
-        UniChar mc = 'M';
-        CGGlyph gl;
-        CTFontGetGlyphsForCharacters(g_term_font, &mc, &gl, 1);
-        CGSize adv;
-        CTFontGetAdvancesForGlyphs(g_term_font, kCTFontOrientationHorizontal, &gl, &adv, 1);
-        g_term_cw = adv.width;
-        g_term_ch = CTFontGetAscent(g_term_font) + CTFontGetDescent(g_term_font) +
-                    CTFontGetLeading(g_term_font) + 2;
+        // Match Terminal.app: SFMono-Regular 13pt (fallback chain).
+        // The helper caches bold ONCE at startup. Creating it per-cell-
+        // per-frame (CTFontCreateCopyWithSymbolicTraits) thrashes CGFont
+        // cache and crashed Terminal.app via CGFontStrikeRelease → free_tiny.
+        int fs = font_size > 0 ? (int)font_size : 13;
+        set_font_size(fs);
         // Auto-size from screen (ignore passed rows/cols). In shadow
         // mode we reuse the restored rows/cols + window frame so the
         // user sees no geometry change across the swap.
@@ -1991,6 +2005,40 @@ long hexa_appkit_term_poll(void) {
                             continue;
                         }
 
+                        // Cmd+= / Cmd++ / Cmd+- / Cmd+0 → font zoom.
+                        // charactersIgnoringModifiers returns '=' for
+                        // Shift+= ('+'), so we test plain ASCII '='/'+'.
+                        // This branch REPLACES the prior Cmd+0 → tab-10
+                        // binding; to reach tab 10 use the Window menu
+                        // or a mouse click on the tab bar instead.
+                        if (!with_ctrl && (ch == '=' || ch == '+' ||
+                                           ch == '-' || ch == '0')) {
+                            int new_sz = g_font_size;
+                            if (ch == '=' || ch == '+') new_sz++;
+                            else if (ch == '-')         new_sz--;
+                            else /* ch == '0' */        new_sz = 13;
+                            if (new_sz < 8)  new_sz = 8;
+                            if (new_sz > 40) new_sz = 40;
+                            if (new_sz != g_font_size) {
+                                set_font_size(new_sz);
+                                // Force the resize path on the next loop
+                                // tick: main loop recomputes cols/rows
+                                // from the window frame ÷ new cw/ch,
+                                // flags g_resized so hexa re-inits its
+                                // scrollback, and TIOCSWINSZ fans out
+                                // to every active PTY. Invalidating the
+                                // tab-bar cache below guarantees the
+                                // reflow branch fires even when the
+                                // rounded cols/rows happen to match.
+                                g_eff_tab_bar_w_cache = -1;
+                                g_resized = 1;
+                                g_full_redraw = 1;
+                                if (g_window)
+                                    [[g_window contentView] setNeedsDisplay:YES];
+                            }
+                            continue;
+                        }
+
                         if (ch >= 'A' && ch <= 'Z') ch += 32; // tolower
                         if (ch == 't') {
                             // Cmd+T always opens a new shell tab —
@@ -2009,10 +2057,10 @@ long hexa_appkit_term_poll(void) {
                         }
                         if (ch == 'w') { g_tab_cmd = 2; continue; }
                         if (ch == 'q') { g_term_quit = 1; continue; }
-                        // Cmd+1~9 → tab 1..9, Cmd+0 → tab 10
+                        // Cmd+1~9 → tab 1..9. Cmd+0 is handled above as
+                        // font-reset, so tab 10 has no keyboard shortcut.
                         int target = -1;
                         if (ch >= '1' && ch <= '9') target = ch - '1';
-                        else if (ch == '0')          target = 9;
                         if (target >= 0) {
                             if (target < g_num_tabs && target != g_active_tab) {
                                 if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
