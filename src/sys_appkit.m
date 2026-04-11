@@ -238,6 +238,14 @@ typedef struct VoidTab_ {
     // received any PTY output. Cleared when the tab is activated. Drives
     // the bell glyph in the tab bar and the Dock icon badge count.
     int has_alarm;
+    // Profile-opened tabs lock the title so shell OSC 0 escape sequences
+    // (which most prompts emit on every command) can't clobber the fixed
+    // profile name like "nexus (1)".
+    int title_locked;
+    // Base profile name (e.g. "nexus") — empty if not opened from a profile.
+    // Used to renumber sibling tabs when one is added or removed: a single
+    // sibling stays bare ("nexus"), two or more become "nexus (1)", "nexus (2)".
+    char profile_base[64];
 } VoidTab;
 
 static VoidTab g_tabs[MAX_TABS];
@@ -1003,6 +1011,38 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
 
 // ── Tab API for hexa ──
 
+// Renumber profile-locked tabs that share a base name. Single sibling stays
+// bare ("nexus"); two or more become "nexus (1)", "nexus (2)", … in tab order.
+// Called after every open and close so closing "(2)" of three reflows the rest.
+static void void_tabs_renumber_profiles(void) {
+    for (int i = 0; i < g_num_tabs; i++) {
+        if (!g_tabs[i].used) continue;
+        if (!g_tabs[i].title_locked) continue;
+        if (!g_tabs[i].profile_base[0]) continue;
+
+        // Count siblings with the same profile_base.
+        int total = 0;
+        for (int j = 0; j < g_num_tabs; j++) {
+            if (!g_tabs[j].used || !g_tabs[j].title_locked) continue;
+            if (strcmp(g_tabs[j].profile_base, g_tabs[i].profile_base) == 0) total++;
+        }
+
+        if (total == 1) {
+            snprintf(g_tabs[i].title, sizeof(g_tabs[i].title), "%s",
+                     g_tabs[i].profile_base);
+        } else {
+            // i's rank among siblings (1-based, by tab order).
+            int rank = 0;
+            for (int j = 0; j <= i; j++) {
+                if (!g_tabs[j].used || !g_tabs[j].title_locked) continue;
+                if (strcmp(g_tabs[j].profile_base, g_tabs[i].profile_base) == 0) rank++;
+            }
+            snprintf(g_tabs[i].title, sizeof(g_tabs[i].title), "%s (%d)",
+                     g_tabs[i].profile_base, rank);
+        }
+    }
+}
+
 // Create a new tab. Spawns PTY, returns tab index (or -1).
 long hexa_tab_new(void) {
     if (g_num_tabs >= MAX_TABS) return -1;
@@ -1035,22 +1075,16 @@ long hexa_tab_new(void) {
     ws.ws_ypixel = 0;
     ioctl(fd, TIOCSWINSZ, &ws);
 
-    // Title: profile title + (N) dedup, or empty (shell will OSC 0 it)
+    // Title: profile tabs are renumbered as a group by void_tabs_renumber_profiles.
+    // 1 sibling → "nexus", 2+ siblings → "nexus (1)", "nexus (2)", … in tab order.
+    // Title is locked so OSC 0 from the shell can't overwrite it.
+    g_tabs[idx].title_locked = 0;
+    g_tabs[idx].profile_base[0] = 0;
     if (vp && vp->title[0]) {
-        // Count existing tabs with this base title to pick a suffix.
-        int dup = 0;
-        for (int i = 0; i < g_num_tabs; i++) {
-            if (!g_tabs[i].used) continue;
-            const char *t = g_tabs[i].title;
-            size_t bl = strlen(vp->title);
-            if (strncmp(t, vp->title, bl) == 0 &&
-                (t[bl] == 0 || t[bl] == ' ')) dup++;
-        }
-        if (dup == 0)
-            snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "%s", vp->title);
-        else
-            snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title),
-                     "%s (%d)", vp->title, dup + 1);
+        snprintf(g_tabs[idx].profile_base, sizeof(g_tabs[idx].profile_base),
+                 "%s", vp->title);
+        snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "%s", vp->title);
+        g_tabs[idx].title_locked = 1;
         // Remember cwd so OSC 7 path-completion has a starting point
         snprintf(g_tabs[idx].cwd, sizeof(g_tabs[idx].cwd), "%s", vp->path);
     } else {
@@ -1071,6 +1105,9 @@ long hexa_tab_new(void) {
 
     g_num_tabs++;
     g_active_tab = idx;
+
+    // Renumber profile group now that the new sibling is in place.
+    void_tabs_renumber_profiles();
 
     // Clear active rendering grid for new tab
     tab_clear_grid(g_term_grid);
@@ -1136,6 +1173,10 @@ long hexa_tab_close(long idx) {
         g_active_tab = -1;
         return -1;
     }
+
+    // Renumber surviving profile siblings: closing "(2)" of three becomes
+    // "(1)", "(2)" again; closing one of two collapses the survivor to bare.
+    void_tabs_renumber_profiles();
 
     // Adjust active tab
     if (g_active_tab >= g_num_tabs) g_active_tab = g_num_tabs - 1;
@@ -1477,8 +1518,22 @@ void hexa_appkit_term_title_push(long b) {
 }
 
 void hexa_appkit_term_title_apply(void) {
-    // Set both window title and active tab title
+    // Profile-opened tabs lock their title — shell OSC 0 escapes (which
+    // nearly every prompt emits) must not clobber "nexus (1)".
     if (g_active_tab >= 0 && g_active_tab < g_num_tabs) {
+        if (g_tabs[g_active_tab].title_locked) {
+            // Still reflect the locked name in the window title so the
+            // user sees which project is active, but ignore the OSC 0
+            // payload entirely.
+            if (g_window) {
+                @autoreleasepool {
+                    NSString *t = [NSString stringWithFormat:@"VOID — %s",
+                                   g_tabs[g_active_tab].title];
+                    [g_window setTitle:t];
+                }
+            }
+            return;
+        }
         strncpy(g_tabs[g_active_tab].title, g_term_title_buf,
                 sizeof(g_tabs[g_active_tab].title) - 1);
     }
