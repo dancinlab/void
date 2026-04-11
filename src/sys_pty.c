@@ -348,6 +348,48 @@ long hexa_pty_spawn_login_shell(void) {
 static char g_pty_read_buf[PTY_READ_BUF_SIZE];
 static int g_pty_read_len = 0;
 
+// TUI startup shim — hexa VT has no alternate screen buffer, so full-
+// screen TUIs (claude, vim, htop, …) paint on top of whatever the
+// previous shell drew. Detect the "bracketed paste enable" sequence
+// \x1b[?2004h (emitted by every modern TUI the moment it takes over
+// the terminal) and INJECT \x1b[2J\x1b[1H (clear + cursor home) just
+// before it, so hexa clears before the new TUI draws. Buffer grows
+// by 8 bytes per occurrence; returns the new length.
+//
+// Why ?2004h and not ?1049h (xterm alt-screen): empirically captured
+// claude's actual startup bytes and claude does NOT emit ?1049h at all.
+// The first TUI-ish escape it writes is ?2004h. vim/htop/nvim behave
+// the same way under modern terminfo. Targeting ?2004h covers them all
+// with one rule.
+#define TUI_CLEAR "\x1b[2J\x1b[1H"
+#define TUI_CLEAR_LEN 8
+
+static int alt_screen_rewrite(char *buf, int *plen, int cap) {
+    int len = *plen;
+    int subs = 0;
+    // Walk right-to-left so insertion doesn't invalidate later indices.
+    // At each ?2004h site, memmove the tail right by 8 and memcpy the
+    // clear sequence into the vacated slot.
+    for (int i = len - 8; i >= 0; i--) {
+        if (buf[i]     == '\x1b' &&
+            buf[i + 1] == '['    &&
+            buf[i + 2] == '?'    &&
+            buf[i + 3] == '2'    &&
+            buf[i + 4] == '0'    &&
+            buf[i + 5] == '0'    &&
+            buf[i + 6] == '4'    &&
+            buf[i + 7] == 'h') {
+            if (len + TUI_CLEAR_LEN >= cap) break; // out of room, bail
+            memmove(&buf[i + TUI_CLEAR_LEN], &buf[i], len - i);
+            memcpy(&buf[i], TUI_CLEAR, TUI_CLEAR_LEN);
+            len += TUI_CLEAR_LEN;
+            subs++;
+        }
+    }
+    *plen = len;
+    return subs;
+}
+
 long hexa_pty_poll_read(long fd, long timeout_ms) {
     struct pollfd pfd;
     pfd.fd = (int)fd;
@@ -362,36 +404,36 @@ long hexa_pty_poll_read(long fd, long timeout_ms) {
     if (g_pty_read_len < 0) g_pty_read_len = 0;
     g_pty_read_buf[g_pty_read_len] = '\0';
 
-    // Alternate-screen workaround — hexa's VT parser doesn't implement
-    // xterm's alt screen buffer (\x1b[?1049h/l and ?1047h/l), so full-
-    // screen TUIs like `claude`, vim, htop paint on top of the previous
-    // shell's output, causing the "Claude Code welcome overlapping the
-    // cl selection table" ghosting the user hit. Rewrite the switch
-    // sequences in place with a clear-screen + cursor-home so the TUI
-    // starts from a blank canvas. Both are 8 bytes, same length, so the
-    // rewrite is a straight memcpy with no length change.
-    //   \x1b[?1049h  → \x1b[2J\x1b[1H
-    //   \x1b[?1049l  → \x1b[2J\x1b[1H
-    //   \x1b[?1047h  → \x1b[2J\x1b[1H
-    //   \x1b[?1047l  → \x1b[2J\x1b[1H
-    // A sequence split across two read() calls is not handled; hexa's
-    // VT parser will eat the unknown CSI and the next read's payload
-    // may land on the old buffer for one frame.
-    for (int i = 0; i + 7 < g_pty_read_len; i++) {
-        if (g_pty_read_buf[i]     == '\x1b' &&
-            g_pty_read_buf[i + 1] == '['    &&
-            g_pty_read_buf[i + 2] == '?'    &&
-            g_pty_read_buf[i + 3] == '1'    &&
-            g_pty_read_buf[i + 4] == '0'    &&
-            g_pty_read_buf[i + 5] == '4'    &&
-            (g_pty_read_buf[i + 6] == '9' || g_pty_read_buf[i + 6] == '7') &&
-            (g_pty_read_buf[i + 7] == 'h' || g_pty_read_buf[i + 7] == 'l')) {
-            memcpy(&g_pty_read_buf[i], "\x1b[2J\x1b[1H", 8);
-            i += 7; // skip past the replacement (loop increments to 8)
+    int subs = alt_screen_rewrite(g_pty_read_buf, &g_pty_read_len,
+                                  PTY_READ_BUF_SIZE - 1);
+    g_pty_read_buf[g_pty_read_len] = '\0';
+
+    // Debug trace — when VOID_PTY_TRACE is set, append each read to a log.
+    // Used to diagnose sequences reaching hexa that shouldn't be, or to
+    // confirm alt-screen rewrite is firing. Off by default.
+    if (getenv("VOID_PTY_TRACE")) {
+        FILE *tf = fopen("/tmp/void_pty_trace.log", "a");
+        if (tf) {
+            fprintf(tf, "[read %d bytes, %d subs] ", g_pty_read_len, subs);
+            for (int i = 0; i < g_pty_read_len && i < 200; i++) {
+                unsigned char c = (unsigned char)g_pty_read_buf[i];
+                if (c >= 32 && c < 127) fputc(c, tf);
+                else fprintf(tf, "\\x%02x", c);
+            }
+            fputc('\n', tf);
+            fclose(tf);
         }
     }
 
     return (long)g_pty_read_len;
+}
+
+// Test entry: apply alt_screen_rewrite to caller-supplied bytes. `plen`
+// is in/out (length may grow due to injection). Returns substitution count.
+long hexa_pty_alt_screen_rewrite_test(long ptr, long plen, long cap) {
+    int len = (int)plen;
+    int subs = alt_screen_rewrite((char *)(uintptr_t)ptr, &len, (int)cap);
+    return ((long)subs << 32) | (long)len;
 }
 
 long hexa_pty_read_byte(long idx) {
