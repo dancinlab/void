@@ -1918,8 +1918,37 @@ static int toolbar_button_at(NSPoint p, NSRect bounds) {
 - (void)flagsChanged:(NSEvent *)e {}
 @end
 
+// ── Forward decls for the delegate hidden-sessions handlers ──
+//
+// The void-server client glue + VsSessionEntry / g_vs_list live further
+// down in the file so they can reference TermCell et al. without
+// duplicating the typedefs. The delegate methods here reference them,
+// so we need prototypes + an opaque declaration of the g_vs_list shape
+// up here. The real definitions remain the canonical ones.
+typedef struct VsSessionEntry_ {
+    char id[32];
+    char label[64];
+    char cwd[256];
+    char processes[1024];
+    int  proc_count;
+} VsSessionEntry;
+#define VS_LIST_MAX 64
+extern VsSessionEntry g_vs_list[VS_LIST_MAX];
+extern int g_vs_list_count;
+static int  void_server_enabled(void);
+static int  void_server_list(void);
+static int  void_server_attach(const char id[32], int *out_fd,
+                               int *out_rows, int *out_cols);
+static void tab_clear_grid(TermCell grid[TERM_MAX_ROWS][TERM_MAX_COLS]);
+static void void_tabs_renumber_profiles(void);
+
 // ── App delegate ──
 @interface HexaTermDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate>
+// Hidden-sessions submenu (보기 > 숨은 세션). The delegate retains this
+// menu so menuNeedsUpdate: can rebuild its items every time the user
+// opens it. The menu itself is created and wired to this property
+// during menu-bar init in hexa_appkit_init_term.
+@property(nonatomic, retain) NSMenu *hiddenSessionsMenu;
 // Menu bar action targets — thin wrappers over the same flags the
 // Cmd-intercept path uses.
 - (void)menuNewTab:(id)sender;
@@ -1940,6 +1969,7 @@ static int toolbar_button_at(NSPoint p, NSRect bounds) {
 - (void)menuAttachHiddenSession:(id)sender;
 @end
 @implementation HexaTermDelegate
+@synthesize hiddenSessionsMenu = _hiddenSessionsMenu;
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)s { return YES; }
 - (void)applicationWillTerminate:(NSNotification *)n { g_term_quit = 1; }
 - (void)windowWillClose:(NSNotification *)n { g_term_quit = 1; }
@@ -2029,6 +2059,180 @@ static int toolbar_button_at(NSPoint p, NSRect bounds) {
     g_tab_cmd = 3;
     g_full_redraw = 1;
     clear_active_alarm();
+    if (g_window) [[g_window contentView] setNeedsDisplay:YES];
+}
+
+// ── Hidden-sessions (숨은 세션) submenu ──
+//
+// Fired whenever the user opens the 보기 > 숨은 세션 submenu. We query
+// the void-server for every live session it holds, skip the ones that
+// are already attached in this window (session_id matches a live tab),
+// and build one NSMenuItem per remaining entry. Clicking an entry sends
+// ATTACH and materialises a fresh tab in the window.
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    if (menu != self.hiddenSessionsMenu) return;
+    [menu removeAllItems];
+    if (!void_server_enabled()) {
+        NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:@"서버 비활성화"
+                                                    action:nil
+                                             keyEquivalent:@""];
+        [it setEnabled:NO];
+        [menu addItem:it];
+        return;
+    }
+    int n = void_server_list();
+    if (n < 0) {
+        NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:@"서버 연결 실패"
+                                                    action:nil
+                                             keyEquivalent:@""];
+        [it setEnabled:NO];
+        [menu addItem:it];
+        return;
+    }
+    int added = 0;
+    for (int i = 0; i < n && i < VS_LIST_MAX; i++) {
+        // Skip tombstones (empty label) — the daemon keeps dead sessions
+        // around briefly for diagnostics, but they can't be attached.
+        if (g_vs_list[i].label[0] == 0) continue;
+        // Skip entries that match a live tab's session_id — they're
+        // already attached in this window and would double up.
+        int live = 0;
+        for (int t = 0; t < g_num_tabs; t++) {
+            if (!g_tabs[t].used) continue;
+            if (g_tabs[t].session_id[0] == 0) continue;
+            if (memcmp(g_tabs[t].session_id, g_vs_list[i].id, 32) == 0) {
+                live = 1;
+                break;
+            }
+        }
+        if (live) continue;
+
+        // "label  —  processes" — processes truncated to 40 chars so the
+        // menu width stays bounded on long command lines.
+        char procs[64];
+        const char *src = g_vs_list[i].processes;
+        size_t plen = strlen(src);
+        if (plen > 40) {
+            memcpy(procs, src, 37);
+            procs[37] = '.';
+            procs[38] = '.';
+            procs[39] = '.';
+            procs[40] = 0;
+        } else {
+            memcpy(procs, src, plen + 1);
+        }
+        char title_buf[256];
+        if (procs[0])
+            snprintf(title_buf, sizeof(title_buf), "%s  —  %s",
+                     g_vs_list[i].label, procs);
+        else
+            snprintf(title_buf, sizeof(title_buf), "%s", g_vs_list[i].label);
+        NSString *t = [NSString stringWithUTF8String:title_buf];
+        if (!t) t = @"(invalid)";
+        NSMenuItem *it = [[NSMenuItem alloc]
+            initWithTitle:t
+                   action:@selector(menuAttachHiddenSession:)
+            keyEquivalent:@""];
+        [it setTarget:self];
+        NSData *idData = [NSData dataWithBytes:g_vs_list[i].id length:32];
+        [it setRepresentedObject:idData];
+        [menu addItem:it];
+        added++;
+    }
+    if (added == 0) {
+        NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:@"숨겨진 세션 없음"
+                                                    action:nil
+                                             keyEquivalent:@""];
+        [it setEnabled:NO];
+        [menu addItem:it];
+    }
+}
+
+// Attach an existing server session as a new tab in this window.
+// Called from the dynamic 숨은 세션 submenu — sender.representedObject
+// is the 32-byte session_id as NSData.
+- (void)menuAttachHiddenSession:(id)sender {
+    NSMenuItem *item = (NSMenuItem *)sender;
+    NSData *d = [item representedObject];
+    if (!d || [d length] != 32) return;
+    char sid[32];
+    memcpy(sid, [d bytes], 32);
+    if (g_num_tabs >= MAX_TABS) return;
+
+    int fd = -1, rows = 0, cols = 0;
+    if (void_server_attach(sid, &fd, &rows, &cols) != 0) return;
+
+    // Save the current active tab's live grid so we can switch away
+    // without losing its cursor/cells.
+    if (g_active_tab >= 0 && g_active_tab < g_num_tabs) {
+        memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+        g_tabs[g_active_tab].cur_row = g_term_cur_row;
+        g_tabs[g_active_tab].cur_col = g_term_cur_col;
+    }
+
+    int idx = g_num_tabs;
+    memset(&g_tabs[idx], 0, sizeof(VoidTab));
+    g_tabs[idx].used         = 1;
+    g_tabs[idx].pty_fd       = fd;
+    g_tabs[idx].pid          = 0;              // server owns the shell
+    g_tabs[idx].is_blank     = 0;
+    g_tabs[idx].title_locked = 1;
+    memcpy(g_tabs[idx].session_id, sid, 32);
+    // Pull the title from the entry we just clicked — find it again in
+    // g_vs_list by id so we get the freshest label.
+    for (int i = 0; i < g_vs_list_count; i++) {
+        if (memcmp(g_vs_list[i].id, sid, 32) == 0) {
+            snprintf(g_tabs[idx].title,        sizeof(g_tabs[idx].title),
+                     "%s", g_vs_list[i].label);
+            snprintf(g_tabs[idx].profile_base, sizeof(g_tabs[idx].profile_base),
+                     "%s", g_vs_list[i].label);
+            snprintf(g_tabs[idx].cwd,          sizeof(g_tabs[idx].cwd),
+                     "%s", g_vs_list[i].cwd);
+            break;
+        }
+    }
+    tab_clear_grid(g_tabs[idx].grid);
+    g_tabs[idx].cur_row = 0;
+    g_tabs[idx].cur_col = 0;
+    for (int s = 0; s < SB_MAX_SECTIONS; s++) {
+        g_tabs[idx].sb[s].cells = NULL;
+        g_tabs[idx].sb[s].lines = 0;
+    }
+    g_tabs[idx].sb_head = 0;
+    g_tabs[idx].sb_num  = 0;
+    g_tabs[idx].sb_total = 0;
+    g_tabs[idx].has_alarm = 0;
+    g_tabs[idx].tile_rows = g_term_rows;
+    g_tabs[idx].tile_cols = g_term_cols;
+    g_tabs[idx].bg_cur_row = 0;
+    g_tabs[idx].bg_cur_col = 0;
+    g_tabs[idx].bg_esc_state = 0;
+
+    g_num_tabs++;
+    g_active_tab = idx;
+    void_tabs_renumber_profiles();
+
+    // Clear the active rendering grid so the reattached shell redraws
+    // from scratch (we discarded the server's grid payload on purpose —
+    // most full-screen TUIs repaint on SIGWINCH / focus-in).
+    tab_clear_grid(g_term_grid);
+    g_term_cur_row = 0;
+    g_term_cur_col = 0;
+
+    // Force the PTY to match our current window size.
+    struct winsize ws;
+    ws.ws_row = (unsigned short)g_term_rows;
+    ws.ws_col = (unsigned short)g_term_cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+    ioctl(fd, TIOCSWINSZ, &ws);
+
+    // Signal hexa's main loop to rebuild VT state and full-redraw.
+    g_tab_cmd = 3;
+    g_resized = 1;
+    g_full_redraw = 1;
+    g_eff_tab_bar_w_cache = -1;
+    if (g_layout_mode == LAYOUT_GRID) g_layout_dirty = 1;
     if (g_window) [[g_window contentView] setNeedsDisplay:YES];
 }
 @end
@@ -2459,18 +2663,12 @@ fail:
 }
 
 // ── LIST + ATTACH client helpers ─────────────────────────────────────
-
-typedef struct {
-    char id[32];
-    char label[64];
-    char cwd[256];
-    char processes[1024];
-    int  proc_count;
-} VsSessionEntry;
-
-#define VS_LIST_MAX 64
-static VsSessionEntry g_vs_list[VS_LIST_MAX];
-static int g_vs_list_count = 0;
+//
+// VsSessionEntry + VS_LIST_MAX are forward-declared up near the
+// HexaTermDelegate interface so the delegate can use them. Here we
+// only define the backing globals and the client functions.
+VsSessionEntry g_vs_list[VS_LIST_MAX];
+int g_vs_list_count = 0;
 
 // Query the server for all live sessions. Fills g_vs_list. Returns the
 // count or -1 on error.
@@ -2483,21 +2681,28 @@ static int void_server_list(void) {
     if (vs_read_exact(g_server_sock, rhdr, sizeof(rhdr)) < 0) goto fail;
     if (rhdr[0] != VS_MAGIC_CLIENT) goto fail;
     uint32_t blen = rhdr[2];
-    if (blen < 4 || blen > (1 << 20)) { g_vs_list_count = 0; return 0; }
+    if (blen < 12 || blen > (1 << 20)) { g_vs_list_count = 0; return 0; }
 
     char *buf = (char *)malloc(blen);
     if (!buf) goto fail;
     if (vs_read_exact(g_server_sock, buf, blen) < 0) { free(buf); goto fail; }
 
+    // Wire format extended by the binary-watcher agent:
+    //   uint64 current_binary_mtime (ignored by the client — server-internal)
+    //   uint32 n
+    //   n × (id[32] label[64] cwd[256] uint32 proc_count names[32*32]
+    //        uint64 last_attach_mtime)
+    // Old format (no mtime prefix, no last_attach trailer) is no longer
+    // emitted — server and client always ship together in the same
+    // binary so no compatibility shim is needed.
     uint32_t n = 0;
-    memcpy(&n, buf, 4);
+    memcpy(&n, buf + 8, 4);
     if (n > VS_LIST_MAX) n = VS_LIST_MAX;
-    // Layout per entry must match void_server.c handle_list:
-    //   id[32] label[64] cwd[256] uint32 proc_count names[32*32]
-    const size_t each = 32 + 64 + 256 + 4 + 32 * 32;
-    char *p = buf + 4;
+    const size_t each = 32 + 64 + 256 + 4 + 32 * 32 + 8; // +8 for last_attach_mtime
+    char *p = buf + 8 + 4;
+    char *buf_end = buf + blen;
     for (uint32_t i = 0; i < n; i++) {
-        if ((size_t)(p - buf) + each > blen) break;
+        if ((size_t)(buf_end - p) < each) break;
         memcpy(g_vs_list[i].id,    p,               32);
         memcpy(g_vs_list[i].label, p + 32,          64);
         memcpy(g_vs_list[i].cwd,   p + 32 + 64,     256);
@@ -2506,7 +2711,6 @@ static int void_server_list(void) {
         g_vs_list[i].proc_count = (int)pc;
         snprintf(g_vs_list[i].processes, sizeof(g_vs_list[i].processes),
                  "%s", p + 32 + 64 + 256 + 4);
-        // Null-terminate fixed-size char arrays just in case
         g_vs_list[i].id[31] = 0;
         g_vs_list[i].label[63] = 0;
         g_vs_list[i].cwd[255] = 0;
@@ -2789,6 +2993,81 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         NSView *tv = [[HexaTermView alloc] initWithFrame:frame];
         [g_window setContentView:tv];
         [g_window makeFirstResponder:tv];
+
+        // ── Auto-attach on startup ───────────────────────────────────
+        //
+        // When void-server is enabled and the shadow-restore path did
+        // NOT already populate g_tabs[] (so this is a fresh launch, not
+        // a hot-swap), query the server for every live session and
+        // attach each one as a tab in this window. This is the
+        // "재실행시 세션 그대로" flow: edit src → auto-build hook
+        // rebuilds + relaunches → new void_term attaches to every
+        // existing session → user sees tabs already populated.
+        //
+        // If at least one session is attached, we reuse the existing
+        // shadow-restore swallow path (set g_shadow_restored = 1) so
+        // hexa_tab_new's first call from main() becomes a no-op and
+        // doesn't spawn a redundant blank tab on top of the restored
+        // ones.
+        if (!is_shadow && void_server_enabled()) {
+            int n = void_server_list();
+            int attached = 0;
+            for (int i = 0; i < n && i < VS_LIST_MAX &&
+                            g_num_tabs < MAX_TABS; i++) {
+                if (g_vs_list[i].label[0] == 0) continue;
+                int fd = -1, rows = 0, cols = 0;
+                if (void_server_attach(g_vs_list[i].id, &fd, &rows, &cols) != 0)
+                    continue;
+                int idx = g_num_tabs;
+                memset(&g_tabs[idx], 0, sizeof(VoidTab));
+                g_tabs[idx].used         = 1;
+                g_tabs[idx].pty_fd       = fd;
+                g_tabs[idx].pid          = 0;
+                g_tabs[idx].is_blank     = 0;
+                g_tabs[idx].title_locked = 1;
+                memcpy(g_tabs[idx].session_id, g_vs_list[i].id, 32);
+                snprintf(g_tabs[idx].title,        sizeof(g_tabs[idx].title),
+                         "%s", g_vs_list[i].label);
+                snprintf(g_tabs[idx].profile_base, sizeof(g_tabs[idx].profile_base),
+                         "%s", g_vs_list[i].label);
+                snprintf(g_tabs[idx].cwd,          sizeof(g_tabs[idx].cwd),
+                         "%s", g_vs_list[i].cwd);
+                tab_clear_grid(g_tabs[idx].grid);
+                for (int s = 0; s < SB_MAX_SECTIONS; s++) {
+                    g_tabs[idx].sb[s].cells = NULL;
+                    g_tabs[idx].sb[s].lines = 0;
+                }
+                g_tabs[idx].sb_head = 0;
+                g_tabs[idx].sb_num  = 0;
+                g_tabs[idx].sb_total = 0;
+                g_tabs[idx].tile_rows = g_term_rows;
+                g_tabs[idx].tile_cols = g_term_cols;
+                // Tell the shell the current window size so it redraws
+                // at the right dimensions (we discarded the server's
+                // cached grid — most TUIs repaint on SIGWINCH).
+                struct winsize ws;
+                ws.ws_row = (unsigned short)g_term_rows;
+                ws.ws_col = (unsigned short)g_term_cols;
+                ws.ws_xpixel = 0;
+                ws.ws_ypixel = 0;
+                ioctl(fd, TIOCSWINSZ, &ws);
+                g_num_tabs++;
+                attached++;
+            }
+            if (attached > 0) {
+                g_active_tab = 0;
+                void_tabs_renumber_profiles();
+                tab_clear_grid(g_term_grid);
+                g_term_cur_row = 0;
+                g_term_cur_col = 0;
+                // Reuse the shadow-restore swallow mechanism so
+                // hexa_tab_new's initial call returns the active tab
+                // without spawning a redundant blank tab.
+                g_shadow_restored = 1;
+                g_full_redraw = 1;
+            }
+        }
+
         // Shadow process keeps its window off-screen until the parent
         // hands over (RDY/GO protocol). Everyone else shows it now.
         if (!is_shadow) {
@@ -2858,7 +3137,13 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             MI(em, @"찾기",         @selector(menuFind:),       @"f");
         }
 
-        // View menu — layout + zoom
+        // View menu — layout + zoom + 숨은 세션 submenu.
+        //
+        // 숨은 세션 lists every void-server session NOT currently
+        // attached as a live tab in this window, so the user can
+        // re-materialise any background shell without having to
+        // remember its ULID. The submenu delegate rebuilds the items
+        // on every open via menuNeedsUpdate:.
         {
             NSMenuItem *mi = [[NSMenuItem alloc] init];
             [mb addItem:mi];
@@ -2872,6 +3157,17 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             MI(vm, @"확대",         @selector(menuZoomIn:),        @"=");
             MI(vm, @"축소",         @selector(menuZoomOut:),       @"-");
             MI(vm, @"원래 크기",    @selector(menuZoomReset:),     @"0");
+
+            // 숨은 세션 dynamic submenu (populated on open).
+            NSMenuItem *hs = [[NSMenuItem alloc] initWithTitle:@"숨은 세션"
+                                                        action:nil
+                                                 keyEquivalent:@""];
+            NSMenu *hsMenu = [[NSMenu alloc] initWithTitle:@"숨은 세션"];
+            [hsMenu setDelegate:g_term_delegate];
+            [hs setSubmenu:hsMenu];
+            g_term_delegate.hiddenSessionsMenu = hsMenu;
+            [vm addItem:[NSMenuItem separatorItem]];
+            [vm addItem:hs];
         }
 
         // Window menu — macOS populates standard window items here
@@ -3116,14 +3412,25 @@ static int tab_become_profile(int idx, VoidProfile *vp) {
 // The user picks a profile via Cmd+Ctrl+N which then converts the blank
 // in place via tab_become_profile, so the app opens with zero clutter.
 long hexa_tab_new(void) {
-    // Shadow restore swallow: after a hot-swap the parent already
-    // wrote the restored tabs into g_tabs[], and hexa's main() still
-    // calls hexa_tab_new() once for the "initial" tab. We return the
-    // restored active tab without spawning anything. Subsequent calls
-    // (Cmd+T, profile shortcuts) take the normal path.
+    // Blank-initial rule: the first tab is always a real working shell
+    // (so ssh/git/etc. are immediately usable) but flagged is_blank so
+    // a profile shortcut can convert it in place — UNTIL the user types
+    // anything. The is_blank flag is cleared by hexa_keys_to_pty the
+    // moment the first keystroke flows to the PTY.
+    static int g_initial_tab_done = 0;
+
+    // Shadow restore swallow: after a hot-swap (or fresh-launch auto-
+    // attach) the parent already wrote the restored tabs into g_tabs[],
+    // and hexa's main() still calls hexa_tab_new() once for the
+    // "initial" tab. We return the restored active tab without spawning
+    // anything. Subsequent calls (Cmd+T, profile shortcuts) take the
+    // normal path — and since we already have real tabs, the next
+    // Cmd+T should NOT produce a blank initial tab, so we mark
+    // g_initial_tab_done here as well.
     static int g_shadow_restore_swallowed = 0;
     if (g_shadow_restored && !g_shadow_restore_swallowed) {
         g_shadow_restore_swallowed = 1;
+        g_initial_tab_done = 1;
         // Signal hexa to reload its VT state from the restored grid.
         g_resized = 1;
         g_full_redraw = 1;
@@ -3144,12 +3451,6 @@ long hexa_tab_new(void) {
     VoidProfile *vp = g_pending_profile;
     g_pending_profile = NULL;
 
-    // Blank-initial rule: the first tab is always a real working shell
-    // (so ssh/git/etc. are immediately usable) but flagged is_blank so
-    // a profile shortcut can convert it in place — UNTIL the user types
-    // anything. The is_blank flag is cleared by hexa_keys_to_pty the
-    // moment the first keystroke flows to the PTY.
-    static int g_initial_tab_done = 0;
     int make_blank = (!g_initial_tab_done && !vp);
     g_initial_tab_done = 1;
 
