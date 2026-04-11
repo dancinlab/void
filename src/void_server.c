@@ -132,11 +132,31 @@ typedef struct {
     // block; recalc lazily when the section has been written since last hash.
     uint64_t section_hash[VS_GRID_ROWS / VS_SECTION_LINES + 1];
     int      section_dirty[VS_GRID_ROWS / VS_SECTION_LINES + 1];
+    // Snapshot of the binary mtime (ns) at the moment this session was
+    // last attached. Clients can diff this against current_binary_mtime
+    // in LIST responses to know whether a hot-swap happened while they
+    // were detached — if so, the client can trigger a clean reconnect.
+    uint64_t last_attach_mtime;
 } VsSession;
 
 static VsSession g_sessions[VS_MAX_SESSIONS];
 static int       g_sock_listen = -1;
 static int       g_shutdown   = 0;
+
+// ── binary watcher state ────────────────────────────────────────────
+//
+// kqueue-based EVFILT_VNODE watcher on the void_term binary path. When
+// the auto-build hook replaces the binary, we want to log the swap so
+// the server can prepare for clean reconnects (a future phase will also
+// spawn a shadow void_term with --prewarm). If kqueue registration ever
+// fails we fall back to polling stat() mtime every main-loop tick.
+#define VS_BINWATCH_PATH "/Applications/VOID.app/Contents/MacOS/void_term"
+#define VS_BINWATCH_LOG  "/tmp/void_server_binwatch.log"
+
+static int  g_binwatch_kq = -1;
+static int  g_binwatch_fd = -1;
+static long g_binary_mtime_ns = 0;   // last observed mtime in ns
+static int  g_binwatch_poll_fallback = 0;
 
 // ── util ─────────────────────────────────────────────────────────────
 
@@ -172,6 +192,173 @@ static uint64_t fnv1a64(const void *data, size_t len) {
         h *= 0x100000001b3ULL;
     }
     return h;
+}
+
+// ── binary watcher ──────────────────────────────────────────────────
+
+// Append a line to the binwatch log with a human-readable timestamp and
+// the supplied message. Best-effort — errors are swallowed.
+static void binwatch_log(const char *msg) {
+    int fd = open(VS_BINWATCH_LOG, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd < 0) return;
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    struct tm tmv;
+    localtime_r(&ts.tv_sec, &tmv);
+    char line[512];
+    int n = snprintf(line, sizeof(line),
+                     "%04d-%02d-%02d %02d:%02d:%02d.%03ld %s\n",
+                     tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+                     tmv.tm_hour, tmv.tm_min, tmv.tm_sec,
+                     ts.tv_nsec / 1000000L, msg);
+    if (n > 0) (void)!write(fd, line, (size_t)n);
+    close(fd);
+}
+
+// stat() the binary path and return the mtime as a single ns counter.
+// Returns 0 on failure.
+static long binwatch_stat_mtime_ns(void) {
+    struct stat st;
+    if (stat(VS_BINWATCH_PATH, &st) != 0) return 0;
+#ifdef __APPLE__
+    return (long)st.st_mtimespec.tv_sec * 1000000000L + st.st_mtimespec.tv_nsec;
+#else
+    return (long)st.st_mtime * 1000000000L;
+#endif
+}
+
+// Speculative prewarm hook — stub. A future implementation would spawn
+// a shadow void_term with --prewarm so the next client attach is hot.
+// That needs client-side cooperation (a --prewarm flag that parks the
+// app without opening a window) which isn't in scope yet.
+// TODO: spawn "/Applications/VOID.app/Contents/MacOS/void_term --prewarm"
+// via posix_spawn + setsid so it outlives us.
+static void prewarm_shadow_void_term(void) {
+    binwatch_log("[prewarm] triggered (stub — no-op until client cooperation)");
+}
+
+// (Re)open the watched binary and register the vnode filter. Safe to
+// call multiple times; existing fd/kq are reused when possible.
+static int binwatch_register_filter(void) {
+    if (g_binwatch_kq < 0 || g_binwatch_fd < 0) return -1;
+    struct kevent kev;
+    EV_SET(&kev, g_binwatch_fd, EVFILT_VNODE,
+           EV_ADD | EV_ENABLE | EV_CLEAR,
+           NOTE_WRITE | NOTE_ATTRIB | NOTE_DELETE | NOTE_RENAME,
+           0, NULL);
+    if (kevent(g_binwatch_kq, &kev, 1, NULL, 0, NULL) < 0) return -1;
+    return 0;
+}
+
+// Open the binary path with O_EVTONLY and create the kqueue. Called once
+// from main() after bind_listener(). On failure, sets the polling flag
+// so the loop can fall back to stat() comparisons.
+static void binwatch_init(void) {
+    g_binary_mtime_ns = binwatch_stat_mtime_ns();
+
+    g_binwatch_fd = open(VS_BINWATCH_PATH, O_EVTONLY);
+    if (g_binwatch_fd < 0) {
+        binwatch_log("[init] open(O_EVTONLY) failed — using stat() poll fallback");
+        g_binwatch_poll_fallback = 1;
+        return;
+    }
+    g_binwatch_kq = kqueue();
+    if (g_binwatch_kq < 0) {
+        close(g_binwatch_fd);
+        g_binwatch_fd = -1;
+        binwatch_log("[init] kqueue() failed — using stat() poll fallback");
+        g_binwatch_poll_fallback = 1;
+        return;
+    }
+    if (binwatch_register_filter() < 0) {
+        close(g_binwatch_fd);
+        close(g_binwatch_kq);
+        g_binwatch_fd = -1;
+        g_binwatch_kq = -1;
+        binwatch_log("[init] EVFILT_VNODE register failed — using stat() poll fallback");
+        g_binwatch_poll_fallback = 1;
+        return;
+    }
+    binwatch_log("[init] kqueue watcher armed on " VS_BINWATCH_PATH);
+}
+
+// If the previous fd was invalidated (rename/delete/atomic replace),
+// close it and re-open the path so subsequent events still fire. Returns
+// 0 on success, -1 if the binary is currently missing.
+static int binwatch_reopen(void) {
+    if (g_binwatch_fd >= 0) {
+        close(g_binwatch_fd);
+        g_binwatch_fd = -1;
+    }
+    g_binwatch_fd = open(VS_BINWATCH_PATH, O_EVTONLY);
+    if (g_binwatch_fd < 0) return -1;
+    if (binwatch_register_filter() < 0) {
+        close(g_binwatch_fd);
+        g_binwatch_fd = -1;
+        return -1;
+    }
+    return 0;
+}
+
+// Pump any pending kqueue events with a zero timeout. Called after each
+// select() tick. Logs the fired flags and updates g_binary_mtime_ns. If
+// the vnode was deleted or renamed, reopens the path so the filter keeps
+// firing on the replacement inode.
+static void binwatch_pump(void) {
+    if (g_binwatch_poll_fallback) {
+        long cur = binwatch_stat_mtime_ns();
+        if (cur > 0 && cur != g_binary_mtime_ns) {
+            char msg[256];
+            snprintf(msg, sizeof(msg),
+                     "[poll] mtime changed %ld -> %ld (stat fallback)",
+                     g_binary_mtime_ns, cur);
+            binwatch_log(msg);
+            g_binary_mtime_ns = cur;
+            prewarm_shadow_void_term();
+        }
+        return;
+    }
+    if (g_binwatch_kq < 0) return;
+
+    struct kevent events[4];
+    struct timespec zero = {0, 0};
+    int n = kevent(g_binwatch_kq, NULL, 0, events, 4, &zero);
+    if (n <= 0) return;
+
+    for (int i = 0; i < n; i++) {
+        unsigned int f = events[i].fflags;
+        char flagstr[128];
+        int pos = 0;
+        flagstr[0] = 0;
+        if (f & NOTE_WRITE)  pos += snprintf(flagstr + pos, sizeof(flagstr) - pos, "%sNOTE_WRITE",  pos ? "|" : "");
+        if (f & NOTE_ATTRIB) pos += snprintf(flagstr + pos, sizeof(flagstr) - pos, "%sNOTE_ATTRIB", pos ? "|" : "");
+        if (f & NOTE_DELETE) pos += snprintf(flagstr + pos, sizeof(flagstr) - pos, "%sNOTE_DELETE", pos ? "|" : "");
+        if (f & NOTE_RENAME) pos += snprintf(flagstr + pos, sizeof(flagstr) - pos, "%sNOTE_RENAME", pos ? "|" : "");
+        if (!pos) snprintf(flagstr, sizeof(flagstr), "0x%x", f);
+
+        long new_mtime = binwatch_stat_mtime_ns();
+        char msg[384];
+        snprintf(msg, sizeof(msg),
+                 "[event] fflags=%s mtime=%ld (prev=%ld)",
+                 flagstr, new_mtime, g_binary_mtime_ns);
+        binwatch_log(msg);
+        if (new_mtime > 0) g_binary_mtime_ns = new_mtime;
+
+        if (f & NOTE_WRITE) {
+            prewarm_shadow_void_term();
+        }
+        if (f & (NOTE_DELETE | NOTE_RENAME)) {
+            // Atomic replace (mv new old) invalidates our fd — reopen
+            // so the next build still fires events.
+            if (binwatch_reopen() == 0) {
+                binwatch_log("[event] reopened binary after DELETE/RENAME");
+                long m2 = binwatch_stat_mtime_ns();
+                if (m2 > 0) g_binary_mtime_ns = m2;
+            } else {
+                binwatch_log("[event] reopen failed — binary path missing");
+            }
+        }
+    }
 }
 
 // ── semantic labeling ────────────────────────────────────────────────
@@ -576,6 +763,7 @@ static int handle_spawn(int client_fd, const char *body, uint32_t len) {
         derive_label(s->cwd, cmd, s->shell_pid, s->label);
 
     s->attached_client_fd = client_fd;
+    s->last_attach_mtime = (uint64_t)g_binary_mtime_ns;
 
     // Response: session_id
     char resp[32 + 4] = {0};
@@ -609,6 +797,7 @@ static int handle_attach(int client_fd, const char *body, uint32_t len) {
         return 0;
     }
     s->attached_client_fd = client_fd;
+    s->last_attach_mtime = (uint64_t)g_binary_mtime_ns;
     // Response: rows, cols, grid_bytes, grid
     size_t body_len = 2 + 2 + 4 + sizeof(s->grid);
     char *resp = (char *)malloc(body_len);
@@ -646,10 +835,18 @@ static int handle_list(int client_fd, const char *body, uint32_t len) {
     for (int i = 0; i < VS_MAX_SESSIONS; i++)
         if (g_sessions[i].used) n++;
 
-    size_t each = 32 + 64 + 256 + 4 + 32 * 32;
-    size_t body_len = 4 + n * each;
+    // Header area: current_binary_mtime (uint64) + n (uint32). Older
+    // clients that only read the first 4 bytes as `n` will see a bogus
+    // count, so we put the mtime FIRST and leave n right after. A new
+    // client decodes both; old clients need a recompile anyway because
+    // of this layout change. Since void_term ships with the server in
+    // the same build, this is always safe (hot-swap is atomic).
+    size_t each = 32 + 64 + 256 + 4 + 32 * 32 + 8;
+    size_t body_len = 8 + 4 + n * each;
     char *resp = (char *)calloc(1, body_len);
     char *p = resp;
+    uint64_t cur_mtime = (uint64_t)g_binary_mtime_ns;
+    memcpy(p, &cur_mtime, 8); p += 8;
     memcpy(p, &n, 4); p += 4;
     for (int i = 0; i < VS_MAX_SESSIONS; i++) {
         VsSession *s = &g_sessions[i];
@@ -668,6 +865,11 @@ static int handle_list(int client_fd, const char *body, uint32_t len) {
         // the concatenated string.
         snprintf(p, 32 * 32, "%s", names);
         p += 32 * 32;
+        // Per-session attach mtime — new clients diff against the
+        // header's current_binary_mtime to know if a hot-swap happened
+        // while this session was detached.
+        uint64_t atm = s->last_attach_mtime;
+        memcpy(p, &atm, 8); p += 8;
     }
     send_response(client_fd, 0, resp, body_len, -1);
     free(resp);
@@ -877,6 +1079,7 @@ int main(int argc, char **argv) {
     }
     scan_and_restore_checkpoints();
     g_sock_listen = bind_listener();
+    binwatch_init();
 
     // Main loop: select() on listen socket + all client fds, with short
     // timeout so we can pump PTYs between events.
@@ -889,6 +1092,9 @@ int main(int argc, char **argv) {
         pump_sessions();
         struct timeval tv = { 0, 50000 }; // 50 ms
         int r = select(maxfd + 1, &rfds, NULL, NULL, &tv);
+        // kqueue pump regardless of select outcome — we want binary
+        // events processed on every tick, not just on client activity.
+        binwatch_pump();
         if (r < 0) { if (errno == EINTR) continue; break; }
         if (FD_ISSET(g_sock_listen, &rfds)) {
             int c = accept(g_sock_listen, NULL, NULL);
