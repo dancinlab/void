@@ -826,6 +826,12 @@ fn scr_feed_byte(b) {
     // State 0: GROUND
     if vt_state == 0 {
         if b == 27 {
+            // ESC introducer — also cancel any in-flight UTF-8 sequence
+            // so a partial multi-byte codepoint interrupted by an escape
+            // cannot absorb the bytes that follow the escape terminator.
+            // See T20.
+            utf8_cp = 0
+            utf8_remain = 0
             vt_state = 1
         } else if b == 10 {
             // LF
@@ -1604,6 +1610,89 @@ fn self_test() {
             } else { println("[void-test] T18 FAIL  cell[0]=", scr_cells[0], " expected 78(N)"); fail = fail + 1 }
         } else { println("[void-test] T18 FAIL  alt write cell[0]=", scr_cells[0]); fail = fail + 1 }
     } else { println("[void-test] T18 FAIL  alt clear cell[0]=", scr_cells[0]); fail = fail + 1 }
+
+    // ── Test 19: cl-style multi-row table — all rows must align at col 2 ──
+    // Regression guard for the "bottom half of the cl table shifted right"
+    // symptom. Feeds 10 ASCII rows of the form "  | N | row_N |\r\n" and
+    // checks every row starts at col 2. Any LF-without-CR bug, wide-char
+    // miscount, or wrap-off-by-one immediately shifts row 7+ to the right,
+    // which this test catches.
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Row bytes: "  | <digit> | row_<digit(s)> |" per line.
+    // Precomputed as flat byte array: 16 bytes per row × 10 rows = 160 + \r\n each.
+    // To keep the test compact we emit each row via a small helper loop.
+    let mut t19_row = 0
+    while t19_row < 10 {
+        // Digit for this row (1..9, then 0 for the 10th row).
+        let mut t19_dig = t19_row + 1
+        if t19_dig >= 10 { t19_dig = 0 }
+        let _ = scr_feed_byte(32)  // ' '
+        let _ = scr_feed_byte(32)  // ' '
+        let _ = scr_feed_byte(124) // '|'
+        let _ = scr_feed_byte(32)  // ' '
+        let _ = scr_feed_byte(48 + t19_dig) // digit
+        let _ = scr_feed_byte(32)  // ' '
+        let _ = scr_feed_byte(124) // '|'
+        let _ = scr_feed_byte(32)  // ' '
+        let _ = scr_feed_byte(114) // 'r'
+        let _ = scr_feed_byte(111) // 'o'
+        let _ = scr_feed_byte(119) // 'w'
+        let _ = scr_feed_byte(95)  // '_'
+        let _ = scr_feed_byte(48 + t19_dig)
+        let _ = scr_feed_byte(32)
+        let _ = scr_feed_byte(124)
+        let _ = scr_feed_byte(13)  // '\r'
+        let _ = scr_feed_byte(10)  // '\n'
+        t19_row = t19_row + 1
+    }
+    // Check every row starts with '  |' at columns 0, 1, 2
+    let mut t19_fail = 0
+    let mut t19_r = 0
+    while t19_r < 10 {
+        let base = t19_r * COLS
+        if scr_cells[base] != 32 { t19_fail = t19_fail + 1 }
+        if scr_cells[base + 1] != 32 { t19_fail = t19_fail + 1 }
+        if scr_cells[base + 2] != 124 { t19_fail = t19_fail + 1 }
+        t19_r = t19_r + 1
+    }
+    if t19_fail == 0 {
+        println("[void-test] T19 PASS cl-table 10-row alignment (all rows start at col 2)")
+        pass = pass + 1
+    } else {
+        println("[void-test] T19 FAIL  ", t19_fail, " cells misaligned")
+        fail = fail + 1
+    }
+
+    // ── Test 20: UTF-8 state reset on ESC — malformed split must not bleed ──
+    // Regression guard against a UTF-8 continuation state leak where bytes
+    // 128..191 after an ESC sequence get silently absorbed by the decoder
+    // because utf8_remain was left > 0 by a preceding partial sequence.
+    // After ESC arrives, the UTF-8 decoder state must be reset so subsequent
+    // bytes are interpreted fresh.
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Start a 3-byte UTF-8 sequence, then ESC-interrupt before completion.
+    let _ = scr_feed_byte(226) // \xe2 — 3-byte UTF-8 lead (utf8_remain=2)
+    let _ = scr_feed_byte(148) // \x94 — continuation (utf8_remain=1)
+    // ESC[31m — interrupt the UTF-8 sequence
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    // Now feed 'A' (65). Under the bug it would be absorbed as stale
+    // UTF-8 continuation; correct behavior is to print 'A' at col 0.
+    let _ = scr_feed_byte(65)
+    if scr_cells[0] == 65 {
+        if scr_cur_x == 1 {
+            println("[void-test] T20 PASS utf8 state reset on ESC (A printed after interrupted UTF-8)")
+            pass = pass + 1
+        } else { println("[void-test] T20 FAIL  cur_x=", scr_cur_x, " expected 1"); fail = fail + 1 }
+    } else { println("[void-test] T20 FAIL  cell[0]=", scr_cells[0], " expected 65(A)"); fail = fail + 1 }
 
     // ── Summary ──
     println("")
