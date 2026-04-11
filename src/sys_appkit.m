@@ -592,6 +592,210 @@ static void term_key_push(const char *data, int len) {
     }
 }
 
+// ── Cmd+F scrollback search ──
+// State for the search overlay. Query is a UTF-8 byte buffer; matches hold
+// normalized positions in "virtual scrollback" space where line indices
+// 0..sb_total-1 refer to scrollback and sb_total..sb_total+rows-1 refer to
+// the live grid. A match spans `len` cells starting at `(line, col)`.
+#define SEARCH_QUERY_MAX   256
+#define SEARCH_MATCH_MAX   4096
+
+typedef struct {
+    int line;   // virtual line index (scrollback + live)
+    int col;    // column on that line
+    int len;    // cell count (needle length after wide-cell collapse)
+} SearchMatch;
+
+static int          g_search_active = 0;
+static char         g_search_query[SEARCH_QUERY_MAX] = {0};
+static int          g_search_query_len = 0;
+static int          g_search_cursor = 0;
+static int          g_search_match_count = 0;
+static SearchMatch  g_search_matches[SEARCH_MATCH_MAX];
+
+static inline int search_tolower_ascii(int c) {
+    if (c >= 'A' && c <= 'Z') return c + 32;
+    return c;
+}
+
+// Fetch a row of cells from the virtual scrollback space:
+//   line in [0, sb_total)           → scrollback line via sb_line_ptr
+//   line in [sb_total, sb_total+rows] → live g_term_grid row (line - sb_total)
+// Returns NULL if out of range.
+static TermCell *search_row_ptr(VoidTab *tab, int line) {
+    if (!tab) return NULL;
+    int sbn = tab->sb_total;
+    if (line < 0) return NULL;
+    if (line < sbn) return sb_line_ptr((struct VoidTab_ *)tab, line);
+    int r = line - sbn;
+    if (r >= 0 && r < g_term_rows && r < TERM_MAX_ROWS) return g_term_grid[r];
+    return NULL;
+}
+
+// Return the effective column count for a given row, trimmed so trailing
+// spaces aren't matched (so queries like "fail" match `fail<EOL>` without
+// needing to account for the row's padding).
+static int search_row_effective_cols(TermCell *row) {
+    if (!row) return 0;
+    int last = -1;
+    for (int c = 0; c < g_term_cols; c++) {
+        unichar ch = row[c].ch;
+        if (ch > ' ') last = c;
+    }
+    return last + 1;
+}
+
+// Linear scan over scrollback + live grid. ASCII-insensitive substring
+// match, wide-char continuation slots skipped when stepping through cells.
+// Populates g_search_matches[] up to SEARCH_MATCH_MAX. Clamps cursor.
+static void search_rescan(void) {
+    g_search_match_count = 0;
+    if (g_search_query_len <= 0) {
+        g_search_cursor = 0;
+        return;
+    }
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
+    VoidTab *tab = &g_tabs[g_active_tab];
+
+    int total_lines = tab->sb_total + g_term_rows;
+    int qlen = g_search_query_len;
+    // Lowercased needle, reused per haystack row.
+    char needle[SEARCH_QUERY_MAX];
+    for (int i = 0; i < qlen; i++)
+        needle[i] = (char)search_tolower_ascii((unsigned char)g_search_query[i]);
+
+    for (int line = 0; line < total_lines; line++) {
+        TermCell *row = search_row_ptr(tab, line);
+        if (!row) continue;
+        int ncols = search_row_effective_cols(row);
+        if (ncols < qlen) continue;
+        for (int c = 0; c + qlen <= ncols; c++) {
+            // Skip wide-char continuation slots as start positions.
+            if (row[c].flags & 0x20000) continue;
+            int k = 0;
+            int cc = c;
+            while (k < qlen && cc < ncols) {
+                // Skip continuation slot mid-comparison.
+                if (row[cc].flags & 0x20000) { cc++; continue; }
+                unichar uch = row[cc].ch;
+                int lch = search_tolower_ascii((int)uch);
+                if (lch != (unsigned char)needle[k]) break;
+                k++;
+                cc++;
+            }
+            if (k == qlen) {
+                if (g_search_match_count < SEARCH_MATCH_MAX) {
+                    g_search_matches[g_search_match_count].line = line;
+                    g_search_matches[g_search_match_count].col  = c;
+                    g_search_matches[g_search_match_count].len  = cc - c;
+                    g_search_match_count++;
+                }
+                // Advance past this match so overlapping starts don't
+                // bloat the list; matches how "Find" in most editors
+                // reports non-overlapping hits.
+                c = cc - 1;
+            }
+        }
+        if (g_search_match_count >= SEARCH_MATCH_MAX) break;
+    }
+    if (g_search_match_count == 0) {
+        g_search_cursor = 0;
+    } else if (g_search_cursor >= g_search_match_count) {
+        g_search_cursor = g_search_match_count - 1;
+    }
+}
+
+// After cursor move, set g_scroll_offset so the current match sits roughly
+// in the middle of the terminal grid. Scrollback offset is measured in
+// "lines from the top of scrollback that are visible" — the drawRect path
+// maps vline = sb_total - g_scroll_offset + row, so the top row of the
+// view is virtual line (sb_total - g_scroll_offset).
+static void search_center_current(void) {
+    if (g_search_match_count <= 0) return;
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
+    VoidTab *tab = &g_tabs[g_active_tab];
+    int sbn = tab->sb_total;
+    int line = g_search_matches[g_search_cursor].line;
+    // Desired: put `line` at row (g_term_rows/2) in the viewport.
+    int top_line = line - g_term_rows / 2;
+    if (top_line < 0) top_line = 0;
+    // offset = sbn - top_line  (only meaningful in scrollback region)
+    int offset = sbn - top_line;
+    // If the match is in the live area and fully visible without scrolling,
+    // pin offset to 0 so the user sees the live view.
+    if (line >= sbn && top_line >= sbn) {
+        offset = 0;
+    }
+    if (offset < 0) offset = 0;
+    int max_sb = sbn;
+    if (offset > max_sb) offset = max_sb;
+    g_scroll_offset = offset;
+    g_full_redraw = 1;
+}
+
+// Append UTF-8 bytes to the query buffer, cap at SEARCH_QUERY_MAX-1.
+static void search_append_bytes(const char *bytes, int n) {
+    if (n <= 0) return;
+    if (g_search_query_len + n >= SEARCH_QUERY_MAX) {
+        n = SEARCH_QUERY_MAX - 1 - g_search_query_len;
+        if (n <= 0) return;
+    }
+    memcpy(g_search_query + g_search_query_len, bytes, n);
+    g_search_query_len += n;
+    g_search_query[g_search_query_len] = 0;
+    search_rescan();
+    search_center_current();
+}
+
+// Pop the last codepoint from the query buffer. Drops trailing UTF-8
+// continuation bytes (0x80..0xBF) together with their lead byte so a
+// single Backspace removes a whole character instead of a fragment.
+static void search_backspace(void) {
+    if (g_search_query_len <= 0) return;
+    g_search_query_len--;
+    while (g_search_query_len > 0 &&
+           (unsigned char)g_search_query[g_search_query_len] >= 0x80 &&
+           (unsigned char)g_search_query[g_search_query_len] <  0xC0) {
+        g_search_query_len--;
+    }
+    g_search_query[g_search_query_len] = 0;
+    search_rescan();
+    search_center_current();
+}
+
+static void search_next(void) {
+    if (g_search_match_count <= 0) return;
+    g_search_cursor = (g_search_cursor + 1) % g_search_match_count;
+    search_center_current();
+}
+
+static void search_prev(void) {
+    if (g_search_match_count <= 0) return;
+    g_search_cursor = (g_search_cursor - 1 + g_search_match_count) % g_search_match_count;
+    search_center_current();
+}
+
+static void search_open(void) {
+    g_search_active = 1;
+    g_search_query_len = 0;
+    g_search_query[0] = 0;
+    g_search_cursor = 0;
+    g_search_match_count = 0;
+    g_full_redraw = 1;
+}
+
+static void search_close(void) {
+    g_search_active = 0;
+    g_search_query_len = 0;
+    g_search_query[0] = 0;
+    g_search_cursor = 0;
+    g_search_match_count = 0;
+    // Leave g_scroll_offset untouched so the user can keep viewing the
+    // match they landed on; a subsequent PTY-bound keystroke will snap
+    // back to the live view via the existing keyDown reset.
+    g_full_redraw = 1;
+}
+
 // ANSI color
 static NSColor *term_color(int idx) {
     // Terminal.app Basic dark palette
@@ -825,6 +1029,87 @@ static NSColor *term_color(int idx) {
         NSSize isz = [ind sizeWithAttributes:ia];
         [ind drawAtPoint:NSMakePoint(bounds.size.width - isz.width - 6, 4) withAttributes:ia];
     }
+
+    // ── Cmd+F search overlay ──
+    // Layered on top of the existing grid/scrollback render: highlight
+    // every visible match with a translucent yellow rect, the current
+    // match with a brighter orange rect, then draw a bottom status bar
+    // with the query text and match counter. Does not touch the cell
+    // render path so the base drawing stays unchanged.
+    if (g_search_active && atab) {
+        int sbn = atab->sb_total;
+        int view_top_vline = (g_scroll_offset > 0) ? (sbn - g_scroll_offset) : sbn;
+        int view_bot_vline = view_top_vline + g_term_rows;
+        NSColor *hitAll = [NSColor colorWithRed:0.9 green:0.8 blue:0.1 alpha:0.4];
+        NSColor *hitCur = [NSColor colorWithRed:1.0 green:0.6 blue:0.0 alpha:0.7];
+        for (int m = 0; m < g_search_match_count; m++) {
+            SearchMatch *sm = &g_search_matches[m];
+            if (sm->line < view_top_vline || sm->line >= view_bot_vline) continue;
+            int row = sm->line - view_top_vline;
+            float x = ox + sm->col * g_term_cw;
+            float y = row * g_term_ch;
+            float w = sm->len * g_term_cw;
+            if (m == g_search_cursor) [hitCur setFill];
+            else                       [hitAll setFill];
+            NSRectFill(NSMakeRect(x, y, w, g_term_ch));
+        }
+        // Bottom status bar: 2 rows tall, dark translucent, with query
+        // text on the left and "N/M" counter on the right.
+        float bar_h = g_term_ch * 2;
+        if (bar_h < 28) bar_h = 28;
+        float bar_y = bounds.size.height - bar_h;
+        [[NSColor colorWithRed:0.05 green:0.05 blue:0.05 alpha:0.88] setFill];
+        NSRectFill(NSMakeRect(ox, bar_y, bounds.size.width - ox, bar_h));
+        // Top border line so the bar reads as a distinct UI chrome strip.
+        [[NSColor colorWithRed:0.35 green:0.35 blue:0.35 alpha:0.8] setFill];
+        NSRectFill(NSMakeRect(ox, bar_y, bounds.size.width - ox, 1));
+
+        NSFont *bf = [NSFont systemFontOfSize:12];
+        NSDictionary *qa = @{
+            NSFontAttributeName: bf,
+            NSForegroundColorAttributeName:
+                [NSColor colorWithRed:0.95 green:0.95 blue:0.95 alpha:1.0]
+        };
+        NSDictionary *la = @{
+            NSFontAttributeName: bf,
+            NSForegroundColorAttributeName:
+                [NSColor colorWithRed:0.6 green:0.75 blue:0.95 alpha:1.0]
+        };
+        NSDictionary *ca = @{
+            NSFontAttributeName: bf,
+            NSForegroundColorAttributeName:
+                (g_search_match_count > 0
+                     ? [NSColor colorWithRed:0.9 green:0.9 blue:0.9 alpha:1.0]
+                     : [NSColor colorWithRed:0.95 green:0.4 blue:0.3 alpha:1.0])
+        };
+        NSString *label = @"Find: ";
+        NSString *query = g_search_query_len > 0
+            ? [[[NSString alloc] initWithBytes:g_search_query
+                                        length:g_search_query_len
+                                      encoding:NSUTF8StringEncoding] autorelease]
+            : @"";
+        if (!query) query = @"";
+        NSString *counter = g_search_match_count > 0
+            ? [NSString stringWithFormat:@"%d/%d",
+                        g_search_cursor + 1, g_search_match_count]
+            : (g_search_query_len > 0 ? @"no match" : @"");
+
+        float tx = ox + 10;
+        float ty = bar_y + (bar_h - 14) / 2;
+        NSSize lsz = [label sizeWithAttributes:la];
+        [label drawAtPoint:NSMakePoint(tx, ty) withAttributes:la];
+        tx += lsz.width;
+        [query drawAtPoint:NSMakePoint(tx, ty) withAttributes:qa];
+        // Blinking-ish caret after the query: thin vertical bar so the
+        // user sees they can still type.
+        NSSize qsz = [query sizeWithAttributes:qa];
+        [[NSColor colorWithRed:0.9 green:0.9 blue:0.9 alpha:0.7] setFill];
+        NSRectFill(NSMakeRect(tx + qsz.width + 1, ty + 1, 2, 14));
+
+        NSSize csz = [counter sizeWithAttributes:ca];
+        [counter drawAtPoint:NSMakePoint(bounds.size.width - csz.width - 10, ty)
+              withAttributes:ca];
+    }
     } // @autoreleasepool
 }
 
@@ -1013,8 +1298,7 @@ static NSColor *term_color(int idx) {
     if (ch == 't') { g_tab_cmd = 1; return YES; } // Cmd+T new tab
     if (ch == 'w') { g_tab_cmd = 2; return YES; } // Cmd+W close tab
     if (ch == 'q') { g_term_quit = 1; return YES; } // Cmd+Q quit
-    // Cmd+C / Cmd+V clipboard — Ctrl+C must still pass through as SIGINT
-    // so we guard on !with_ctrl.
+    // Cmd+C / Cmd+V clipboard — Ctrl+C must still pass through as SIGINT.
     if (ch == 'c' && !with_ctrl) {
         copy_selection_to_clipboard();
         return YES;
@@ -1023,6 +1307,15 @@ static NSColor *term_color(int idx) {
         paste_from_clipboard();
         if (g_scroll_offset > 0) { g_scroll_offset = 0; g_full_redraw = 1; }
         clear_selection();
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    // Cmd+F toggle search overlay. Safety net for the rare case
+    // where AppKit dispatches performKeyEquivalent before the main
+    // loop's Cmd-intercept runs.
+    if (ch == 'f' || ch == 'F') {
+        if (g_search_active) search_close();
+        else                 search_open();
         [self setNeedsDisplay:YES];
         return YES;
     }
@@ -1060,6 +1353,55 @@ static NSColor *term_color(int idx) {
     NSString *chars = [event characters];
     if (!chars.length) return;
     unichar ch = [chars characterAtIndex:0];
+
+    // ── Search overlay keyboard handling ──
+    // When the Cmd+F overlay is open, this view absorbs all keystrokes:
+    // text feeds the query, Enter walks forward through matches, ESC
+    // closes. Nothing is forwarded to the PTY while the overlay is up.
+    if (g_search_active) {
+        // ESC closes the overlay.
+        if (ch == 27) {
+            search_close();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        // Enter → next match. Shift+Enter → previous.
+        if (ch == '\r' || ch == '\n') {
+            if (mods & NSEventModifierFlagShift) search_prev();
+            else                                  search_next();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        // Up arrow → previous match. Down arrow → next match.
+        if (ch == NSUpArrowFunctionKey) {
+            search_prev();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (ch == NSDownArrowFunctionKey) {
+            search_next();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        // Backspace.
+        if (ch == 0x7f || ch == 0x08) {
+            search_backspace();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        // Printable / UTF-8 passthrough. characters returns the composed
+        // output after modifier processing so shifted chars are correct.
+        // Skip the remaining C0 control codes (NSEvent can deliver them
+        // from Ctrl+letter combos); we don't want those in the query.
+        if (ch >= 32 && ch < 0xF700) {
+            const char *utf8 = [chars UTF8String];
+            if (utf8) search_append_bytes(utf8, (int)strlen(utf8));
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        // Any other function key (page up/down, home/end, etc.) — swallow.
+        return;
+    }
 
     // Shift+PageUp/Down: scrollback navigation (don't send to PTY)
     if (mods & NSEventModifierFlagShift) {
@@ -2429,8 +2771,11 @@ void hexa_appkit_term_flush(void) {
     @autoreleasepool {
         NSView *v = [g_window contentView];
         if (!v) return;
-        if (g_full_redraw || g_scroll_offset > 0) {
-            // Tab switch, resize, or scrollback view — redraw everything.
+        if (g_full_redraw || g_scroll_offset > 0 || g_search_active) {
+            // Tab switch, resize, scrollback view, or active search
+            // overlay — redraw everything. Overlay needs the full rect
+            // so match highlights repaint against shifted cells when
+            // PTY output scrolls the backing buffer.
             [v setNeedsDisplay:YES];
             g_full_redraw = 0;
             g_dirty_min = -1;
@@ -2561,15 +2906,11 @@ long hexa_appkit_term_poll(void) {
                         }
                         if (ch == 'w') { g_tab_cmd = 2; continue; }
                         if (ch == 'q') { g_term_quit = 1; continue; }
-                        // Cmd+C → copy selection to clipboard. Only
-                        // intercept plain Cmd+C; Ctrl+C must still pass
-                        // through as SIGINT so programs can be killed.
+                        // Cmd+C / Cmd+V clipboard. Ctrl+C stays SIGINT.
                         if (ch == 'c' && !with_ctrl) {
                             copy_selection_to_clipboard();
                             continue;
                         }
-                        // Cmd+V → paste clipboard into active PTY with
-                        // bracketed-paste markers.
                         if (ch == 'v' && !with_ctrl) {
                             paste_from_clipboard();
                             if (g_scroll_offset > 0) {
@@ -2577,6 +2918,14 @@ long hexa_appkit_term_poll(void) {
                                 g_full_redraw = 1;
                             }
                             clear_selection();
+                            if (g_window)
+                                [[g_window contentView] setNeedsDisplay:YES];
+                            continue;
+                        }
+                        // Cmd+F → toggle scrollback search overlay.
+                        if (ch == 'f' && !with_ctrl) {
+                            if (g_search_active) search_close();
+                            else                 search_open();
                             if (g_window)
                                 [[g_window contentView] setNeedsDisplay:YES];
                             continue;
