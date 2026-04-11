@@ -429,6 +429,26 @@ long hexa_pty_poll_read(long fd, long timeout_ms) {
         }
     }
 
+    // Raw byte capture — when VOID_VT_CAPTURE is set, append every single
+    // byte of every read to /tmp/void_vt_capture.bin (no formatting, no
+    // truncation). This is the "next-time this happens, I want a replay"
+    // escape hatch: start void_term with VOID_VT_CAPTURE=1, reproduce the
+    // cl-table shift, then feed the resulting capture through cl_repro for
+    // deterministic analysis. A fresh capture runs each session (O_TRUNC)
+    // so old data doesn't stack up.
+    static FILE *g_vt_capture = NULL;
+    static int   g_vt_capture_checked = 0;
+    if (!g_vt_capture_checked) {
+        g_vt_capture_checked = 1;
+        if (getenv("VOID_VT_CAPTURE")) {
+            g_vt_capture = fopen("/tmp/void_vt_capture.bin", "wb");
+        }
+    }
+    if (g_vt_capture && g_pty_read_len > 0) {
+        fwrite(g_pty_read_buf, 1, (size_t)g_pty_read_len, g_vt_capture);
+        fflush(g_vt_capture);
+    }
+
     return (long)g_pty_read_len;
 }
 
