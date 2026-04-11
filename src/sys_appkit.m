@@ -1485,15 +1485,14 @@ static void tabs_move(int from, int to) {
     g_full_redraw = 1;
 }
 
-// Convert a blank tab to a live profile (or plain shell) tab in place.
-// Kills the existing (still-pristine) shell PTY first, then spawns the
-// profile PTY in its place. Locks the title, clears is_blank, resets
-// hexa's VT state via g_resized, triggers a full redraw. Used by
-// Cmd+Ctrl+N / Cmd+T when the active tab is blank.
+// Replace a tab's PTY with a fresh (profile-driven or plain) shell in
+// place. Caller decides eligibility — this helper just does the swap:
+// kill existing PTY, spawn new one, update title/profile metadata,
+// reset grid + hexa VT state, full redraw. Used by Cmd+Ctrl+N when
+// the window holds only one unprofiled tab (the "placeholder" slot).
 static int tab_become_profile(int idx, VoidProfile *vp) {
     if (idx < 0 || idx >= g_num_tabs) return -1;
     if (!g_tabs[idx].used) return -1;
-    if (!g_tabs[idx].is_blank) return -1; // never clobber a live tab
 
     // The initial blank tab owns a real (idle) shell PTY — reap it so
     // we don't leak a zombie sh process when the profile takes over.
@@ -1962,16 +1961,24 @@ long hexa_appkit_term_poll(void) {
                         int with_ctrl = (mods & NSEventModifierFlagControl) != 0;
 
                         // Cmd+Ctrl+0~9 → profile-based new tab (10 slots).
-                        // Special case: if the active tab is blank (no
-                        // PTY — happens at app launch), convert it in
-                        // place instead of opening a second tab.
+                        // Replace rule: if the window currently holds a
+                        // single tab that hasn't been bound to a profile
+                        // yet, a profile shortcut REPLACES that tab in
+                        // place — no matter what the user typed in the
+                        // plain shell. This is the "placeholder until
+                        // you commit" model: one unprofiled tab serves
+                        // as a scratchpad until you pick a workspace.
+                        // Once profile_base is set (or tab count > 1),
+                        // the shortcut always opens a new sibling.
                         if (with_ctrl && ch >= '0' && ch <= '9') {
                             VoidProfile *vp = profile_by_key((char)ch);
                             if (vp) {
-                                if (g_active_tab >= 0 &&
-                                    g_active_tab < g_num_tabs &&
-                                    g_tabs[g_active_tab].is_blank &&
-                                    tab_become_profile(g_active_tab, vp) == 0) {
+                                int replace =
+                                    (g_num_tabs == 1 &&
+                                     g_active_tab == 0 &&
+                                     g_tabs[0].profile_base[0] == 0);
+                                if (replace &&
+                                    tab_become_profile(0, vp) == 0) {
                                     g_tab_cmd = 3; // hexa reload screen
                                     clear_active_alarm();
                                     if (g_window)
@@ -1986,13 +1993,11 @@ long hexa_appkit_term_poll(void) {
 
                         if (ch >= 'A' && ch <= 'Z') ch += 32; // tolower
                         if (ch == 't') {
-                            // Blank active tab → convert to a plain shell
-                            // in place; otherwise hand off to hexa for a
-                            // fresh new tab.
-                            if (g_active_tab >= 0 &&
-                                g_active_tab < g_num_tabs &&
-                                g_tabs[g_active_tab].is_blank &&
-                                tab_become_profile(g_active_tab, NULL) == 0) {
+                            // Cmd+T always opens a new shell tab —
+                            // unlike the profile shortcut, there's no
+                            // replace semantics for a plain shell
+                            // since the user already has one.
+                            if (0) {
                                 g_tab_cmd = 3;
                                 clear_active_alarm();
                                 if (g_window)
