@@ -1,8 +1,8 @@
 #!/bin/bash
-# VOID — AI-native terminal
-# Usage: void          — native macOS Metal 앱 (기본)
-#        void --tui    — TUI 탭 모드 (iTerm 안)
-#        void --bare   — 단일 PTY (디버그용)
+# VOID — hexa-only AI-native terminal
+# Usage: void           — 네이티브 macOS Cocoa 터미널
+#        void --build   — 재빌드
+#        void --test    — smoke 테스트
 SOURCE="$0"
 while [ -L "$SOURCE" ]; do
   DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
@@ -11,19 +11,30 @@ while [ -L "$SOURCE" ]; do
 done
 DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 
+HEXA="$HOME/Dev/hexa-lang/hexa"
+BUILD_C="$HOME/Dev/hexa-lang/self/build_c.hexa"
+MAIN="$DIR/src/void_main.hexa"
+TMP_C="/tmp/void_main.c"
+BIN="$DIR/void_term"
+
 case "${1:-}" in
-  --tui|--bare)
-    for p in "$HOME/Dev/hexa-lang/target/release/hexa" "$HOME/Dev/hexa-lang/target/debug/hexa"; do
-      [ -x "$p" ] && HEXA="$p" && break
-    done
-    [ -z "$HEXA" ] && { echo "hexa not found"; exit 1; }
-    trap '' INT
-    case "${1:-}" in
-      --tui)  exec "$HEXA" "$DIR/app/main_tabs.hexa" "${@:2}" ;;
-      --bare) exec "$HEXA" "$DIR/app/main.hexa" "${@:2}" ;;
-    esac
+  --build)
+    echo "[void] transpile: $MAIN → $TMP_C"
+    "$HEXA" "$BUILD_C" "$MAIN" "$TMP_C" || exit 1
+    echo "[void] compile: clang → $BIN"
+    clang -O2 -w "$TMP_C" "$DIR/src/sys_pty.c" "$DIR/src/sys_appkit.m" \
+      -ObjC -framework Cocoa -framework CoreText -lutil -o "$BIN" || exit 1
+    echo "[void] build OK: $BIN ($(wc -c < "$BIN" | tr -d ' ') bytes)"
+    ;;
+  --test)
+    [ -x "$BIN" ] || { "$0" --build || exit 1; }
+    VOID_TEST=1 exec "$BIN"
     ;;
   *)
-    exec "$DIR/void_app" "$@"
+    [ -x "$BIN" ] || {
+      echo "[void] binary not found, building..."
+      "$0" --build || exit 1
+    }
+    exec "$BIN" "$@"
     ;;
 esac

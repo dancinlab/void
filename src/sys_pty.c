@@ -322,3 +322,69 @@ long hexa_sh_accum_byte_at(long idx) {
     if (idx < 0 || idx >= hexa_sh_accum_len) return -1;
     return (long)(unsigned char)hexa_sh_accum[idx];
 }
+
+// ══════════════════════════════════════════════════════════════════
+// void_main.hexa API — production terminal
+// ══════════════════════════════════════════════════════════════════
+
+long hexa_pty_spawn_login_shell(void) {
+    int master = -1;
+    pid_t pid = forkpty(&master, NULL, NULL, NULL);
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        setenv("TERM", "xterm-256color", 1);
+        char *shell = getenv("SHELL");
+        if (!shell) shell = "/bin/sh";
+        execl(shell, shell, "-l", (char*)NULL);
+        _exit(127);
+    }
+    hexa_sh_child_pid = pid;
+    int flags = fcntl(master, F_GETFL, 0);
+    fcntl(master, F_SETFL, flags | O_NONBLOCK);
+    return (long)master;
+}
+
+#define PTY_READ_BUF_SIZE 65536
+static char g_pty_read_buf[PTY_READ_BUF_SIZE];
+static int g_pty_read_len = 0;
+
+long hexa_pty_poll_read(long fd, long timeout_ms) {
+    struct pollfd pfd;
+    pfd.fd = (int)fd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    int ret = poll(&pfd, 1, (int)timeout_ms);
+    if (ret <= 0 || !(pfd.revents & POLLIN)) {
+        g_pty_read_len = 0;
+        return 0;
+    }
+    g_pty_read_len = (int)read((int)fd, g_pty_read_buf, PTY_READ_BUF_SIZE - 1);
+    if (g_pty_read_len < 0) g_pty_read_len = 0;
+    g_pty_read_buf[g_pty_read_len] = '\0';
+    return (long)g_pty_read_len;
+}
+
+long hexa_pty_read_byte(long idx) {
+    if (idx < 0 || idx >= g_pty_read_len) return -1;
+    return (long)(unsigned char)g_pty_read_buf[idx];
+}
+
+// Returns 1 if VOID_TEST env var is set (test mode).
+long hexa_check_test_mode(void) {
+    return getenv("VOID_TEST") ? 1 : 0;
+}
+
+// libc wrappers (hexa build_c adds hexa_user_ prefix to non-hexa_ names)
+long hexa_mem_alloc(long size) {
+    return (long)(uintptr_t)malloc((size_t)size);
+}
+void hexa_mem_free(long ptr) {
+    free((void*)(uintptr_t)ptr);
+}
+long hexa_fd_write(long fd, long buf, long n) {
+    return (long)write((int)fd, (void*)(uintptr_t)buf, (size_t)n);
+}
+long hexa_sleep_us(long us) {
+    usleep((useconds_t)us);
+    return 0;
+}

@@ -1,0 +1,73 @@
+# hexa.toml — void package manifest
+#
+# Spec: ~/Dev/hexa-lang/hexa.toml (reference)
+# Replaces the deleted Cargo.toml / void-app Metal build after the
+# 2026-04-11 rebuild (previous Metal/Vulkan 6-layer design archived at
+# ~/archive/void_20260411_pre_terminalapp/).
+#
+# AI-native: void is 100% hexa-lang. Only system helpers (PTY/Cocoa)
+# compile through C/ObjC (src/sys_*.{c,m}). Everything else is .hexa.
+
+[package]
+name = "void"
+version = "1.0.0"
+entry = "void"
+description = "AI-native terminal — Terminal.app minimalism, 100% hexa-lang"
+license = "MIT"
+authors = ["박민우 <nerve011235@gmail.com>"]
+repository = "https://github.com/need-singularity/void"
+homepage = "https://github.com/need-singularity/void"
+keywords = ["terminal", "hexa", "ai-native", "cocoa", "minimal"]
+categories = ["terminal-emulator", "hexa-lang-native"]
+
+[build]
+# Two-stage build via hexa-lang's build_c.hexa (interpreted for now;
+# blocked on VB1 native build_c). Each smoke compiles independently.
+compiler = "~/Dev/hexa-lang/hexa"
+build_c = "~/Dev/hexa-lang/self/build_c.hexa"
+script = "build.hexa"
+wrapper = "scripts/build.sh"
+artifact_prefix = "/tmp/void_"
+
+[[bin]]
+name = "void"
+path = "void"
+
+# Current MVP entry. When L3_app lands (app_main.hexa), this switches.
+[bin.default_src]
+hexa = "src/smoke_appkit.hexa"
+helpers = ["src/sys_appkit.m"]
+
+[test]
+runner = "scripts/build.sh"
+smokes = [
+    "src/smoke_pty.hexa",
+    "src/smoke_termios.hexa",
+    "src/smoke_sh.hexa",
+    "src/smoke_bidir.hexa",
+    "src/smoke_utf8.hexa",
+    "src/smoke_vt.hexa",
+    "src/smoke_screen.hexa",
+    "src/smoke_term_v1.hexa",
+    "src/smoke_appkit.hexa",
+]
+baseline = 9
+
+[state]
+# AI-native state pointers — do NOT put progress in README/CHANGELOG.
+ssot = "state.json"
+breakthroughs = "breakthroughs.jsonl"
+pitfalls = "pitfalls.jsonl"
+convergence = "convergence.json"
+rules = "rules.json"
+hooks = "hooks.json"
+manifest_layers = "manifest.json"
+
+[references]
+# Single reference — Terminal.app. All other terminal emulators
+# explicitly excluded (see rules.json VD1).
+upstream = "macOS Terminal.app"
+excluded = [
+    "iTerm2", "kitty", "Warp", "Ghostty", "Alacritty",
+    "WezTerm", "Hyper",
+]

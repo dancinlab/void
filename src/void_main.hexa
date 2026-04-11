@@ -1,0 +1,1041 @@
+// void_main.hexa — VOID terminal (hexa-only logic + sys_ C/ObjC helpers)
+// Build:
+//   ~/Dev/hexa-lang/hexa ~/Dev/hexa-lang/self/build_c.hexa \
+//     src/void_main.hexa src/sys_pty.c src/sys_appkit.m \
+//     -framework Cocoa
+
+// ═══════════════════════════════════════════════════════════════
+// EXTERN: sys_pty.c
+// ═══════════════════════════════════════════════════════════════
+extern fn hexa_pty_spawn_login_shell() -> int
+extern fn hexa_pty_poll_read(fd: int, timeout_ms: int) -> int
+extern fn hexa_pty_read_byte(idx: int) -> int
+extern fn hexa_sh_reap() -> int
+extern fn hexa_sh_spawn() -> int
+extern fn hexa_sh_reset_accum() -> int
+extern fn hexa_sh_write_canned(fd: int, idx: int) -> int
+extern fn hexa_term_drain_master(master: int, timeout_ms: int) -> int
+extern fn hexa_sh_accum_len_q() -> int
+extern fn hexa_sh_accum_byte_at(idx: int) -> int
+extern fn hexa_sleep_us(us: int) -> int
+extern fn hexa_check_test_mode() -> int
+
+// ═══════════════════════════════════════════════════════════════
+// EXTERN: sys_appkit.m
+// ═══════════════════════════════════════════════════════════════
+extern fn hexa_appkit_init_term(rows: int, cols: int, font_size: int) -> int
+extern fn hexa_appkit_term_set_cell(row: int, col: int, ch: int, fg: int, bg: int, flags: int)
+extern fn hexa_appkit_term_set_cursor(row: int, col: int, vis: int)
+extern fn hexa_appkit_term_flush()
+extern fn hexa_appkit_term_poll() -> int
+extern fn hexa_keys_to_pty(master_fd: int) -> int
+extern fn hexa_appkit_term_title_reset()
+extern fn hexa_appkit_term_title_push(b: int)
+extern fn hexa_appkit_term_title_apply()
+
+// ═══════════════════════════════════════════════════════════════
+// SCREEN BUFFER — flat arrays (VP-04 compatible)
+// ═══════════════════════════════════════════════════════════════
+let COLS = 80
+let ROWS = 24
+let TOTAL = 1920
+
+let mut scr_cells = []
+let mut scr_fg = []
+let mut scr_bg = []
+let mut scr_flags = []
+let mut scr_cur_x = 0
+let mut scr_cur_y = 0
+let mut scr_scroll_top = 0
+let mut scr_scroll_bot = 23
+
+fn scr_init() {
+    scr_cells = []
+    scr_fg = []
+    scr_bg = []
+    scr_flags = []
+    let mut i = 0
+    while i < TOTAL {
+        scr_cells = scr_cells.push(32)
+        scr_fg = scr_fg.push(7)
+        scr_bg = scr_bg.push(0)
+        scr_flags = scr_flags.push(0)
+        i = i + 1
+    }
+    scr_cur_x = 0
+    scr_cur_y = 0
+    scr_scroll_top = 0
+    scr_scroll_bot = ROWS - 1
+    return 0
+}
+
+fn scr_scroll_up() {
+    // Shift rows within scroll region up by 1
+    let mut r = scr_scroll_top
+    while r < scr_scroll_bot {
+        let dst = r * COLS
+        let src = (r + 1) * COLS
+        let mut c = 0
+        while c < COLS {
+            scr_cells[dst + c] = scr_cells[src + c]
+            scr_fg[dst + c] = scr_fg[src + c]
+            scr_bg[dst + c] = scr_bg[src + c]
+            scr_flags[dst + c] = scr_flags[src + c]
+            c = c + 1
+        }
+        r = r + 1
+    }
+    // Clear bottom row of scroll region
+    let bot = scr_scroll_bot * COLS
+    let mut c = 0
+    while c < COLS {
+        scr_cells[bot + c] = 32
+        scr_fg[bot + c] = 7
+        scr_bg[bot + c] = 0
+        scr_flags[bot + c] = 0
+        c = c + 1
+    }
+    return 0
+}
+
+fn scr_scroll_down() {
+    let mut r = scr_scroll_bot
+    while r > scr_scroll_top {
+        let dst = r * COLS
+        let src = (r - 1) * COLS
+        let mut c = 0
+        while c < COLS {
+            scr_cells[dst + c] = scr_cells[src + c]
+            scr_fg[dst + c] = scr_fg[src + c]
+            scr_bg[dst + c] = scr_bg[src + c]
+            scr_flags[dst + c] = scr_flags[src + c]
+            c = c + 1
+        }
+        r = r - 1
+    }
+    let top = scr_scroll_top * COLS
+    let mut c = 0
+    while c < COLS {
+        scr_cells[top + c] = 32
+        scr_fg[top + c] = 7
+        scr_bg[top + c] = 0
+        scr_flags[top + c] = 0
+        c = c + 1
+    }
+    return 0
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VT STATE MACHINE
+// States: 0=GROUND 1=ESC 2=CSI 3=OSC_NUM 4=OSC_STR 5=CHARSET
+// ═══════════════════════════════════════════════════════════════
+let mut vt_state = 0
+let mut vt_param = 0
+let mut vt_params = []
+let mut vt_param_started = 0
+let mut vt_private = 0
+
+// SGR state
+let mut cur_fg = 7
+let mut cur_bg = 0
+let mut cur_bold = 0
+let mut cur_underline = 0
+let mut cur_inverse = 0
+
+// OSC
+let mut osc_num = 0
+let mut osc_title_bytes = []
+
+// Saved cursor
+let mut saved_cur_x = 0
+let mut saved_cur_y = 0
+
+// Charset
+let mut cur_charset = 0
+
+fn vt_csi_reset() {
+    vt_params = []
+    vt_param = 0
+    vt_param_started = 0
+    vt_private = 0
+    return 0
+}
+
+fn vt_csi_flush() {
+    if vt_param_started == 1 {
+        vt_params = vt_params.push(vt_param)
+    }
+    vt_param = 0
+    vt_param_started = 0
+    return 0
+}
+
+fn vt_csi_get(idx, def) {
+    if idx < len(vt_params) {
+        return vt_params[idx]
+    }
+    return def
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SGR — Select Graphic Rendition
+// ═══════════════════════════════════════════════════════════════
+fn sgr_apply() {
+    let n = len(vt_params)
+    if n == 0 {
+        cur_fg = 7
+        cur_bg = 0
+        cur_bold = 0
+        cur_underline = 0
+        cur_inverse = 0
+        return 0
+    }
+    let mut i = 0
+    while i < n {
+        let c = vt_params[i]
+        if c == 0 {
+            cur_fg = 7
+            cur_bg = 0
+            cur_bold = 0
+            cur_underline = 0
+            cur_inverse = 0
+        } else if c == 1 {
+            cur_bold = 1
+        } else if c == 4 {
+            cur_underline = 1
+        } else if c == 7 {
+            cur_inverse = 1
+        } else if c == 22 {
+            cur_bold = 0
+        } else if c == 24 {
+            cur_underline = 0
+        } else if c == 27 {
+            cur_inverse = 0
+        } else if c == 39 {
+            cur_fg = 7
+        } else if c == 49 {
+            cur_bg = 0
+        } else if c == 38 {
+            if i + 2 < n {
+                if vt_params[i + 1] == 5 {
+                    cur_fg = vt_params[i + 2]
+                    i = i + 2
+                } else if vt_params[i + 1] == 2 {
+                    if i + 4 < n {
+                        let r = vt_params[i + 2]
+                        let g = vt_params[i + 3]
+                        let b = vt_params[i + 4]
+                        cur_fg = 256 + r * 65536 + g * 256 + b
+                        i = i + 4
+                    }
+                }
+            }
+        } else if c == 48 {
+            if i + 2 < n {
+                if vt_params[i + 1] == 5 {
+                    cur_bg = vt_params[i + 2]
+                    i = i + 2
+                } else if vt_params[i + 1] == 2 {
+                    if i + 4 < n {
+                        let r = vt_params[i + 2]
+                        let g = vt_params[i + 3]
+                        let b = vt_params[i + 4]
+                        cur_bg = 256 + r * 65536 + g * 256 + b
+                        i = i + 4
+                    }
+                }
+            }
+        } else if c >= 30 {
+            if c <= 37 {
+                cur_fg = c - 30
+            } else if c >= 40 {
+                if c <= 47 {
+                    cur_bg = c - 40
+                } else if c >= 90 {
+                    if c <= 97 {
+                        cur_fg = c - 90 + 8
+                    } else if c >= 100 {
+                        if c <= 107 {
+                            cur_bg = c - 100 + 8
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CSI DISPATCH
+// ═══════════════════════════════════════════════════════════════
+fn scr_put(cp) {
+    if scr_cur_x >= COLS {
+        scr_cur_x = 0
+        scr_cur_y = scr_cur_y + 1
+        if scr_cur_y > scr_scroll_bot {
+            let _ = scr_scroll_up()
+            scr_cur_y = scr_scroll_bot
+        }
+    }
+    if scr_cur_y >= 0 {
+        if scr_cur_y < ROWS {
+            let idx = scr_cur_y * COLS + scr_cur_x
+            scr_cells[idx] = cp
+            scr_fg[idx] = cur_fg
+            scr_bg[idx] = cur_bg
+            let mut f = 0
+            if cur_bold == 1 { f = f + 1 }
+            if cur_underline == 1 { f = f + 4 }
+            if cur_inverse == 1 { f = f + 8 }
+            scr_flags[idx] = f
+        }
+    }
+    scr_cur_x = scr_cur_x + 1
+    return 0
+}
+
+fn csi_dispatch(b) {
+    let _ = vt_csi_flush()
+
+    if b == 72 {
+        // H — CUP
+        let mut row = vt_csi_get(0, 1) - 1
+        let mut col = vt_csi_get(1, 1) - 1
+        if row < 0 { row = 0 }
+        if col < 0 { col = 0 }
+        if row >= ROWS { row = ROWS - 1 }
+        if col >= COLS { col = COLS - 1 }
+        scr_cur_y = row
+        scr_cur_x = col
+    } else if b == 102 {
+        // f — CUP alias
+        let mut row = vt_csi_get(0, 1) - 1
+        let mut col = vt_csi_get(1, 1) - 1
+        if row < 0 { row = 0 }
+        if col < 0 { col = 0 }
+        if row >= ROWS { row = ROWS - 1 }
+        if col >= COLS { col = COLS - 1 }
+        scr_cur_y = row
+        scr_cur_x = col
+    } else if b == 65 {
+        // A — CUU
+        let n = vt_csi_get(0, 1)
+        scr_cur_y = scr_cur_y - n
+        if scr_cur_y < scr_scroll_top { scr_cur_y = scr_scroll_top }
+    } else if b == 66 {
+        // B — CUD
+        let n = vt_csi_get(0, 1)
+        scr_cur_y = scr_cur_y + n
+        if scr_cur_y > scr_scroll_bot { scr_cur_y = scr_scroll_bot }
+    } else if b == 67 {
+        // C — CUF
+        let n = vt_csi_get(0, 1)
+        scr_cur_x = scr_cur_x + n
+        if scr_cur_x >= COLS { scr_cur_x = COLS - 1 }
+    } else if b == 68 {
+        // D — CUB
+        let n = vt_csi_get(0, 1)
+        scr_cur_x = scr_cur_x - n
+        if scr_cur_x < 0 { scr_cur_x = 0 }
+    } else if b == 74 {
+        // J — ED (erase display)
+        let mode = vt_csi_get(0, 0)
+        if mode == 0 {
+            let start = scr_cur_y * COLS + scr_cur_x
+            let mut i = start
+            while i < TOTAL {
+                scr_cells[i] = 32
+                scr_fg[i] = 7
+                scr_bg[i] = 0
+                scr_flags[i] = 0
+                i = i + 1
+            }
+        } else if mode == 1 {
+            let stop = scr_cur_y * COLS + scr_cur_x
+            let mut i = 0
+            while i <= stop {
+                scr_cells[i] = 32
+                scr_fg[i] = 7
+                scr_bg[i] = 0
+                scr_flags[i] = 0
+                i = i + 1
+            }
+        } else if mode == 2 {
+            let mut i = 0
+            while i < TOTAL {
+                scr_cells[i] = 32
+                scr_fg[i] = 7
+                scr_bg[i] = 0
+                scr_flags[i] = 0
+                i = i + 1
+            }
+        }
+    } else if b == 75 {
+        // K — EL (erase line)
+        let mode = vt_csi_get(0, 0)
+        let row_s = scr_cur_y * COLS
+        if mode == 0 {
+            let mut i = row_s + scr_cur_x
+            let row_e = row_s + COLS
+            while i < row_e {
+                scr_cells[i] = 32
+                scr_fg[i] = 7
+                scr_bg[i] = 0
+                scr_flags[i] = 0
+                i = i + 1
+            }
+        } else if mode == 1 {
+            let mut i = row_s
+            let stop = row_s + scr_cur_x
+            while i <= stop {
+                scr_cells[i] = 32
+                scr_fg[i] = 7
+                scr_bg[i] = 0
+                scr_flags[i] = 0
+                i = i + 1
+            }
+        } else if mode == 2 {
+            let mut i = row_s
+            let row_e = row_s + COLS
+            while i < row_e {
+                scr_cells[i] = 32
+                scr_fg[i] = 7
+                scr_bg[i] = 0
+                scr_flags[i] = 0
+                i = i + 1
+            }
+        }
+    } else if b == 109 {
+        // m — SGR
+        let _ = sgr_apply()
+    } else if b == 71 {
+        // G — cursor horizontal absolute
+        let mut col = vt_csi_get(0, 1) - 1
+        if col < 0 { col = 0 }
+        if col >= COLS { col = COLS - 1 }
+        scr_cur_x = col
+    } else if b == 100 {
+        // d — vertical position absolute
+        let mut row = vt_csi_get(0, 1) - 1
+        if row < 0 { row = 0 }
+        if row >= ROWS { row = ROWS - 1 }
+        scr_cur_y = row
+    } else if b == 76 {
+        // L — insert lines
+        let n = vt_csi_get(0, 1)
+        let mut j = 0
+        while j < n {
+            // Shift down from bottom
+            let mut r = scr_scroll_bot
+            while r > scr_cur_y {
+                let dst = r * COLS
+                let src = (r - 1) * COLS
+                let mut c = 0
+                while c < COLS {
+                    scr_cells[dst + c] = scr_cells[src + c]
+                    scr_fg[dst + c] = scr_fg[src + c]
+                    scr_bg[dst + c] = scr_bg[src + c]
+                    scr_flags[dst + c] = scr_flags[src + c]
+                    c = c + 1
+                }
+                r = r - 1
+            }
+            // Clear current row
+            let base = scr_cur_y * COLS
+            let mut c = 0
+            while c < COLS {
+                scr_cells[base + c] = 32
+                scr_fg[base + c] = 7
+                scr_bg[base + c] = 0
+                scr_flags[base + c] = 0
+                c = c + 1
+            }
+            j = j + 1
+        }
+    } else if b == 77 {
+        // M — delete lines
+        let n = vt_csi_get(0, 1)
+        let mut j = 0
+        while j < n {
+            let mut r = scr_cur_y
+            while r < scr_scroll_bot {
+                let dst = r * COLS
+                let src = (r + 1) * COLS
+                let mut c = 0
+                while c < COLS {
+                    scr_cells[dst + c] = scr_cells[src + c]
+                    scr_fg[dst + c] = scr_fg[src + c]
+                    scr_bg[dst + c] = scr_bg[src + c]
+                    scr_flags[dst + c] = scr_flags[src + c]
+                    c = c + 1
+                }
+                r = r + 1
+            }
+            let base = scr_scroll_bot * COLS
+            let mut c = 0
+            while c < COLS {
+                scr_cells[base + c] = 32
+                scr_fg[base + c] = 7
+                scr_bg[base + c] = 0
+                scr_flags[base + c] = 0
+                c = c + 1
+            }
+            j = j + 1
+        }
+    } else if b == 80 {
+        // P — delete characters
+        let n = vt_csi_get(0, 1)
+        let row_s = scr_cur_y * COLS
+        let mut i = scr_cur_x
+        while i < COLS - n {
+            scr_cells[row_s + i] = scr_cells[row_s + i + n]
+            scr_fg[row_s + i] = scr_fg[row_s + i + n]
+            scr_bg[row_s + i] = scr_bg[row_s + i + n]
+            scr_flags[row_s + i] = scr_flags[row_s + i + n]
+            i = i + 1
+        }
+        let mut j = COLS - n
+        if j < scr_cur_x { j = scr_cur_x }
+        while j < COLS {
+            scr_cells[row_s + j] = 32
+            scr_fg[row_s + j] = 7
+            scr_bg[row_s + j] = 0
+            scr_flags[row_s + j] = 0
+            j = j + 1
+        }
+    } else if b == 64 {
+        // @ — insert characters
+        let n = vt_csi_get(0, 1)
+        let row_s = scr_cur_y * COLS
+        let mut i = COLS - 1
+        while i >= scr_cur_x + n {
+            scr_cells[row_s + i] = scr_cells[row_s + i - n]
+            scr_fg[row_s + i] = scr_fg[row_s + i - n]
+            scr_bg[row_s + i] = scr_bg[row_s + i - n]
+            scr_flags[row_s + i] = scr_flags[row_s + i - n]
+            i = i - 1
+        }
+        let mut j = scr_cur_x
+        while j < scr_cur_x + n {
+            if j < COLS {
+                scr_cells[row_s + j] = 32
+                scr_fg[row_s + j] = 7
+                scr_bg[row_s + j] = 0
+                scr_flags[row_s + j] = 0
+            }
+            j = j + 1
+        }
+    } else if b == 83 {
+        // S — scroll up
+        let n = vt_csi_get(0, 1)
+        let mut j = 0
+        while j < n {
+            let _ = scr_scroll_up()
+            j = j + 1
+        }
+    } else if b == 84 {
+        // T — scroll down
+        let n = vt_csi_get(0, 1)
+        let mut j = 0
+        while j < n {
+            let _ = scr_scroll_down()
+            j = j + 1
+        }
+    } else if b == 114 {
+        // r — set scroll region
+        let mut top = vt_csi_get(0, 1) - 1
+        let mut bot = vt_csi_get(1, ROWS) - 1
+        if top < 0 { top = 0 }
+        if bot >= ROWS { bot = ROWS - 1 }
+        scr_scroll_top = top
+        scr_scroll_bot = bot
+        scr_cur_x = 0
+        scr_cur_y = 0
+    } else if b == 104 {
+        // h — set mode (simplified)
+        let _ = 0
+    } else if b == 108 {
+        // l — reset mode (simplified)
+        let _ = 0
+    } else if b == 115 {
+        // s — save cursor
+        saved_cur_x = scr_cur_x
+        saved_cur_y = scr_cur_y
+    } else if b == 117 {
+        // u — restore cursor
+        scr_cur_x = saved_cur_x
+        scr_cur_y = saved_cur_y
+    }
+    return 0
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VT FEED BYTE — main parser
+// ═══════════════════════════════════════════════════════════════
+fn scr_feed_byte(b) {
+    // State 0: GROUND
+    if vt_state == 0 {
+        if b == 27 {
+            vt_state = 1
+        } else if b == 10 {
+            // LF
+            scr_cur_y = scr_cur_y + 1
+            if scr_cur_y > scr_scroll_bot {
+                let _ = scr_scroll_up()
+                scr_cur_y = scr_scroll_bot
+            }
+        } else if b == 13 {
+            // CR
+            scr_cur_x = 0
+        } else if b == 8 {
+            // BS
+            scr_cur_x = scr_cur_x - 1
+            if scr_cur_x < 0 { scr_cur_x = 0 }
+        } else if b == 9 {
+            // TAB
+            let rem = scr_cur_x - (scr_cur_x / 8) * 8
+            scr_cur_x = scr_cur_x + (8 - rem)
+            if scr_cur_x >= COLS { scr_cur_x = COLS - 1 }
+        } else if b == 7 {
+            // BEL — ignore
+            let _ = 0
+        } else if b >= 32 {
+            let _ = scr_put(b)
+        }
+        return 0
+    }
+    // State 1: ESC
+    if vt_state == 1 {
+        if b == 91 {
+            // [ → CSI
+            let _ = vt_csi_reset()
+            vt_state = 2
+        } else if b == 93 {
+            // ] → OSC
+            osc_num = 0
+            osc_title_bytes = []
+            vt_state = 3
+        } else if b == 55 {
+            // 7 → DECSC save cursor
+            saved_cur_x = scr_cur_x
+            saved_cur_y = scr_cur_y
+            vt_state = 0
+        } else if b == 56 {
+            // 8 → DECRC restore cursor
+            scr_cur_x = saved_cur_x
+            scr_cur_y = saved_cur_y
+            vt_state = 0
+        } else if b == 77 {
+            // M → reverse index
+            if scr_cur_y == scr_scroll_top {
+                let _ = scr_scroll_down()
+            } else {
+                scr_cur_y = scr_cur_y - 1
+                if scr_cur_y < 0 { scr_cur_y = 0 }
+            }
+            vt_state = 0
+        } else if b == 40 {
+            // ( → charset G0
+            vt_state = 5
+        } else if b == 41 {
+            // ) → charset G1
+            vt_state = 5
+        } else if b == 99 {
+            // c → RIS full reset
+            let _ = scr_init()
+            cur_fg = 7
+            cur_bg = 0
+            cur_bold = 0
+            cur_underline = 0
+            cur_inverse = 0
+            cur_charset = 0
+            vt_state = 0
+        } else {
+            vt_state = 0
+        }
+        return 0
+    }
+    // State 2: CSI
+    if vt_state == 2 {
+        if b == 63 {
+            // ? — private mode
+            vt_private = 1
+            return 0
+        }
+        if b >= 48 {
+            if b <= 57 {
+                vt_param = vt_param * 10 + (b - 48)
+                vt_param_started = 1
+                return 0
+            }
+        }
+        if b == 59 {
+            let _ = vt_csi_flush()
+            return 0
+        }
+        if b >= 64 {
+            if b <= 126 {
+                let _ = csi_dispatch(b)
+                vt_state = 0
+                return 0
+            }
+        }
+        return 0
+    }
+    // State 3: OSC number
+    if vt_state == 3 {
+        if b >= 48 {
+            if b <= 57 {
+                osc_num = osc_num * 10 + (b - 48)
+                return 0
+            }
+        }
+        if b == 59 {
+            vt_state = 4
+            return 0
+        }
+        if b == 7 {
+            vt_state = 0
+            return 0
+        }
+        if b == 27 {
+            vt_state = 0
+            return 0
+        }
+        return 0
+    }
+    // State 4: OSC string
+    if vt_state == 4 {
+        if b == 7 {
+            // BEL — terminate OSC, apply title
+            if osc_num <= 2 {
+                let _ = hexa_appkit_term_title_reset()
+                let mut i = 0
+                while i < len(osc_title_bytes) {
+                    let _ = hexa_appkit_term_title_push(osc_title_bytes[i])
+                    i = i + 1
+                }
+                let _ = hexa_appkit_term_title_apply()
+            }
+            vt_state = 0
+            return 0
+        }
+        if b == 27 {
+            // ESC — ST
+            if osc_num <= 2 {
+                let _ = hexa_appkit_term_title_reset()
+                let mut i = 0
+                while i < len(osc_title_bytes) {
+                    let _ = hexa_appkit_term_title_push(osc_title_bytes[i])
+                    i = i + 1
+                }
+                let _ = hexa_appkit_term_title_apply()
+            }
+            vt_state = 0
+            return 0
+        }
+        if osc_num <= 2 {
+            osc_title_bytes = osc_title_bytes.push(b)
+        }
+        return 0
+    }
+    // State 5: charset designator
+    if vt_state == 5 {
+        if b == 48 {
+            cur_charset = 1
+        } else {
+            cur_charset = 0
+        }
+        vt_state = 0
+        return 0
+    }
+    return 0
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SYNC screen buffer → AppKit bridge
+// ═══════════════════════════════════════════════════════════════
+fn sync_to_bridge() {
+    let mut r = 0
+    while r < ROWS {
+        let mut c = 0
+        while c < COLS {
+            let idx = r * COLS + c
+            let _ = hexa_appkit_term_set_cell(r, c, scr_cells[idx],
+                scr_fg[idx], scr_bg[idx], scr_flags[idx])
+            c = c + 1
+        }
+        r = r + 1
+    }
+    let _ = hexa_appkit_term_set_cursor(scr_cur_y, scr_cur_x, 1)
+    let _ = hexa_appkit_term_flush()
+    return 0
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SELF-TEST — headless VT + PTY pipeline verification
+// ═══════════════════════════════════════════════════════════════
+fn scr_find_probe(probe, probe_len) {
+    let bound = TOTAL - probe_len
+    let mut i = 0
+    while i <= bound {
+        let mut hit = 1
+        let mut j = 0
+        while j < probe_len {
+            if scr_cells[i + j] != probe[j] {
+                hit = 0
+                j = probe_len
+            }
+            j = j + 1
+        }
+        if hit == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+fn self_test() {
+    println("[void-test] === SELF-TEST START ===")
+    let mut pass = 0
+    let mut fail = 0
+
+    // ── Test 1: VT parser basics ──
+    let _ = scr_init()
+    // Feed "ABC" → cells should be 65,66,67
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    if scr_cells[0] == 65 {
+        if scr_cells[1] == 66 {
+            if scr_cells[2] == 67 {
+                println("[void-test] T1 PASS  VT print ABC")
+                pass = pass + 1
+            } else { println("[void-test] T1 FAIL  cell[2]=", scr_cells[2]); fail = fail + 1 }
+        } else { println("[void-test] T1 FAIL  cell[1]=", scr_cells[1]); fail = fail + 1 }
+    } else { println("[void-test] T1 FAIL  cell[0]=", scr_cells[0]); fail = fail + 1 }
+
+    // ── Test 2: CUP + erase ──
+    let _ = scr_init()
+    // ESC[2;3H → cursor to (row=1, col=2), then write 'X'
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(72)
+    let _ = scr_feed_byte(88)
+    let idx2 = 1 * COLS + 2
+    if scr_cells[idx2] == 88 {
+        println("[void-test] T2 PASS  CUP + put X at (1,2)")
+        pass = pass + 1
+    } else { println("[void-test] T2 FAIL  cell=", scr_cells[idx2]); fail = fail + 1 }
+
+    // ── Test 3: SGR color ──
+    let _ = scr_init()
+    cur_fg = 7
+    cur_bg = 0
+    cur_bold = 0
+    // ESC[31m → fg=1, then 'R'
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(82)
+    if scr_fg[0] == 1 {
+        if scr_cells[0] == 82 {
+            println("[void-test] T3 PASS  SGR fg=1 (red)")
+            pass = pass + 1
+        } else { println("[void-test] T3 FAIL  cell=", scr_cells[0]); fail = fail + 1 }
+    } else { println("[void-test] T3 FAIL  fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 4: Scroll ──
+    let _ = scr_init()
+    cur_fg = 7
+    cur_bg = 0
+    cur_bold = 0
+    cur_underline = 0
+    cur_inverse = 0
+    // Fill row 0 with 'A', move to last row, newline should scroll
+    let _ = scr_feed_byte(65)
+    scr_cur_y = ROWS - 1
+    scr_cur_x = 0
+    let _ = scr_feed_byte(66)
+    // LF → should scroll up
+    let _ = scr_feed_byte(10)
+    // After scroll, row 0 should be empty (32), row ROWS-1 had 'B'
+    // Actually 'A' was on row 0 before, now row 0 should have whatever was on row 1 (empty=32)
+    if scr_cur_y == ROWS - 1 {
+        println("[void-test] T4 PASS  scroll (cursor stays at bottom)")
+        pass = pass + 1
+    } else { println("[void-test] T4 FAIL  cur_y=", scr_cur_y); fail = fail + 1 }
+
+    // ── Test 5: ED erase display ──
+    let _ = scr_init()
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    // ESC[2J → erase all
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(74)
+    if scr_cells[0] == 32 {
+        if scr_cells[1] == 32 {
+            println("[void-test] T5 PASS  ED erase all")
+            pass = pass + 1
+        } else { println("[void-test] T5 FAIL  cell[1]=", scr_cells[1]); fail = fail + 1 }
+    } else { println("[void-test] T5 FAIL  cell[0]=", scr_cells[0]); fail = fail + 1 }
+
+    // ── Test 6: EL erase line ──
+    let _ = scr_init()
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    // ESC[1;2H → cursor at col 1, row 0
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(72)
+    // ESC[K → erase to end of line
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(75)
+    if scr_cells[0] == 65 {
+        if scr_cells[1] == 32 {
+            if scr_cells[2] == 32 {
+                println("[void-test] T6 PASS  EL erase to EOL")
+                pass = pass + 1
+            } else { println("[void-test] T6 FAIL  cell[2]=", scr_cells[2]); fail = fail + 1 }
+        } else { println("[void-test] T6 FAIL  cell[1]=", scr_cells[1]); fail = fail + 1 }
+    } else { println("[void-test] T6 FAIL  cell[0]=", scr_cells[0]); fail = fail + 1 }
+
+    // ── Test 7: PTY spawn + drain + VT pipeline ──
+    let _ = scr_init()
+    cur_fg = 7
+    cur_bg = 0
+    cur_bold = 0
+    cur_underline = 0
+    cur_inverse = 0
+    vt_state = 0
+    let _ = hexa_sh_reset_accum()
+    let m = hexa_sh_spawn()
+    if m < 0 {
+        println("[void-test] T7 FAIL  PTY spawn")
+        fail = fail + 1
+    } else {
+        // Write "echo VOID-OK\n" (canned #0 is "echo hexa-term\n")
+        let _ = hexa_sh_write_canned(m, 0)
+        let _ = hexa_term_drain_master(m, 500)
+        let _ = hexa_sh_write_canned(m, 1)
+        let _ = hexa_term_drain_master(m, 500)
+        let accum_n = hexa_sh_accum_len_q()
+        let mut fi = 0
+        while fi < accum_n {
+            let b = hexa_sh_accum_byte_at(fi)
+            let _ = scr_feed_byte(b)
+            fi = fi + 1
+        }
+        let _ = hexa_sh_reap()
+        // Search for "hexa-term" = [104,101,120,97,45,116,101,114,109]
+        let probe = [104, 101, 120, 97, 45, 116, 101, 114, 109]
+        let found = scr_find_probe(probe, 9)
+        if found == 1 {
+            println("[void-test] T7 PASS  PTY→VT→screen pipeline ('hexa-term' found, ", accum_n, " bytes)")
+            pass = pass + 1
+        } else {
+            println("[void-test] T7 FAIL  probe not found in screen (", accum_n, " bytes drained)")
+            fail = fail + 1
+        }
+    }
+
+    // ── Test 8: OSC title parse ──
+    let _ = scr_init()
+    vt_state = 0
+    osc_title_bytes = []
+    // ESC ] 0 ; A B C BEL = 27 93 48 59 65 66 67 7
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(93)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    let _ = scr_feed_byte(7)
+    if len(osc_title_bytes) == 3 {
+        if osc_title_bytes[0] == 65 {
+            println("[void-test] T8 PASS  OSC 0 title parse (3 bytes)")
+            pass = pass + 1
+        } else { println("[void-test] T8 FAIL  title[0]=", osc_title_bytes[0]); fail = fail + 1 }
+    } else { println("[void-test] T8 FAIL  title len=", len(osc_title_bytes)); fail = fail + 1 }
+
+    // ── Summary ──
+    println("")
+    println("[void-test] ", pass, "/", pass + fail, " passed")
+    if fail == 0 {
+        println("[void-test] === ALL TESTS PASS ===")
+        return 0
+    }
+    println("[void-test] === ", fail, " FAILURES ===")
+    return 1
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN — entry point
+// ═══════════════════════════════════════════════════════════════
+fn main() {
+    // Test mode: VOID_TEST=1
+    if hexa_check_test_mode() == 1 {
+        return self_test()
+    }
+
+    let _ = scr_init()
+
+    // Spawn login shell
+    let m = hexa_pty_spawn_login_shell()
+    if m < 0 {
+        println("[void] FAIL: PTY spawn")
+        return 1
+    }
+
+    // Init AppKit terminal window
+    let _ = hexa_appkit_init_term(ROWS, COLS, 14)
+
+    // Main loop — no pointers cross FFI boundary
+    let mut running = 1
+    while running == 1 {
+        // 1. Process AppKit events
+        let quit = hexa_appkit_term_poll()
+        if quit == 1 {
+            running = 0
+        }
+
+        // 2. Read keys → forward to PTY (all in C, no pointer in hexa)
+        let _ = hexa_keys_to_pty(m)
+
+        // 3. Poll PTY → VT parse → sync
+        let nread = hexa_pty_poll_read(m, 5)
+        if nread > 0 {
+            let mut i = 0
+            while i < nread {
+                let b = hexa_pty_read_byte(i)
+                if b >= 0 {
+                    let _ = scr_feed_byte(b)
+                }
+                i = i + 1
+            }
+            let _ = sync_to_bridge()
+        }
+
+        // Avoid busy-loop when idle
+        if nread == 0 {
+            let _ = hexa_sleep_us(2000)
+        }
+    }
+
+    let _ = hexa_sh_reap()
+    return 0
+}
