@@ -401,6 +401,23 @@ static NSColor *term_color(int idx) {
             if (ch == 't') { g_tab_cmd = 1; return; } // Cmd+T new tab
             if (ch == 'w') { g_tab_cmd = 2; return; } // Cmd+W close tab
             if (ch == 'q') { g_term_quit = 1; return; } // Cmd+Q quit
+            // Cmd+1~9: switch to tab N-1
+            if (ch >= '1' && ch <= '9') {
+                int target = ch - '1';
+                if (target < g_num_tabs && target != g_active_tab) {
+                    if (g_active_tab >= 0 && g_active_tab < MAX_TABS) {
+                        memcpy(g_tabs[g_active_tab].grid, g_term_grid, sizeof(g_term_grid));
+                        g_tabs[g_active_tab].cur_row = g_term_cur_row;
+                        g_tabs[g_active_tab].cur_col = g_term_cur_col;
+                    }
+                    g_active_tab = target;
+                    memcpy(g_term_grid, g_tabs[target].grid, sizeof(g_term_grid));
+                    g_term_cur_row = g_tabs[target].cur_row;
+                    g_term_cur_col = g_tabs[target].cur_col;
+                    g_tab_cmd = 3; // signal hexa to reload
+                }
+                return;
+            }
         }
         return; // Don't send other Cmd+ combos to PTY
     }
