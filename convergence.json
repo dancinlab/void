@@ -22,8 +22,6 @@
       "id": "VC-03",
       "item": "이전 void 설계 (Metal/Vulkan/6-layer/plugin) 아카이브",
       "date": "2026-04-11",
-      "location": "~/archive/void_20260411_pre_terminalapp/",
-      "reason": "iTerm2급 복잡도 — VD1 위반",
       "locked": true
     },
     {
@@ -32,23 +30,63 @@
       "date": "2026-04-11",
       "locked": true,
       "src": "src/sys_appkit.m (HexaTermView)",
-      "evidence": "80x24 grid → Core Text drawAtPoint per cell, ANSI 16+256+TrueColor, bold/underline/inverse, cursor block. 8/8 self-test pass."
+      "evidence": "동적 grid + SFMono 13pt + Terminal.app ANSI 팔레트. 11/11 self-test pass."
     },
     {
       "id": "VC-05",
-      "item": "이벤트 루프: AppKit poll + PTY poll_read + hexa_keys_to_pty",
+      "item": "이벤트 루프: AppKit poll + PTY poll_read + hexa_keys_to_pty(C-side)",
       "date": "2026-04-11",
       "locked": true,
       "src": "src/void_main.hexa main loop",
-      "evidence": "hexa_appkit_term_poll → hexa_keys_to_pty(C-side, 포인터 FFI 없음) → hexa_pty_poll_read(5ms) → VT feed_byte → sync_to_bridge. T7 PTY→VT→screen 63바이트 파이프라인 검증."
+      "evidence": "포인터 FFI 없음. T7 PTY→VT→screen 63바이트 검증."
     },
     {
       "id": "VC-06",
-      "item": "void_main.hexa 통합 바이너리 (L1+L2+L3 전 레이어)",
+      "item": "void_main.hexa 통합 바이너리 (L1+L2+L3)",
       "date": "2026-04-11",
       "locked": true,
-      "src": "src/void_main.hexa + src/sys_pty.c + src/sys_appkit.m",
-      "evidence": "hexa→C transpile(59KB) + clang arm64. VT 6-state parser + SGR(0/1/4/7/22/24/27/30-37/38;5;N/38;2;R;G;B/39/40-47/48;5;N/48;2;R;G;B/49/90-97/100-107) + 20 CSI + OSC 0 title + scroll region + login shell spawn + self-test 8/8 pass."
+      "src": "src/void_main.hexa + sys_pty.c + sys_appkit.m",
+      "evidence": "hexa→C + clang arm64 ~100KB. 11/11 self-test."
+    },
+    {
+      "id": "VC-07",
+      "item": "UTF-8 멀티바이트 디코딩 (2/3/4바이트 → codepoint)",
+      "date": "2026-04-11",
+      "locked": true,
+      "src": "src/void_main.hexa scr_feed_byte GROUND state",
+      "evidence": "T10 한글 U+D55C=54620 검증. 박스드로잉/한글/CJK 정상 표시."
+    },
+    {
+      "id": "VC-08",
+      "item": "동적 grid 크기 + forkpty winsize + 리사이즈 TIOCSWINSZ",
+      "date": "2026-04-11",
+      "locked": true,
+      "src": "sys_appkit.m (auto-size 85%) + sys_pty.c (hexa_pty_resize)",
+      "evidence": "T9 120x40 wrap 검증. T11 100x30 PTY 파이프라인. forkpty(&ws) 직접 전달."
+    },
+    {
+      "id": "VC-09",
+      "item": "좌측 탭바 + Cmd+T/W/Q + 탭 클릭 전환",
+      "date": "2026-04-11",
+      "locked": true,
+      "src": "sys_appkit.m (VoidTab, HexaTermView mouseDown/keyDown)",
+      "evidence": "탭별 PTY + grid save/restore(memcpy). single-instance lock."
+    },
+    {
+      "id": "VC-10",
+      "item": "VOID.app 번들 + /Applications 설치 + Dock 아이콘",
+      "date": "2026-04-11",
+      "locked": true,
+      "src": "VOID.app/Contents/{Info.plist, Resources/AppIcon.icns, MacOS/void_term}",
+      "evidence": "Spotlight/Dock 실행. Terminal.app 없이 독립 동작."
+    },
+    {
+      "id": "VC-11",
+      "item": "Terminal.app 매칭: SFMono 13pt + 블랙 배경 + ANSI 팔레트",
+      "date": "2026-04-11",
+      "locked": true,
+      "src": "sys_appkit.m (term_color, drawRect, init_term)",
+      "evidence": "defaults read com.apple.Terminal → SFMono-Regular 13pt. 동일 폰트/색상 적용 확인."
     }
   ],
   "pending_ossification": []
