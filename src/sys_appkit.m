@@ -389,11 +389,9 @@ static NSColor *term_color(int idx) {
 }
 
 - (void)keyDown:(NSEvent *)event {
-    NSString *chars = [event characters];
-    if (!chars.length) return;
     NSEventModifierFlags mods = [event modifierFlags];
 
-    // Cmd+key shortcuts
+    // Cmd+key shortcuts — check BEFORE characters (Cmd+digit may have empty characters)
     if (mods & NSEventModifierFlagCommand) {
         NSString *raw = [event charactersIgnoringModifiers];
         if (raw.length > 0) {
@@ -421,6 +419,9 @@ static NSColor *term_color(int idx) {
         }
         return; // Don't send other Cmd+ combos to PTY
     }
+
+    NSString *chars = [event characters];
+    if (!chars.length) return;
 
     // Ctrl+key
     if (mods & NSEventModifierFlagControl) {

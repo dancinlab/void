@@ -34,6 +34,7 @@ extern fn hexa_tab_close(idx: int) -> int
 extern fn hexa_tab_get_pty() -> int
 extern fn hexa_tab_poll_cmd() -> int
 extern fn hexa_tab_count() -> int
+extern fn hexa_tab_get_active() -> int
 extern fn hexa_tab_cell_cp(idx: int) -> int
 extern fn hexa_tab_cell_fg(idx: int) -> int
 extern fn hexa_tab_cell_bg(idx: int) -> int
@@ -1095,6 +1096,29 @@ fn self_test() {
     ROWS = 24
     TOTAL = 1920
 
+    // ── Test 12: Tab new/close/switch ──
+    // Create 3 tabs, verify count, close middle, verify
+    let t12a = hexa_tab_new()
+    let t12b = hexa_tab_new()
+    let t12c = hexa_tab_new()
+    let t12_count = hexa_tab_count()
+    let t12_active = hexa_tab_get_active()
+    // Close active (should be last created = t12c = index 2)
+    let _ = hexa_tab_close(t12_active)
+    let t12_count2 = hexa_tab_count()
+    let t12_active2 = hexa_tab_get_active()
+    if t12_count == 3 {
+        if t12_count2 == 2 {
+            if t12_active2 >= 0 {
+                println("[void-test] T12 PASS tab new/close (3→close→2, active=", t12_active2, ")")
+                pass = pass + 1
+            } else { println("[void-test] T12 FAIL  active after close=", t12_active2); fail = fail + 1 }
+        } else { println("[void-test] T12 FAIL  count after close=", t12_count2); fail = fail + 1 }
+    } else { println("[void-test] T12 FAIL  initial count=", t12_count); fail = fail + 1 }
+    // Cleanup remaining tabs
+    let _ = hexa_tab_close(0)
+    let _ = hexa_tab_close(0)
+
     // ── Summary ──
     println("")
     println("[void-test] ", pass, "/", pass + fail, " passed")
@@ -1198,7 +1222,8 @@ fn main() {
         if cmd == 2 {
             // Cmd+W: close active tab
             let _ = sync_to_bridge()
-            let active = hexa_tab_close(0)
+            let cur_tab = hexa_tab_get_active()
+            let active = hexa_tab_close(cur_tab)
             if hexa_tab_count() == 0 {
                 running = 0
             } else {
