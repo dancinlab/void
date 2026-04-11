@@ -861,6 +861,19 @@ static int tab_spawn_pty_profile(VoidProfile *vp) {
     if (pid == 0) {
         setenv("TERM", "xterm-256color", 1);
         setenv("LANG", "en_US.UTF-8", 1);
+        // Belt: when VOID.app is launched from Finder, LaunchServices
+        // hands us a bare /usr/bin:/bin PATH. The profile cmd (e.g. `cl`)
+        // lives under ~/.local/bin or /opt/homebrew/bin and would fail
+        // with "command not found". Prepend the user's typical binary
+        // dirs here — safe even when already present because login-mode
+        // rc files just reorder them later.
+        const char *old_path = getenv("PATH");
+        char new_path[2048];
+        snprintf(new_path, sizeof(new_path),
+                 "%s/.local/bin:%s/bin:/opt/homebrew/bin:/usr/local/bin:%s",
+                 getenv("HOME") ?: "", getenv("HOME") ?: "",
+                 old_path ?: "/usr/bin:/bin");
+        setenv("PATH", new_path, 1);
         apply_rlimits(vp);
 
         char *shell = getenv("SHELL");
@@ -877,7 +890,10 @@ static int tab_spawn_pty_profile(VoidProfile *vp) {
                 char script[1200];
                 snprintf(script, sizeof(script),
                          "%s; exec %s -l", vp->cmd, shell);
-                execl(shell, shell, "-c", script, (char*)NULL);
+                // -l (login) loads ~/.zprofile/.zshrc so aliases and the
+                // user's PATH are in place before the profile cmd runs.
+                // Without -l, `cl` → alias is undefined in the subshell.
+                execl(shell, shell, "-l", "-c", script, (char*)NULL);
             } else {
                 execl(shell, shell, "-l", (char*)NULL);
             }
