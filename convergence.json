@@ -1,7 +1,7 @@
 {
   "_meta": {
     "purpose": "void 골화 (ossified) 목록 — 더 이상 수정하지 않는 확정된 결정/구현",
-    "updated": "2026-04-11"
+    "updated": "2026-04-12"
   },
   "ossified": [
     {
@@ -87,6 +87,118 @@
       "locked": true,
       "src": "sys_appkit.m (term_color, drawRect, init_term)",
       "evidence": "defaults read com.apple.Terminal → SFMono-Regular 13pt. 동일 폰트/색상 적용 확인."
+    },
+    {
+      "id": "VC-12",
+      "item": "CJK wide-char 셀 처리 — scr_put advance 2, drawRect 2× width, continuation slot flag",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa scr_put + /tmp/void_main.c mirror + sys_appkit.m drawRect",
+      "evidence": "is_wide_cjk(cp) 한글/CJK/히라가나/풀와이드 커버. flags 0x10000=head, 0x20000=continuation. 한글 출력 겹침 해소."
+    },
+    {
+      "id": "VC-13",
+      "item": "Real xterm alternate screen buffer (?1049/?1047/?47/?1048)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa scr_is_alt + alt_* arrays + enter/leave_alt_screen",
+      "evidence": "T18 alt-screen save/restore 단위 테스트 통과. vim/htop/less 알트 스크린 진입·복원 정상."
+    },
+    {
+      "id": "VC-14",
+      "item": "\\x1b[?1004h TUI startup clear-injection shim (real alt-screen과 병행)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_pty.c alt_screen_rewrite in hexa_pty_poll_read",
+      "evidence": "claude/Ink-based TUI는 ?1049h 안 쓰고 ?1004h만 emit → 인젝션으로 TUI 진입 시 화면 클리어. 실측: zsh ?1004h=0회 vs ?2004h=346회/2s."
+    },
+    {
+      "id": "VC-15",
+      "item": "프로필 셸 spawn: zsh -l -c + PATH prepend (~/.local/bin 등)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m tab_spawn_pty_profile",
+      "evidence": "Finder launch 시 sparse PATH 문제 해결. `cl` 등 ~/.local/bin 바이너리 정상 resolve. ~/.zprofile/.zshrc 로드."
+    },
+    {
+      "id": "VC-16",
+      "item": "탭 드래그-이동 + 활성 인덱스 추적 + 프로필 재번호",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m tabs_move + mouseDragged/Up + void_tabs_renumber_profiles",
+      "evidence": "VoidTab 통째 memcpy로 PTY/grid/scrollback 이동, 셸 프로세스 유지. 드래그 중 파란 드롭 인디케이터."
+    },
+    {
+      "id": "VC-17",
+      "item": "탭바 자동 숨김 (탭 1개일 때 그리드 전체 너비)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m effective_tab_bar_w + drawRect + 메인 루프 reflow",
+      "evidence": "g_num_tabs <= 1 → eff_tbw=0. 탭 2개 생성 시 SIGWINCH로 그리드 reflow."
+    },
+    {
+      "id": "VC-18",
+      "item": "Cmd+Ctrl+N 프로필 단축키 첫탭 교체 규칙 + 프로필 탭 번호(1)(2)(3)…",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m tab_become_profile + Cmd-intercept + renumber",
+      "evidence": "탭 1개 + 프로필 미바인드 → 그 자리 교체. 2개 이상 → 새 탭. 동일 프로필 시블링 자동 (1)(2)."
+    },
+    {
+      "id": "VC-19",
+      "item": "Apple HIG 모노크롬 앱 아이콘 (1024 canvas, 824 plate, 185.4 radius)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m init_term 아이콘 블록 + VOID.app/Contents/Resources/AppIcon.icns",
+      "evidence": "Big Sur 스퀘어클 템플릿 정합. 차콜 플레이트 + 라이트-그레이 V. 실행 시/종료 시 Dock 아이콘 일치."
+    },
+    {
+      "id": "VC-20",
+      "item": "마우스 텍스트 선택 + Cmd+C/V 클립보드 통합",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m selection_* + copy_selection_to_clipboard + paste_from_clipboard",
+      "evidence": "드래그/더블클릭(단어)/트리플클릭(줄) 선택, NSPasteboard 통합. 붙여넣기 bracketed-paste 래핑."
+    },
+    {
+      "id": "VC-21",
+      "item": "Cmd+= / Cmd+- / Cmd+0 폰트 줌 (8..40pt)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m set_font_size + Cmd-intercept",
+      "evidence": "SFMono/Menlo/Monaco 폴백 체인. 크기 변경 시 CTFont 재생성 + g_term_cw/ch 재계산 + g_resized."
+    },
+    {
+      "id": "VC-22",
+      "item": "Cmd+F 스크롤백 검색 오버레이 (매치 하이라이트 + N/M 네비게이션)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m search_* helpers + drawRect 오버레이 + Cmd-intercept",
+      "evidence": "ASCII case-insensitive 부분 문자열, 최대 4096 매치. Enter/Shift+Enter 이동, ESC 닫기."
+    },
+    {
+      "id": "VC-23",
+      "item": "Cmd+G 타일 그리드 레이아웃 (1~9탭 자동 배치)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m LayoutMode + compute_tile_rect + apply_grid_layout + draw_grid",
+      "evidence": "1=1×1 2=1×2 3=1×3 4=2×2 5-6=2×3 7-9=3×3. 각 타일별 TIOCSWINSZ로 셸 리플로우. 10+ 탭은 스택으로 폴백."
+    },
+    {
+      "id": "VC-24",
+      "item": "void-server supervisor 데몬 v1 (PTY master 보유, unix socket + SCM_RIGHTS)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_server.c + src/sys_appkit.m 클라이언트 글루",
+      "evidence": "SPAWN/ATTACH/DETACH/LIST/KILL/PING/CHECKPOINT 프로토콜. VOID_USE_SERVER=1로 활성화. 시맨틱 레이블, 프로세스 분류기, /tmp/void_server_ckpt 크래시 복구."
+    },
+    {
+      "id": "VC-25",
+      "item": "Cmd+Z 탭 닫기 취소 (최근 16개 스택 → 동일 프로필 재스폰)",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m ClosedTabSnapshot + tab_reopen_last + hexa_tab_close push",
+      "evidence": "탭 닫을 때 title/profile_base/cwd 스냅샷 push. Cmd+Z = pop → profile_by_title 조회 → 같은 cmd로 재스폰."
     }
   ],
   "pending_ossification": []

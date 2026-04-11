@@ -225,6 +225,11 @@ static void tabs_move(int from, int to);
 // hexa_appkit_term_flush).
 static void copy_selection_to_clipboard(void);
 static void paste_from_clipboard(void);
+// Forward decls for the undo-close path used by performKeyEquivalent +
+// hexa_appkit_term_poll Cmd intercept. Definitions live further down.
+struct VoidProfile_; // forward decl of the struct tag
+static void tab_reopen_last(void);
+extern struct VoidProfile_ *g_pending_profile;
 // Forward decl — defined after HexaTermView but read from tab_become_profile.
 static int g_resized;
 
@@ -325,6 +330,21 @@ static int g_drag_source = -1;
 static int g_drag_target = -1;
 static int g_drag_active = 0;
 static NSPoint g_drag_origin;
+
+// Recently-closed tab stack for Cmd+Z (undo-close). On close we push a
+// snapshot of the tab's identity (title / profile base / cwd) so Cmd+Z
+// can respawn a fresh tab of the same profile. The shell + scrollback
+// are NOT restored — this is "reopen the profile I just closed" like
+// Chrome's Cmd+Shift+T, not a full session snapshot.
+#define CLOSED_STACK_MAX 16
+typedef struct {
+    char title[128];
+    char profile_base[64];
+    char cwd[1024];
+    int  was_profile;   // 1 → push pending_profile on reopen
+} ClosedTabSnapshot;
+static ClosedTabSnapshot g_closed_stack[CLOSED_STACK_MAX];
+static int g_closed_count = 0;
 
 // ── Mouse text selection state ───────────────────────────────────────
 // Set by mouseDown inside the grid area, extended by mouseDragged,
@@ -1554,6 +1574,11 @@ static NSColor *term_color(int idx) {
     if (ch == 't') { g_tab_cmd = 1; return YES; } // Cmd+T new tab
     if (ch == 'w') { g_tab_cmd = 2; return YES; } // Cmd+W close tab
     if (ch == 'q') { g_term_quit = 1; return YES; } // Cmd+Q quit
+    // Cmd+Z → undo the most recent tab close (reopen same profile fresh).
+    if (ch == 'z' && !(mods & NSEventModifierFlagShift)) {
+        tab_reopen_last();
+        return YES;
+    }
     // Cmd+C / Cmd+V clipboard — Ctrl+C must still pass through as SIGINT.
     if (ch == 'c' && !with_ctrl) {
         copy_selection_to_clipboard();
@@ -1795,7 +1820,7 @@ static HexaTermDelegate *g_term_delegate = nil;
 #include <pwd.h>
 
 #define MAX_PROFILES 16
-typedef struct {
+typedef struct VoidProfile_ {
     char key[4];     // "0".."9"
     char title[64];
     char path[512];
@@ -1851,8 +1876,8 @@ static void load_profiles(void) {
                 "  \"profiles\": [\n"
                 "    { \"key\": \"1\", \"title\": \"nexus\",         \"path\": \"~/Dev/nexus\",            \"cmd\": \"cl\" },\n"
                 "    { \"key\": \"2\", \"title\": \"anima\",         \"path\": \"~/Dev/anima\",            \"cmd\": \"cl\" },\n"
-                "    { \"key\": \"3\", \"title\": \"airgenome\",     \"path\": \"~/Dev/airgenome\",        \"cmd\": \"cl\" },\n"
-                "    { \"key\": \"4\", \"title\": \"n6-arch\",       \"path\": \"~/Dev/n6-architecture\",  \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"3\", \"title\": \"n6-architecture\", \"path\": \"~/Dev/n6-architecture\",  \"cmd\": \"cl\" },\n"
+                "    { \"key\": \"4\", \"title\": \"contribution\",  \"path\": \"~/Dev/contribution\",     \"cmd\": \"cl\" },\n"
                 "    { \"key\": \"5\", \"title\": \"prism\",         \"path\": \"~/mango/hexa-lang\",      \"cmd\": \"cl\" },\n"
                 "    { \"key\": \"6\", \"title\": \"prism-manager\", \"path\": \"~/mango/prism-manager\",  \"cmd\": \"cl\" },\n"
                 "    { \"key\": \"7\", \"title\": \"void\",          \"path\": \"~/Dev/void\",             \"cmd\": \"cl\" },\n"
@@ -1913,6 +1938,50 @@ static VoidProfile *profile_by_key(char ch) {
         if (strcmp(g_profiles[i].key, key) == 0) return &g_profiles[i];
     }
     return NULL;
+}
+
+// Find profile by title (used by undo-close to look up original cmd).
+// Matches exact title, not fuzzy — profile_base is already the exact
+// string we stored at open time.
+static VoidProfile *profile_by_title(const char *title) {
+    if (!title || !*title) return NULL;
+    for (int i = 0; i < g_num_profiles; i++) {
+        if (strcmp(g_profiles[i].title, title) == 0) return &g_profiles[i];
+    }
+    return NULL;
+}
+
+// Pop the most recently closed tab and respawn it. Called from the
+// Cmd+Z handler. The new tab is a FRESH spawn — the shell/PTY and
+// whatever was running in the old tab are gone; only the profile
+// config (title, path, cmd) is restored. Like Chrome's Cmd+Shift+T.
+static void tab_reopen_last(void) {
+    if (g_closed_count <= 0) return;
+    g_closed_count--;
+    ClosedTabSnapshot *snap = &g_closed_stack[g_closed_count];
+
+    // Static scratch so the VoidProfile storage outlives this function;
+    // hexa_tab_new reads g_pending_profile on the next main-loop tick.
+    static VoidProfile scratch;
+    memset(&scratch, 0, sizeof(scratch));
+    const char *label = snap->profile_base[0] ? snap->profile_base : snap->title;
+    snprintf(scratch.title, sizeof(scratch.title), "%s", label);
+    snprintf(scratch.path,  sizeof(scratch.path),  "%s", snap->cwd);
+
+    // If the label matches a configured profile, reuse its cmd+key so
+    // `cl` fires again. Otherwise reopen as a plain shell in the cwd.
+    VoidProfile *p = profile_by_title(label);
+    if (p) {
+        snprintf(scratch.cmd, sizeof(scratch.cmd), "%s", p->cmd);
+        snprintf(scratch.key, sizeof(scratch.key), "%s", p->key);
+        scratch.rl_mem_mb  = p->rl_mem_mb;
+        scratch.rl_cpu_sec = p->rl_cpu_sec;
+        scratch.rl_nofile  = p->rl_nofile;
+        scratch.rl_nice    = p->rl_nice;
+    }
+
+    g_pending_profile = &scratch;
+    g_tab_cmd = 1;
 }
 
 // Apply docker-lite resource limits to the current (child) process.
@@ -2699,6 +2768,27 @@ long hexa_tab_close(long idx) {
     if (idx < 0 || idx >= g_num_tabs) return g_active_tab;
     if (!g_tabs[idx].used) return g_active_tab;
 
+    // Push a snapshot onto the undo-close stack so Cmd+Z can respawn
+    // the same profile. We only save identity (title + profile_base +
+    // cwd), not live shell state — the PTY is about to die.
+    {
+        if (g_closed_count >= CLOSED_STACK_MAX) {
+            // Stack full — drop the oldest.
+            for (int k = 1; k < CLOSED_STACK_MAX; k++)
+                g_closed_stack[k - 1] = g_closed_stack[k];
+            g_closed_count = CLOSED_STACK_MAX - 1;
+        }
+        ClosedTabSnapshot *snap = &g_closed_stack[g_closed_count++];
+        memset(snap, 0, sizeof(*snap));
+        snprintf(snap->title,        sizeof(snap->title),
+                 "%s", g_tabs[idx].title);
+        snprintf(snap->profile_base, sizeof(snap->profile_base),
+                 "%s", g_tabs[idx].profile_base);
+        snprintf(snap->cwd,          sizeof(snap->cwd),
+                 "%s", g_tabs[idx].cwd);
+        snap->was_profile = g_tabs[idx].profile_base[0] ? 1 : 0;
+    }
+
     // Kill PTY
     if (g_tabs[idx].pty_fd >= 0) {
         close(g_tabs[idx].pty_fd);
@@ -3197,6 +3287,11 @@ long hexa_appkit_term_poll(void) {
                         }
                         if (ch == 'w') { g_tab_cmd = 2; continue; }
                         if (ch == 'q') { g_term_quit = 1; continue; }
+                        // Cmd+Z → undo the most recent tab close.
+                        if (ch == 'z' && !(mods & NSEventModifierFlagShift)) {
+                            tab_reopen_last();
+                            continue;
+                        }
                         // Cmd+C / Cmd+V clipboard. Ctrl+C stays SIGINT.
                         if (ch == 'c' && !with_ctrl) {
                             copy_selection_to_clipboard();
