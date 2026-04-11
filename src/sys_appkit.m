@@ -670,11 +670,18 @@ static NSColor *term_color(int idx) {
         for (int c = 0; c < g_term_cols; c++) {
             float x = ox + c * g_term_cw;
             TermCell *cell = &cell_row[c];
+            // Continuation cell for a wide char drawn at (c-1) — the
+            // glyph itself already covers this cell; just skip it. Its
+            // background is part of the wide cell's double-fill so we
+            // don't need to re-fill here either.
+            if (cell->flags & 0x20000) continue;
+            int wide = (cell->flags & 0x10000) != 0;
+            float cell_w = wide ? (2.0f * g_term_cw) : g_term_cw;
             int bg = cell->bg, fg = cell->fg;
             if (cell->flags & 8) { int t = bg; bg = fg; fg = t; }
             if (bg != 0) {
                 [term_color(bg) setFill];
-                NSRectFill(NSMakeRect(x, y, g_term_cw, g_term_ch));
+                NSRectFill(NSMakeRect(x, y, cell_w, g_term_ch));
             }
             if (cell->ch <= ' ') continue;
 
@@ -1770,20 +1777,24 @@ void hexa_tab_set_title(long tab_idx, long byte_val) {
     // Simple: just pass whole title via the existing title_buf mechanism
 }
 
-void hexa_appkit_term_set_cell(long row, long col, long ch, long fg, long bg, long flags) {
+// NOTE: parameter types MUST match hexa's extern prototype (int, not long).
+// hexa emits a C declaration with 32-bit int; if we use long here the ARM64
+// ABI sees 64-bit registers and the upper halves are garbage — the flags
+// in particular (0x10000 wide-head, 0x20000 continuation) would not round-trip.
+void hexa_appkit_term_set_cell(int row, int col, int ch, int fg, int bg, int flags) {
     if (row < 0 || row >= TERM_MAX_ROWS || col < 0 || col >= TERM_MAX_COLS) return;
     TermCell *cp = &g_term_grid[row][col];
     // Equal-cell early exit: hexa's sync_to_bridge writes the whole grid every
     // frame; this cuts ~90% of writes for typing workloads.
-    if (cp->ch == (unichar)ch && cp->fg == (int)fg &&
-        cp->bg == (int)bg && cp->flags == (int)flags) return;
+    if (cp->ch == (unichar)ch && cp->fg == fg &&
+        cp->bg == bg && cp->flags == flags) return;
     cp->ch = (unichar)ch;
-    cp->fg = (int)fg;
-    cp->bg = (int)bg;
-    cp->flags = (int)flags;
+    cp->fg = fg;
+    cp->bg = bg;
+    cp->flags = flags;
     // Mark dirty range
-    if (g_dirty_min < 0 || (int)row < g_dirty_min) g_dirty_min = (int)row;
-    if ((int)row > g_dirty_max) g_dirty_max = (int)row;
+    if (g_dirty_min < 0 || row < g_dirty_min) g_dirty_min = row;
+    if (row > g_dirty_max) g_dirty_max = row;
 }
 
 void hexa_appkit_term_set_cursor(long row, long col, long vis) {

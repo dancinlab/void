@@ -306,8 +306,33 @@ fn sgr_apply() {
 // ═══════════════════════════════════════════════════════════════
 // CSI DISPATCH
 // ═══════════════════════════════════════════════════════════════
+// East Asian Wide detection — codepoints that should occupy two cells.
+// Covers Hangul, CJK Unified, Hiragana/Katakana, CJK Compat, Fullwidth.
+// Not perfect (no emoji ZWJ / grapheme clusters) but enough to fix the
+// "한글 뒤죽박죽" bug where Korean output from claude overlapped itself.
+fn is_wide_cjk(cp) {
+    if cp < 0x1100 { return 0 }
+    if cp >= 0x1100 && cp <= 0x115F { return 1 } // Hangul Jamo
+    if cp >= 0x2E80 && cp <= 0x303E { return 1 } // CJK radicals/Kangxi/CJK symbols
+    if cp == 0x3000 { return 1 }                 // Ideographic space
+    if cp >= 0x3041 && cp <= 0x33FF { return 1 } // Hiragana/Katakana/CJK compat
+    if cp >= 0x3400 && cp <= 0x4DBF { return 1 } // CJK Ext-A
+    if cp >= 0x4E00 && cp <= 0x9FFF { return 1 } // CJK Unified
+    if cp >= 0xA000 && cp <= 0xA4CF { return 1 } // Yi
+    if cp >= 0xAC00 && cp <= 0xD7A3 { return 1 } // Hangul Syllables
+    if cp >= 0xF900 && cp <= 0xFAFF { return 1 } // CJK Compat Ideographs
+    if cp >= 0xFE30 && cp <= 0xFE4F { return 1 } // CJK Compat Forms
+    if cp >= 0xFF00 && cp <= 0xFF60 { return 1 } // Fullwidth ASCII
+    if cp >= 0xFFE0 && cp <= 0xFFE6 { return 1 } // Fullwidth symbols
+    if cp >= 0x20000 && cp <= 0x2FFFD { return 1 } // CJK Ext-B..F
+    if cp >= 0x30000 && cp <= 0x3FFFD { return 1 } // CJK Ext-G
+    return 0
+}
+
 fn scr_put(cp) {
-    if scr_cur_x >= COLS {
+    let wide = is_wide_cjk(cp)
+    let advance = if wide == 1 { 2 } else { 1 }
+    if scr_cur_x + advance > COLS {
         scr_cur_x = 0
         scr_cur_y = scr_cur_y + 1
         if scr_cur_y > scr_scroll_bot {
@@ -325,10 +350,21 @@ fn scr_put(cp) {
             if cur_bold == 1 { f = f + 1 }
             if cur_underline == 1 { f = f + 4 }
             if cur_inverse == 1 { f = f + 8 }
+            // Bit 0x10000 = wide-char head. drawRect renders 2x width.
+            if wide == 1 { f = f + 0x10000 }
             scr_flags[idx] = f
+            // Continuation slot — blank it out and flag bit 0x20000 so
+            // drawRect skips rendering it (the wide glyph covers it).
+            if wide == 1 && scr_cur_x + 1 < COLS {
+                let idx2 = idx + 1
+                scr_cells[idx2] = 0
+                scr_fg[idx2] = cur_fg
+                scr_bg[idx2] = cur_bg
+                scr_flags[idx2] = 0x20000
+            }
         }
     }
-    scr_cur_x = scr_cur_x + 1
+    scr_cur_x = scr_cur_x + advance
     return 0
 }
 
