@@ -461,7 +461,58 @@ fn is_wide_cjk(cp) {
     return 0
 }
 
+// ── Hangul NFD → NFC composition ──────────────────────────────────
+// macOS HFS+/APFS returns filenames as NFD (decomposed jamos), so
+// `ls` emits L=U+1100..U+1112 + V=U+1161..U+1175 + optional
+// T=U+11A8..U+11C2 instead of the precomposed syllable. Accumulate
+// the L/V state and emit a single wide syllable when the sequence
+// closes. Flush any partial on an unrelated cp so corrupt input
+// degrades gracefully. See T21/T21b/T21c.
+let mut g_hangul_L = -1  // 0..18 or -1
+let mut g_hangul_V = -1  // 0..20 or -1
+
+fn hangul_flush_pending() {
+    if g_hangul_L >= 0 && g_hangul_V >= 0 {
+        let syl = 0xAC00 + (g_hangul_L * 588) + (g_hangul_V * 28)
+        g_hangul_L = -1
+        g_hangul_V = -1
+        let _ = scr_put_raw(syl)
+        return 0
+    }
+    if g_hangul_L >= 0 {
+        let lone = 0x1100 + g_hangul_L
+        g_hangul_L = -1
+        let _ = scr_put_raw(lone)
+    }
+    return 0
+}
+
 fn scr_put(cp) {
+    // CHOSEONG (L) — start or restart composition
+    if cp >= 0x1100 && cp <= 0x1112 {
+        let _ = hangul_flush_pending()
+        g_hangul_L = cp - 0x1100
+        return 0
+    }
+    // JUNGSEONG (V) after L with no V yet — form LV
+    if cp >= 0x1161 && cp <= 0x1175 && g_hangul_L >= 0 && g_hangul_V < 0 {
+        g_hangul_V = cp - 0x1161
+        return 0
+    }
+    // JONGSEONG (T) after LV — emit LVT and reset
+    if cp >= 0x11A8 && cp <= 0x11C2 && g_hangul_L >= 0 && g_hangul_V >= 0 {
+        let t_idx = cp - 0x11A7
+        let syl = 0xAC00 + (g_hangul_L * 588) + (g_hangul_V * 28) + t_idx
+        g_hangul_L = -1
+        g_hangul_V = -1
+        return scr_put_raw(syl)
+    }
+    // Non-continuation — flush pending then pass through
+    let _ = hangul_flush_pending()
+    return scr_put_raw(cp)
+}
+
+fn scr_put_raw(cp) {
     let wide = is_wide_cjk(cp)
     let advance = if wide == 1 { 2 } else { 1 }
     if scr_cur_x + advance > COLS {
@@ -1694,6 +1745,56 @@ fn self_test() {
         } else { println("[void-test] T20 FAIL  cur_x=", scr_cur_x, " expected 1"); fail = fail + 1 }
     } else { println("[void-test] T20 FAIL  cell[0]=", scr_cells[0], " expected 65(A)"); fail = fail + 1 }
 
+    // ── Test 21: Hangul NFD → NFC composition ──
+    // macOS filesystem returns filenames as NFD (decomposed jamos).
+    // Feed U+1100 U+1161 U+11A8 (각 as CHOSEONG+JUNGSEONG+JONGSEONG)
+    // via the UTF-8 byte path and assert cell[0] holds precomposed
+    // 0xAC01 with wide-head flag 0x10000 and continuation 0x20000.
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // U+1100 = E1 84 80
+    let _ = scr_feed_byte(0xE1)
+    let _ = scr_feed_byte(0x84)
+    let _ = scr_feed_byte(0x80)
+    // U+1161 = E1 85 A1
+    let _ = scr_feed_byte(0xE1)
+    let _ = scr_feed_byte(0x85)
+    let _ = scr_feed_byte(0xA1)
+    // U+11A8 = E1 86 A8
+    let _ = scr_feed_byte(0xE1)
+    let _ = scr_feed_byte(0x86)
+    let _ = scr_feed_byte(0xA8)
+    if scr_cells[0] == 0xAC01 {
+        if scr_cur_x == 2 {
+            println("[void-test] T21 PASS Hangul NFD composed (U+1100+U+1161+U+11A8 -> U+AC01)")
+            pass = pass + 1
+        } else { println("[void-test] T21 FAIL  cur_x=", scr_cur_x, " expected 2"); fail = fail + 1 }
+    } else { println("[void-test] T21 FAIL  cell[0]=", scr_cells[0], " expected 44033"); fail = fail + 1 }
+
+    // ── Test 22: SGR colors land in cell fg/bg ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[31mR → red fg
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(82)
+    // ESC[44mK → blue bg
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(75)
+    if scr_cells[0] == 82 && scr_fg[0] == 1 {
+        if scr_cells[1] == 75 && scr_bg[1] == 4 {
+            println("[void-test] T22 PASS SGR 3x/4x color cells (R red fg, K blue bg)")
+            pass = pass + 1
+        } else { println("[void-test] T22 FAIL  cell[1]=", scr_cells[1], " bg=", scr_bg[1]); fail = fail + 1 }
+    } else { println("[void-test] T22 FAIL  cell[0]=", scr_cells[0], " fg=", scr_fg[0]); fail = fail + 1 }
+
     // ── Summary ──
     println("")
     println("[void-test] ", pass, "/", pass + fail, " passed")
@@ -1747,6 +1848,10 @@ fn vt_reset_state() {
     scr_is_alt = 0
     alt_saved_cur_x = 0
     alt_saved_cur_y = 0
+    // Drop any in-flight Hangul LV[T] accumulator so a partial
+    // composition doesn't bleed across reset/title/tab boundaries.
+    g_hangul_L = -1
+    g_hangul_V = -1
     return 0
 }
 

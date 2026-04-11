@@ -303,6 +303,30 @@
       "locked": true,
       "src": "src/void_main.hexa T19 test, src/sys_pty.c VOID_VT_CAPTURE env-gated binary dump",
       "evidence": "T19 PASS: 10행 ASCII 테이블 모든 행 col 2에서 시작. 4000+ 퍼즈 케이스에서 재현 안 됨 → 하드닝 + diagnostic 두 축 커버. VOID_VT_CAPTURE=1로 실행 시 /tmp/void_vt_capture.bin 바이트 단위 캡처."
+    },
+    {
+      "id": "VC-39",
+      "item": "Hangul NFD→NFC composition — macOS 파일시스템 분리형 자모를 precomposed 음절로 합성",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "/tmp/void_main.c + src/void_main.hexa scr_put wrapper (g_hangul_L/V state) + scr_put_raw + hangul_flush_pending + vt_reset_state drop state",
+      "evidence": "T21 PASS: U+1100(ᄀ) + U+1161(ᅡ) + U+11A8(ᆨ) NFD 바이트 → cell[0]=0xAC01(각) wide head (flag 0x10000) + continuation (0x20000) + cur_x=2. T21b PASS: LV-only (U+1100+U+1161) → 0xAC00(가) flush on X. T21c PASS: '한글' 6-jamo NFD → 54620/44544 2음절. 공식: syl=0xAC00+(L*588)+(V*28)+T. 부분 composition은 non-continuation 입력/reset 시 flush."
+    },
+    {
+      "id": "VC-40",
+      "item": "Finder-launch CLICOLOR/LSCOLORS 기본값 — BSD ls 컬러 자동 활성",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m tab_spawn_pty_profile child env setup",
+      "evidence": "T22 PASS: ESC[31mR/32mG/34mB/44mK/0mZ → cell fg/bg 정확히 1/2/4/4 + reset 복구. Finder 런치 sparse env에서 CLICOLOR 미설정 → ls 모노크롬 문제를 child 에서 setenv(CLICOLOR,1), setenv(LSCOLORS,exfxcxdxbxegedabagacad) 로 해결. .zshrc override 가능한 baseline."
+    },
+    {
+      "id": "VC-41",
+      "item": "Tab 키 자동완성 — login shell 정확 해결",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m tab_spawn_pty_profile shell resolution chain",
+      "evidence": "$SHELL → getpwuid(getuid())->pw_shell → /bin/zsh fallback 순. Finder 런치 sparse env로 $SHELL 미설정 시 기존 /bin/sh fallback이 ZLE/completion/history 전부 disable. /etc/passwd login shell 읽어와 setenv(SHELL,...) 까지 보장 → zsh ZLE가 자연스럽게 Tab completion 처리."
     }
   ],
   "pending_ossification": []

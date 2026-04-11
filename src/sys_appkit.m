@@ -2962,6 +2962,14 @@ static int tab_spawn_pty_profile(VoidProfile *vp) {
     if (pid == 0) {
         setenv("TERM", "xterm-256color", 1);
         setenv("LANG", "en_US.UTF-8", 1);
+        // BSD `ls` needs CLICOLOR=1 to emit SGR escapes for directories/
+        // executables/symlinks, and LSCOLORS to pick the actual palette.
+        // Without these the Finder-launched shell is monochrome regardless
+        // of .zshrc. Pick Terminal.app-ish defaults that match our 16-color
+        // sRGB palette (see term_color() in this file). Users can override
+        // either in their rc files — our setenv is just a sane baseline.
+        setenv("CLICOLOR", "1", 1);
+        setenv("LSCOLORS", "exfxcxdxbxegedabagacad", 1);
         // Belt: when VOID.app is launched from Finder, LaunchServices
         // hands us a bare /usr/bin:/bin PATH. The profile cmd (e.g. `cl`)
         // lives under ~/.local/bin or /opt/homebrew/bin and would fail
@@ -2977,8 +2985,20 @@ static int tab_spawn_pty_profile(VoidProfile *vp) {
         setenv("PATH", new_path, 1);
         apply_rlimits(vp);
 
+        // Resolve login shell: $SHELL → /etc/passwd (getpwuid) → /bin/zsh.
+        // Finder-launched VOID.app gets a sparse env where $SHELL may be
+        // unset; falling back to /bin/sh means no tab-completion, no
+        // history, no prompt — which is what the user was hitting. zsh
+        // is macOS's default login shell since Catalina, so it's the
+        // right terminal fallback. Also re-export SHELL so zsh's own
+        // line editor (ZLE) knows the canonical shell name.
         char *shell = getenv("SHELL");
-        if (!shell) shell = "/bin/sh";
+        if (!shell || !*shell) {
+            struct passwd *pw = getpwuid(getuid());
+            if (pw && pw->pw_shell && *pw->pw_shell) shell = pw->pw_shell;
+        }
+        if (!shell || !*shell) shell = "/bin/zsh";
+        setenv("SHELL", shell, 1);
 
         if (vp) {
             // Build: cd <path> && <cmd>; exec <shell>
