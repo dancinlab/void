@@ -392,6 +392,18 @@ static int g_sel_anchor_in_grid = 0; // 1 if mouseDown landed inside the termina
 // beyond the initial selection should override word/line mode.
 static int g_sel_click_count = 0;
 
+// ── Selection-change tracking ────────────────────────────────────────
+// drawRect uses an incremental cell cache (g_prev_grid): cells whose
+// content is unchanged are skipped. The selection overlay is painted
+// with alpha compositing ON TOP of the backing store, so a cache-skipped
+// cell retains the OLD overlay, and the NEW overlay stacks on it → the
+// highlighted region brightens frame-by-frame during a drag. We track
+// the previous frame's selection here and invalidate any cell whose
+// selection membership flipped so the row repaints from scratch.
+static int g_prev_sel_valid = 0;
+static int g_prev_sel_sr = -1, g_prev_sel_sc = -1;
+static int g_prev_sel_er = -1, g_prev_sel_ec = -1;
+
 // Clear selection — used by ESC, keystrokes, scrollback transitions.
 static inline void clear_selection(void) {
     if (g_sel_start_row < 0 && g_sel_end_row < 0) return;
@@ -431,6 +443,9 @@ static int g_term_rows;
 static int g_term_cols;
 static int g_term_cur_row;
 static int g_term_cur_col;
+// Tentative def — real definition further down. Referenced by
+// apply_grid_layout above it.
+static int g_full_redraw;
 
 // ── Speculative Hot Swap state ───────────────────────────────────────
 // Self-replace across a rebuild while keeping PTY file descriptors (and
@@ -758,21 +773,52 @@ static void compute_grid_dims(int n, int *out_rows, int *out_cols) {
 
 #define TILE_INSET 2
 
+// Compute the rect for tile `idx` of a grid layout.
+// Both the tile origin and size are snapped so that:
+//   1. origin.x / origin.y land on integer pixels (no subpixel drift
+//      between frames as the window resizes) — otherwise Core Text
+//      positions glyphs fractionally and the text on the last column
+//      of each tile appears to smear / duplicate.
+//   2. size.width / size.height are integer multiples of the cell
+//      metrics (g_term_cw / g_term_ch) — leftover pixels at the right
+//      and bottom become a deterministic gutter instead of a partial
+//      cell clipped mid-glyph.
 static NSRect compute_tile_rect(int idx, NSRect bounds, int n_tabs) {
     if (n_tabs <= 0 || idx < 0 || idx >= n_tabs) return NSZeroRect;
     int grid_rows, grid_cols;
     compute_grid_dims(n_tabs, &grid_rows, &grid_cols);
     int row = idx / grid_cols;
     int col = idx % grid_cols;
-    float tile_w = bounds.size.width  / (float)grid_cols;
-    float tile_h = bounds.size.height / (float)grid_rows;
-    float x = col * tile_w;
-    float y = row * tile_h;
-    NSRect r = NSMakeRect(x + TILE_INSET, y + TILE_INSET,
-                          tile_w - 2 * TILE_INSET, tile_h - 2 * TILE_INSET);
-    if (r.size.width  < 0) r.size.width  = 0;
-    if (r.size.height < 0) r.size.height = 0;
-    return r;
+
+    // Divide the canvas into integer-pixel cells using a running-error
+    // split so leftover pixels distribute evenly across tiles (the
+    // rightmost / bottommost tile absorbs the remainder).
+    int total_w = (int)bounds.size.width;
+    int total_h = (int)bounds.size.height;
+    int x0 = (col       * total_w) / grid_cols;
+    int x1 = ((col + 1) * total_w) / grid_cols;
+    int y0 = (row       * total_h) / grid_rows;
+    int y1 = ((row + 1) * total_h) / grid_rows;
+
+    int tx = x0 + TILE_INSET;
+    int ty = y0 + TILE_INSET;
+    int tw = (x1 - x0) - 2 * TILE_INSET;
+    int th = (y1 - y0) - 2 * TILE_INSET;
+    if (tw < 0) tw = 0;
+    if (th < 0) th = 0;
+
+    // Snap inner w/h to integer multiples of cell size — leftover pixels
+    // stay as gutter on the right/bottom of the tile, never as a partial
+    // cell at the edge (which is where text "breaks" on resize).
+    if (g_term_cw > 0) {
+        int cw = (int)g_term_cw;
+        if (cw > 0) tw = (tw / cw) * cw;
+    }
+    if (g_term_ch > 0) {
+        int ch = (int)g_term_ch;
+        if (ch > 0) th = (th / ch) * ch;
+    }
+    return NSMakeRect((CGFloat)tx, (CGFloat)ty, (CGFloat)tw, (CGFloat)th);
 }
 
 static void apply_grid_layout(NSRect bounds) {
@@ -807,6 +853,19 @@ static void apply_grid_layout(NSRect bounds) {
             ws.ws_xpixel = 0;
             ws.ws_ypixel = 0;
             ioctl(g_tabs[t].pty_fd, TIOCSWINSZ, &ws);
+        }
+        // For the active tab we ALSO need to keep the shared VT dims
+        // (g_term_rows/cols) in sync with the tile — hexa's VT parser
+        // writes into g_term_grid based on these, and a mismatch between
+        // PTY winsize and VT dims smears text at tile edges.
+        if (use_grid && t == g_active_tab) {
+            if (g_term_rows != new_rows || g_term_cols != new_cols) {
+                g_term_rows = new_rows;
+                g_term_cols = new_cols;
+                if (g_term_cur_row >= new_rows) g_term_cur_row = new_rows - 1;
+                if (g_term_cur_col >= new_cols) g_term_cur_col = new_cols - 1;
+                g_full_redraw = 1;
+            }
         }
     }
 }
@@ -1118,8 +1177,22 @@ static NSColor *term_color(int idx) {
 
 // ── HexaTermView (with tab bar) ──
 
-@interface HexaTermView : NSView
+@interface HexaTermView : NSView <NSTextInputClient>
 @end
+
+// ── IME composition state ────────────────────────────────────────────
+// When a Korean / Chinese / Japanese IME is active, interpretKeyEvents
+// routes keystrokes through -setMarkedText: until the composition is
+// committed (then -insertText: fires with the composed UTF-8, which we
+// forward to the PTY).  The marked string is drawn inline at the cursor
+// position as underlined text so the user sees the in-progress jamo
+// before it becomes a completed syllable.
+static NSString *g_marked_text = nil;
+static NSRange   g_marked_selection = {NSNotFound, 0};
+
+static inline int ime_has_marked(void) {
+    return (g_marked_text && [g_marked_text length] > 0);
+}
 
 @implementation HexaTermView
 - (BOOL)isFlipped { return YES; }
@@ -1151,6 +1224,12 @@ static NSColor *term_color(int idx) {
         NSMutableDictionary *attrBuf = [NSMutableDictionary dictionaryWithCapacity:3];
         NSNumber *underlineNum = @(NSUnderlineStyleSingle);
         CGContextRef drawCtx = [[NSGraphicsContext currentContext] CGContext];
+        // Fix text matrix for CTFontDrawGlyphs in flipped view (isFlipped=YES).
+        // The CGContext CTM is y-flipped by AppKit, but the default identity
+        // text matrix doesn't compensate — glyphs render upside-down and
+        // overlap adjacent rows.  Scale(1,-1) un-flips glyph shapes while
+        // keeping positions in the flipped coordinate space.
+        CGContextSetTextMatrix(drawCtx, CGAffineTransformMakeScale(1.0, -1.0));
 
         for (int t = 0; t < g_num_tabs; t++) {
             if (!g_tabs[t].used) continue;
@@ -1250,6 +1329,10 @@ static NSColor *term_color(int idx) {
                         NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
                         [as drawAtPoint:NSMakePoint(x, y + 2)];
                         [as release];
+                        // NSAttributedString may clobber the text matrix —
+                        // re-set for subsequent fast-path CTFontDrawGlyphs.
+                        CGContextSetTextMatrix(drawCtx,
+                            CGAffineTransformMakeScale(1.0, -1.0));
                     }
                 }
             }
@@ -1383,6 +1466,24 @@ static NSColor *term_color(int idx) {
     if (g_prev_grid_tab != g_active_tab) {
         g_prev_grid_valid = 0;
     }
+    // ── Selection-change forces full repaint for this frame ──
+    // The incremental cache path only re-fills black under changed
+    // cells, so a cached row still carries last frame's translucent
+    // selection overlay. Painting the new overlay on top stacks alphas
+    // (→ highlight brightens during drag, "flicker"). When the selection
+    // rect moves, bypass the cache entirely so the backing store is
+    // fully rebuilt before the overlay is applied.
+    {
+        int cur_active = 0, csr=0, csc=0, cer=0, cec=0;
+        cur_active = normalize_selection(&csr, &csc, &cer, &cec);
+        int sel_changed = 0;
+        if (cur_active != g_prev_sel_valid) sel_changed = 1;
+        else if (cur_active &&
+                 (csr != g_prev_sel_sr || csc != g_prev_sel_sc ||
+                  cer != g_prev_sel_er || cec != g_prev_sel_ec)) sel_changed = 1;
+        if (sel_changed) g_full_redraw = 1;
+    }
+
     int use_prev = (g_prev_grid_valid && !g_full_redraw && g_scroll_offset == 0 && !g_search_active);
     if (!use_prev) {
         // Full repaint: clear the entire grid background once.
@@ -1500,6 +1601,15 @@ static NSColor *term_color(int idx) {
         memcpy(g_prev_grid, g_term_grid, sizeof(g_prev_grid));
         g_prev_grid_valid = 1;
         g_prev_grid_tab = g_active_tab;
+        // Snapshot selection state — see g_prev_sel_* declaration.
+        int _sr, _sc, _er, _ec;
+        if (normalize_selection(&_sr, &_sc, &_er, &_ec)) {
+            g_prev_sel_valid = 1;
+            g_prev_sel_sr = _sr; g_prev_sel_sc = _sc;
+            g_prev_sel_er = _er; g_prev_sel_ec = _ec;
+        } else {
+            g_prev_sel_valid = 0;
+        }
     }
     // ── Selection overlay ── translucent blue shade painted ON TOP of the
     // glyph layer so both background and foreground remain visible through
@@ -1529,6 +1639,29 @@ static NSColor *term_color(int idx) {
         [[NSColor colorWithRed:0.6 green:0.6 blue:0.6 alpha:0.5] setFill];
         NSRectFill(NSMakeRect(ox + g_term_cur_col * g_term_cw,
                               TERM_PAD + g_term_cur_row * g_term_ch, g_term_cw, g_term_ch));
+    }
+    // ── IME marked (composing) text overlay ──
+    // When a Hangul / Kana / Pinyin composition is in progress, draw the
+    // uncommitted string inline at the cursor so the user sees the jamo
+    // before they become a finished syllable.  Bytes stay out of the PTY
+    // until -insertText: fires (on commit).
+    if (g_scroll_offset == 0 && ime_has_marked() &&
+        g_term_cur_row >= 0 && g_term_cur_row < g_term_rows) {
+        float mx = ox + g_term_cur_col * g_term_cw;
+        float my = TERM_PAD + g_term_cur_row * g_term_ch;
+        NSDictionary *ma = @{
+            NSFontAttributeName: (__bridge id)g_term_font,
+            NSForegroundColorAttributeName:
+                [NSColor colorWithRed:1.0 green:1.0 blue:1.0 alpha:1.0],
+            NSUnderlineStyleAttributeName: underlineNum,
+            NSBackgroundColorAttributeName: srgb_black()
+        };
+        NSSize msz = [g_marked_text sizeWithAttributes:ma];
+        // Black background under the marked glyphs so any cells the IME
+        // string overlaps are clearly "not yet committed".
+        [srgb_black() setFill];
+        NSRectFill(NSMakeRect(mx, my, msz.width, g_term_ch));
+        [g_marked_text drawAtPoint:NSMakePoint(mx, my + 2) withAttributes:ma];
     }
     // Scrollback indicator
     if (g_scroll_offset > 0) {
@@ -1754,12 +1887,16 @@ static NSColor *term_color(int idx) {
     // Single click: seed an inert selection. Becomes active once the
     // user drags past the origin; plain clicks just clear the previous
     // selection (if any) without leaving a stray highlight.
+    int had_prev_sel = (g_sel_active != 0);
     g_sel_start_row = row;
     g_sel_start_col = col;
     g_sel_end_row = row;
     g_sel_end_col = col;
     g_sel_active = 0;
-    [self setNeedsDisplay:YES];
+    // Only repaint if we actually need to erase a previous highlight —
+    // otherwise a plain click inside an already-unselected area would
+    // trigger a needless full-view redraw.
+    if (had_prev_sel) [self setNeedsDisplay:YES];
 }
 
 - (void)mouseDragged:(NSEvent *)event {
@@ -1809,6 +1946,10 @@ static NSColor *term_color(int idx) {
             g_sel_active = 1;
         }
     }
+    // Skip the redraw if the drag is still inside the same cell — an
+    // NSEvent mouseDragged fires every few pixels, so without this we
+    // trigger 30+ full-view redraws per second with identical output.
+    if (row == g_sel_end_row && col == g_sel_end_col && g_sel_active) return;
     g_sel_end_row = row;
     g_sel_end_col = col;
     [self setNeedsDisplay:YES];
@@ -2039,8 +2180,100 @@ static NSColor *term_color(int idx) {
         case NSPageDownFunctionKey:   term_key_push("\033[6~", 4); return;
         case NSDeleteFunctionKey:     term_key_push("\033[3~", 4); return;
     }
-    const char *utf8 = [chars UTF8String];
-    term_key_push(utf8, (int)strlen(utf8));
+    // Route through the IME so Hangul / Kana / Pinyin composition works.
+    // For plain ASCII with no composition in progress the input method
+    // passes the character straight through to -insertText: which writes
+    // it to the PTY.  Enter / Backspace / Tab come back as AppKit
+    // selectors via -doCommandBySelector:.
+    [self interpretKeyEvents:@[event]];
+}
+
+// ── NSTextInputClient ────────────────────────────────────────────────
+- (BOOL)hasMarkedText { return ime_has_marked() ? YES : NO; }
+- (NSRange)markedRange {
+    return ime_has_marked()
+        ? NSMakeRange(0, [g_marked_text length])
+        : NSMakeRange(NSNotFound, 0);
+}
+- (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }
+
+- (void)setMarkedText:(id)string
+        selectedRange:(NSRange)selRange
+     replacementRange:(NSRange)replacementRange {
+    NSString *s = [string isKindOfClass:[NSAttributedString class]]
+        ? [(NSAttributedString *)string string]
+        : (NSString *)string;
+    [g_marked_text release];
+    g_marked_text = (s && [s length] > 0) ? [s copy] : nil;
+    g_marked_selection = selRange;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)unmarkText {
+    [g_marked_text release];
+    g_marked_text = nil;
+    g_marked_selection = NSMakeRange(NSNotFound, 0);
+    [self setNeedsDisplay:YES];
+}
+
+- (NSArray<NSAttributedStringKey> *)validAttributesForMarkedText { return @[]; }
+
+- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range
+                                                actualRange:(NSRangePointer)actualRange {
+    if (actualRange) *actualRange = NSMakeRange(NSNotFound, 0);
+    return nil;
+}
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+    NSString *s = [string isKindOfClass:[NSAttributedString class]]
+        ? [(NSAttributedString *)string string]
+        : (NSString *)string;
+    [g_marked_text release];
+    g_marked_text = nil;
+    g_marked_selection = NSMakeRange(NSNotFound, 0);
+    if (s && [s length] > 0) {
+        const char *utf8 = [s UTF8String];
+        if (utf8) term_key_push(utf8, (int)strlen(utf8));
+    }
+    [self setNeedsDisplay:YES];
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)point { return NSNotFound; }
+
+- (NSRect)firstRectForCharacterRange:(NSRange)range
+                         actualRange:(NSRangePointer)actualRange {
+    if (actualRange) *actualRange = range;
+    if (g_term_cw <= 0 || g_term_ch <= 0) return NSZeroRect;
+    int eff_tbw = effective_tab_bar_w();
+    float x = eff_tbw + TERM_PAD + g_term_cur_col * g_term_cw;
+    float y = TERM_PAD + g_term_cur_row * g_term_ch;
+    NSRect vr = NSMakeRect(x, y, g_term_cw, g_term_ch);
+    NSRect wr = [self convertRect:vr toView:nil];
+    NSWindow *w = [self window];
+    return w ? [w convertRectToScreen:wr] : wr;
+}
+
+- (void)doCommandBySelector:(SEL)selector {
+    // Map AppKit text-editing selectors back onto the bytes the terminal
+    // actually cares about.  Arrow keys and function keys are handled
+    // earlier in -keyDown: so they don't need cases here, but Enter /
+    // Backspace / Tab round-trip through the IME on commit and need to
+    // be translated.
+    if (selector == @selector(insertNewline:) ||
+        selector == @selector(insertLineBreak:)) {
+        term_key_push("\r", 1);
+    } else if (selector == @selector(insertTab:)) {
+        term_key_push("\t", 1);
+    } else if (selector == @selector(insertBacktab:)) {
+        term_key_push("\033[Z", 3);
+    } else if (selector == @selector(deleteBackward:)) {
+        term_key_push("\x7f", 1);
+    } else if (selector == @selector(deleteForward:)) {
+        term_key_push("\033[3~", 4);
+    } else if (selector == @selector(cancelOperation:)) {
+        term_key_push("\x1b", 1);
+    }
+    // Unrecognized selectors are silently dropped — matches Terminal.app.
 }
 - (void)scrollWheel:(NSEvent *)event {
     if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;

@@ -40,7 +40,7 @@ one pass. Per-layer smokes exist for deeper coverage.
 ## Build
 
 ```bash
-hexa scripts/build.hexa
+hexa run scripts/build.hexa
 ```
 
 Runs every smoke non-TTY and reports PASS/FAIL counts. Exit 0 iff all pass.
@@ -63,7 +63,7 @@ $HEXA_BIN tests/smoke_plugin.hexa
 ## Package
 
 ```bash
-hexa scripts/release.hexa 0.5.0
+hexa run scripts/release.hexa 0.5.0
 ```
 
 1. Validates version format (`N.N.N`).

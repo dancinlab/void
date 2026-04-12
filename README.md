@@ -54,12 +54,14 @@ Layer 1 — System             PTY, window, events, signals (via extern FFI)
 # Requires hexa-lang compiler
 # https://github.com/need-singularity/hexa-lang
 
-# Run VOID
-hexa app/main.hexa
+# Run VOID (stage1 CLI, go/cargo-style)
+hexa run app/main.hexa
 
 # Run tests
-hexa examples/test_pty.hexa
-hexa examples/test_ffi.hexa
+hexa run examples/test_pty.hexa
+hexa run examples/test_ffi.hexa
+
+# (호환 모드: `hexa app/main.hexa` 는 자동으로 run 으로 위임됨)
 ```
 
 ## Architecture
