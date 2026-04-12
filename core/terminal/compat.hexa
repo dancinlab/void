@@ -1,5 +1,5 @@
 // compat.hexa — Terminal compatibility layer for Phase 4 completion
-// VOID Layer 3: Terminal Core — vim/htop/tmux interop
+// VOID Layer 3: Terminal Core — vim/htop interop
 //
 // Handles terminal queries that applications send to discover capabilities:
 //   CSI 6n        — DSR: Cursor Position Report  (→ CSI row;col R)

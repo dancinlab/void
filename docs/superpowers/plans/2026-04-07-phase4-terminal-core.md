@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** VOID 터미널 에뮬레이터의 Terminal Core(Phase 4)를 완성하여, vim/tmux/htop 등 실제 TUI 앱을 무리 없이 구동할 수 있는 수준으로 만든다.
+**Goal:** VOID 터미널 에뮬레이터의 Terminal Core(Phase 4)를 완성하여, vim/htop 등 실제 TUI 앱을 무리 없이 구동할 수 있는 수준으로 만든다.
 
 **Architecture:** VT 파서에 TrueColor·마우스·DEC 문자셋을 추가하고, 그리드에 alt screen·RGB 컬러·리사이즈를 구현하며, 메인 루프에 마우스 입력·스크롤백 탐색·리사이즈 폴링을 통합한다. 차등 렌더링으로 성능을 개선한다.
 
@@ -968,7 +968,7 @@ Run: `hexa run app/main.hexa` 후:
 printf '\e[9mstrikethrough\e[0m\n'
 printf '\e[5mblink\e[0m\n'
 printf '\e(0lqqqqk\e(B\n'  # DEC line drawing: ┌────┐
-tmux    # tmux 테두리가 박스 문자로 표시되는지 확인
+# 위 출력이 박스 모양 (┌────┐)으로 표시되는지 확인
 ```
 
 - [ ] **Step 6: Commit**
@@ -1157,7 +1157,7 @@ vt_process 시작에 `let reply = ""` 추가, dispatch_csi 호출 후:
 
 Run: `hexa run app/main.hexa` 후:
 ```bash
-# nano, less, tmux 등 실행하여 화면 렌더링 정상 확인
+# nano, less 등 실행하여 화면 렌더링 정상 확인
 nano /tmp/test.txt
 less /etc/hosts
 ```
