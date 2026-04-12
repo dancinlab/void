@@ -335,6 +335,30 @@
       "locked": true,
       "src": ".claude/hooks/auto-build, .claude/hooks/void-swap — mv 후 codesign --force --sign -",
       "evidence": "증상: mv/cp 후 self-binary watcher가 NSWorkspace relaunch → 새 프로세스 12ms만에 SIGKILL. 크래시 리포트 bug_type=309 CODESIGNING code=1 'Taskgated Invalid Signature'. 원인: mktemp 생성 tempfile의 linker ad-hoc 시그니처가 identifier='void_term.XXXXXX.yyy' + 리소스 디렉토리 해시 참조를 가진 채 /Applications/VOID.app 경로로 이동. taskgated가 번들 CodeResources 미스매치를 SIGKILL로 처벌. 해결: mv 직후 `codesign --force --sign -` 로 재서명 → identifier=com.need-singularity.void (Info.plist 기반), 플래그 0x20002(adhoc,linker-signed) → 0x2(adhoc), 리소스 디렉토리 해시 재계산. 검증: 6890 → 15864 PID 전환 후 크래시 리포트 0건. 또한 void-swap 훅은 `cp`를 `mv`로 교체 (cp는 inode preservation → 라이브 mmap 페이지 손상)."
+    },
+    {
+      "id": "VC-43",
+      "item": "void_server grid stride 수정 — pump s->cols(80) vs ATTACH VS_GRID_COLS(400) 불일치 해결",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_server.c pump_one_session grid write + scroll",
+      "evidence": "pump가 idx=row*s->cols+col(stride 80)로 쓰고 ATTACH는 row*VS_GRID_COLS(stride 400)로 읽음 → row 0만 정상, row 1+ 빈 데이터. 수정: pump에서 VS_GRID_COLS stride 사용. void_harness 6/6 PASS 검증."
+    },
+    {
+      "id": "VC-44",
+      "item": "hexa 컴파일러 0x hex literal 미지원 → 전수 decimal 변환",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa is_wide_cjk + scr_put + scr_put_raw + wide-char flags",
+      "evidence": "hexa build_c가 0x1100을 C에서 x1100 (undeclared identifier)로 생성. 28개 parse error + clang error 20+ 발생. 전체 0x literal → decimal 변환: 0x1100→4352, 0xAC00→44032, 0x10000→65536, 0x20000→131072 등. 변환 후 parse error 0, clang clean 빌드."
+    },
+    {
+      "id": "VC-45",
+      "item": "hexa ptr 타입 미지원 → hexa_reply_reset/push/flush byte-by-byte API",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m g_reply_buf + src/void_main.hexa csi_dispatch DSR/DA1",
+      "evidence": "hexa에 ptr 타입 없음 → extern fn hexa_term_reply(data: ptr, len: int) 파싱 실패. C측 g_reply_buf[64] 바이트 버퍼 + reset/push/flush 3-call API로 교체. CSI 6n(CPR), CSI 5n(DSR), CSI c(DA1) 응답 구현."
     }
   ],
   "pending_ossification": []

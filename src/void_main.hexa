@@ -54,6 +54,12 @@ extern fn hexa_appkit_cwd_apply()
 extern fn hexa_scrollback_push_begin() -> int
 extern fn hexa_scrollback_push_cell(ch: int, fg: int, bg: int, flags: int) -> int
 extern fn hexa_scrollback_push_end() -> int
+extern fn hexa_reply_reset() -> int
+extern fn hexa_reply_push(b: int) -> int
+extern fn hexa_reply_flush() -> int
+extern fn hexa_keybuf_len() -> int
+extern fn hexa_keybuf_byte(idx: int) -> int
+extern fn hexa_keybuf_clear() -> int
 
 // ═══════════════════════════════════════════════════════════════
 // SCREEN BUFFER — flat arrays (VP-04 compatible)
@@ -443,21 +449,21 @@ fn sgr_apply() {
 // Not perfect (no emoji ZWJ / grapheme clusters) but enough to fix the
 // "한글 뒤죽박죽" bug where Korean output from claude overlapped itself.
 fn is_wide_cjk(cp) {
-    if cp < 0x1100 { return 0 }
-    if cp >= 0x1100 && cp <= 0x115F { return 1 } // Hangul Jamo
-    if cp >= 0x2E80 && cp <= 0x303E { return 1 } // CJK radicals/Kangxi/CJK symbols
-    if cp == 0x3000 { return 1 }                 // Ideographic space
-    if cp >= 0x3041 && cp <= 0x33FF { return 1 } // Hiragana/Katakana/CJK compat
-    if cp >= 0x3400 && cp <= 0x4DBF { return 1 } // CJK Ext-A
-    if cp >= 0x4E00 && cp <= 0x9FFF { return 1 } // CJK Unified
-    if cp >= 0xA000 && cp <= 0xA4CF { return 1 } // Yi
-    if cp >= 0xAC00 && cp <= 0xD7A3 { return 1 } // Hangul Syllables
-    if cp >= 0xF900 && cp <= 0xFAFF { return 1 } // CJK Compat Ideographs
-    if cp >= 0xFE30 && cp <= 0xFE4F { return 1 } // CJK Compat Forms
-    if cp >= 0xFF00 && cp <= 0xFF60 { return 1 } // Fullwidth ASCII
-    if cp >= 0xFFE0 && cp <= 0xFFE6 { return 1 } // Fullwidth symbols
-    if cp >= 0x20000 && cp <= 0x2FFFD { return 1 } // CJK Ext-B..F
-    if cp >= 0x30000 && cp <= 0x3FFFD { return 1 } // CJK Ext-G
+    if cp < 4352 { return 0 }
+    if cp >= 4352 && cp <= 4447 { return 1 }      // Hangul Jamo (U+1100..U+115F)
+    if cp >= 11904 && cp <= 12350 { return 1 }     // CJK radicals/Kangxi/CJK symbols
+    if cp == 12288 { return 1 }                    // Ideographic space (U+3000)
+    if cp >= 12353 && cp <= 13311 { return 1 }     // Hiragana/Katakana/CJK compat
+    if cp >= 13312 && cp <= 19903 { return 1 }     // CJK Ext-A
+    if cp >= 19968 && cp <= 40959 { return 1 }     // CJK Unified
+    if cp >= 40960 && cp <= 42191 { return 1 }     // Yi
+    if cp >= 44032 && cp <= 55203 { return 1 }     // Hangul Syllables (U+AC00..U+D7A3)
+    if cp >= 63744 && cp <= 64255 { return 1 }     // CJK Compat Ideographs
+    if cp >= 65072 && cp <= 65103 { return 1 }     // CJK Compat Forms
+    if cp >= 65280 && cp <= 65376 { return 1 }     // Fullwidth ASCII
+    if cp >= 65504 && cp <= 65510 { return 1 }     // Fullwidth symbols
+    if cp >= 131072 && cp <= 196605 { return 1 }   // CJK Ext-B..F
+    if cp >= 196608 && cp <= 262141 { return 1 }   // CJK Ext-G
     return 0
 }
 
@@ -473,14 +479,14 @@ let mut g_hangul_V = -1  // 0..20 or -1
 
 fn hangul_flush_pending() {
     if g_hangul_L >= 0 && g_hangul_V >= 0 {
-        let syl = 0xAC00 + (g_hangul_L * 588) + (g_hangul_V * 28)
+        let syl = 44032 + (g_hangul_L * 588) + (g_hangul_V * 28)
         g_hangul_L = -1
         g_hangul_V = -1
         let _ = scr_put_raw(syl)
         return 0
     }
     if g_hangul_L >= 0 {
-        let lone = 0x1100 + g_hangul_L
+        let lone = 4352 + g_hangul_L
         g_hangul_L = -1
         let _ = scr_put_raw(lone)
     }
@@ -488,21 +494,21 @@ fn hangul_flush_pending() {
 }
 
 fn scr_put(cp) {
-    // CHOSEONG (L) — start or restart composition
-    if cp >= 0x1100 && cp <= 0x1112 {
+    // CHOSEONG (L) — start or restart composition (U+1100..U+1112)
+    if cp >= 4352 && cp <= 4370 {
         let _ = hangul_flush_pending()
-        g_hangul_L = cp - 0x1100
+        g_hangul_L = cp - 4352
         return 0
     }
-    // JUNGSEONG (V) after L with no V yet — form LV
-    if cp >= 0x1161 && cp <= 0x1175 && g_hangul_L >= 0 && g_hangul_V < 0 {
-        g_hangul_V = cp - 0x1161
+    // JUNGSEONG (V) after L with no V yet — form LV (U+1161..U+1175)
+    if cp >= 4449 && cp <= 4469 && g_hangul_L >= 0 && g_hangul_V < 0 {
+        g_hangul_V = cp - 4449
         return 0
     }
-    // JONGSEONG (T) after LV — emit LVT and reset
-    if cp >= 0x11A8 && cp <= 0x11C2 && g_hangul_L >= 0 && g_hangul_V >= 0 {
-        let t_idx = cp - 0x11A7
-        let syl = 0xAC00 + (g_hangul_L * 588) + (g_hangul_V * 28) + t_idx
+    // JONGSEONG (T) after LV — emit LVT and reset (U+11A8..U+11C2)
+    if cp >= 4520 && cp <= 4546 && g_hangul_L >= 0 && g_hangul_V >= 0 {
+        let t_idx = cp - 4519
+        let syl = 44032 + (g_hangul_L * 588) + (g_hangul_V * 28) + t_idx
         g_hangul_L = -1
         g_hangul_V = -1
         return scr_put_raw(syl)
@@ -533,8 +539,8 @@ fn scr_put_raw(cp) {
             if cur_bold == 1 { f = f + 1 }
             if cur_underline == 1 { f = f + 4 }
             if cur_inverse == 1 { f = f + 8 }
-            // Bit 0x10000 = wide-char head. drawRect renders 2x width.
-            if wide == 1 { f = f + 0x10000 }
+            // Bit 65536 (0x10000) = wide-char head. drawRect renders 2x width.
+            if wide == 1 { f = f + 65536 }
             scr_flags[idx] = f
             // Continuation slot — blank it out and flag bit 0x20000 so
             // drawRect skips rendering it (the wide glyph covers it).
@@ -543,7 +549,7 @@ fn scr_put_raw(cp) {
                 scr_cells[idx2] = 0
                 scr_fg[idx2] = cur_fg
                 scr_bg[idx2] = cur_bg
-                scr_flags[idx2] = 0x20000
+                scr_flags[idx2] = 131072
             }
         }
     }
@@ -866,6 +872,60 @@ fn csi_dispatch(b) {
         // u — restore cursor
         scr_cur_x = saved_cur_x
         scr_cur_y = saved_cur_y
+    } else if b == 110 {
+        // n — Device Status Report (DSR)
+        let pn = vt_csi_get(0, 0)
+        if pn == 6 {
+            // CSI 6n → CPR: report cursor position as ESC[row;colR
+            // row/col are 1-based
+            let r = scr_cur_y + 1
+            let c = scr_cur_x + 1
+            let _ = hexa_reply_reset()
+            let _ = hexa_reply_push(27)   // ESC
+            let _ = hexa_reply_push(91)   // [
+            // row digits
+            if r >= 100 {
+                let _ = hexa_reply_push(48 + r / 100)
+            }
+            if r >= 10 {
+                let _ = hexa_reply_push(48 + (r / 10) - (r / 100) * 10)
+            }
+            let _ = hexa_reply_push(48 + r - (r / 10) * 10)
+            let _ = hexa_reply_push(59)   // ;
+            // col digits
+            if c >= 100 {
+                let _ = hexa_reply_push(48 + c / 100)
+            }
+            if c >= 10 {
+                let _ = hexa_reply_push(48 + (c / 10) - (c / 100) * 10)
+            }
+            let _ = hexa_reply_push(48 + c - (c / 10) * 10)
+            let _ = hexa_reply_push(82)   // R
+            let _ = hexa_reply_flush()
+        } else if pn == 5 {
+            // CSI 5n → status report: "OK"
+            let _ = hexa_reply_reset()
+            let _ = hexa_reply_push(27)   // ESC
+            let _ = hexa_reply_push(91)   // [
+            let _ = hexa_reply_push(48)   // 0
+            let _ = hexa_reply_push(110)  // n
+            let _ = hexa_reply_flush()
+        }
+    } else if b == 99 {
+        // c — Device Attributes (DA1)
+        if vt_private == 0 {
+            // CSI c or CSI 0c → report as VT220: ESC[?62;4c
+            let _ = hexa_reply_reset()
+            let _ = hexa_reply_push(27)   // ESC
+            let _ = hexa_reply_push(91)   // [
+            let _ = hexa_reply_push(63)   // ?
+            let _ = hexa_reply_push(54)   // 6
+            let _ = hexa_reply_push(50)   // 2
+            let _ = hexa_reply_push(59)   // ;
+            let _ = hexa_reply_push(52)   // 4
+            let _ = hexa_reply_push(99)   // c
+            let _ = hexa_reply_flush()
+        }
     }
     return 0
 }
@@ -1749,22 +1809,22 @@ fn self_test() {
     // macOS filesystem returns filenames as NFD (decomposed jamos).
     // Feed U+1100 U+1161 U+11A8 (각 as CHOSEONG+JUNGSEONG+JONGSEONG)
     // via the UTF-8 byte path and assert cell[0] holds precomposed
-    // 0xAC01 with wide-head flag 0x10000 and continuation 0x20000.
+    // U+AC01 (44033) with wide-head flag 65536 and continuation 131072.
     let _ = scr_init()
     let _ = vt_reset_state()
     // U+1100 = E1 84 80
-    let _ = scr_feed_byte(0xE1)
-    let _ = scr_feed_byte(0x84)
-    let _ = scr_feed_byte(0x80)
+    let _ = scr_feed_byte(225)
+    let _ = scr_feed_byte(132)
+    let _ = scr_feed_byte(128)
     // U+1161 = E1 85 A1
-    let _ = scr_feed_byte(0xE1)
-    let _ = scr_feed_byte(0x85)
-    let _ = scr_feed_byte(0xA1)
+    let _ = scr_feed_byte(225)
+    let _ = scr_feed_byte(133)
+    let _ = scr_feed_byte(161)
     // U+11A8 = E1 86 A8
-    let _ = scr_feed_byte(0xE1)
-    let _ = scr_feed_byte(0x86)
-    let _ = scr_feed_byte(0xA8)
-    if scr_cells[0] == 0xAC01 {
+    let _ = scr_feed_byte(225)
+    let _ = scr_feed_byte(134)
+    let _ = scr_feed_byte(168)
+    if scr_cells[0] == 44033 {
         if scr_cur_x == 2 {
             println("[void-test] T21 PASS Hangul NFD composed (U+1100+U+1161+U+11A8 -> U+AC01)")
             pass = pass + 1
@@ -1794,6 +1854,94 @@ fn self_test() {
             pass = pass + 1
         } else { println("[void-test] T22 FAIL  cell[1]=", scr_cells[1], " bg=", scr_bg[1]); fail = fail + 1 }
     } else { println("[void-test] T22 FAIL  cell[0]=", scr_cells[0], " fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 23: DSR CSI 6n → CPR response ──
+    let _ = scr_init()
+    let _ = hexa_keybuf_clear()
+    // Move cursor to (3,7) then send CSI 6n
+    // CUP: ESC[4;8H (1-based)
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(72)
+    // DSR: ESC[6n
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(110)
+    // Expect response: ESC[4;8R in key buffer
+    let t23_len = hexa_keybuf_len()
+    if t23_len == 6 {
+        let t23_0 = hexa_keybuf_byte(0)
+        let t23_1 = hexa_keybuf_byte(1)
+        let t23_2 = hexa_keybuf_byte(2)
+        let t23_3 = hexa_keybuf_byte(3)
+        let t23_4 = hexa_keybuf_byte(4)
+        let t23_5 = hexa_keybuf_byte(5)
+        // ESC=27 [=91 4=52 ;=59 8=56 R=82
+        if t23_0 == 27 && t23_1 == 91 && t23_2 == 52 && t23_3 == 59 && t23_4 == 56 && t23_5 == 82 {
+            println("[void-test] T23 PASS DSR CSI 6n → CPR ESC[4;8R")
+            pass = pass + 1
+        } else {
+            println("[void-test] T23 FAIL  response bytes=", t23_0, ",", t23_1, ",", t23_2, ",", t23_3, ",", t23_4, ",", t23_5)
+            fail = fail + 1
+        }
+    } else {
+        println("[void-test] T23 FAIL  keybuf len=", t23_len, " expected 6")
+        fail = fail + 1
+    }
+
+    // ── Test 24: DA1 CSI c → device attributes response ──
+    let _ = hexa_keybuf_clear()
+    // CSI c: ESC[c
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(99)
+    // Expect: ESC[?62;4c (8 bytes)
+    let t24_len = hexa_keybuf_len()
+    if t24_len == 8 {
+        let t24_0 = hexa_keybuf_byte(0)
+        let t24_1 = hexa_keybuf_byte(1)
+        let t24_2 = hexa_keybuf_byte(2)
+        let t24_7 = hexa_keybuf_byte(7)
+        // ESC=27 [=91 ?=63 ... c=99
+        if t24_0 == 27 && t24_1 == 91 && t24_2 == 63 && t24_7 == 99 {
+            println("[void-test] T24 PASS DA1 CSI c → ESC[?62;4c")
+            pass = pass + 1
+        } else {
+            println("[void-test] T24 FAIL  response bytes=", t24_0, ",", t24_1, ",", t24_2, "...", t24_7)
+            fail = fail + 1
+        }
+    } else {
+        println("[void-test] T24 FAIL  keybuf len=", t24_len, " expected 8")
+        fail = fail + 1
+    }
+
+    // ── Test 25: DSR CSI 5n → status OK ──
+    let _ = hexa_keybuf_clear()
+    // CSI 5n: ESC[5n
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(110)
+    // Expect: ESC[0n (4 bytes)
+    let t25_len = hexa_keybuf_len()
+    if t25_len == 4 {
+        let t25_0 = hexa_keybuf_byte(0)
+        let t25_3 = hexa_keybuf_byte(3)
+        if t25_0 == 27 && t25_3 == 110 {
+            println("[void-test] T25 PASS DSR CSI 5n → ESC[0n (status OK)")
+            pass = pass + 1
+        } else {
+            println("[void-test] T25 FAIL  response bytes=", t25_0, "...", t25_3)
+            fail = fail + 1
+        }
+    } else {
+        println("[void-test] T25 FAIL  keybuf len=", t25_len, " expected 4")
+        fail = fail + 1
+    }
 
     // ── Summary ──
     println("")

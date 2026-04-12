@@ -190,6 +190,7 @@ long hexa_appkit_set_title(void) {
 #define SCROLLBACK_LINES 1000 // legacy cap (unused since section-based)
 #define TAB_BAR_W 140
 #define TAB_ROW_H 28
+#define TERM_PAD  4.0f   // internal padding around the terminal grid
 
 // ── Section-based scrollback ──
 // Old: flat 1000-line ring (6.4 MB allocated up front on first push).
@@ -804,6 +805,27 @@ static void term_key_push(const char *data, int len) {
     }
 }
 
+// VT response buffer — hexa pushes bytes one at a time, then flushes.
+static char  g_reply_buf[64];
+static int   g_reply_len = 0;
+
+long hexa_reply_reset(void) { g_reply_len = 0; return 0; }
+long hexa_reply_push(long b) {
+    if (g_reply_len < (int)sizeof(g_reply_buf))
+        g_reply_buf[g_reply_len++] = (char)b;
+    return 0;
+}
+long hexa_reply_flush(void) {
+    term_key_push(g_reply_buf, g_reply_len);
+    g_reply_len = 0;
+    return 0;
+}
+
+// Test helpers: peek at key buffer without consuming.
+long hexa_keybuf_len(void)         { return g_term_kw - g_term_kr; }
+long hexa_keybuf_byte(long idx)    { return (unsigned char)g_term_keys[(g_term_kr + (int)idx) % TERM_KEY_SIZE]; }
+void hexa_keybuf_clear(void)       { g_term_kr = g_term_kw = 0; }
+
 // ── Cmd+F scrollback search ──
 // State for the search overlay. Query is a UTF-8 byte buffer; matches hold
 // normalized positions in "virtual scrollback" space where line indices
@@ -1266,7 +1288,7 @@ static NSColor *term_color(int idx) {
     }
 
     // ── Terminal grid (right of tab bar, or full width when tab bar hidden) ──
-    float ox = eff_tbw;
+    float ox = eff_tbw + TERM_PAD;
     [srgb_black() setFill];
     NSRectFill(NSMakeRect(ox, 0, bounds.size.width - ox, bounds.size.height));
 
@@ -1278,7 +1300,7 @@ static NSColor *term_color(int idx) {
     NSNumber *underlineNum = @(NSUnderlineStyleSingle);
 
     for (int r = 0; r < g_term_rows; r++) {
-        float y = r * g_term_ch;
+        float y = TERM_PAD + r * g_term_ch;
         if (y + g_term_ch < dirtyRect.origin.y ||
             y > dirtyRect.origin.y + dirtyRect.size.height) continue;
 
@@ -1360,7 +1382,7 @@ static NSColor *term_color(int idx) {
         g_term_cur_row < g_term_rows && g_term_cur_col < g_term_cols) {
         [[NSColor colorWithRed:0.6 green:0.6 blue:0.6 alpha:0.5] setFill];
         NSRectFill(NSMakeRect(ox + g_term_cur_col * g_term_cw,
-                              g_term_cur_row * g_term_ch, g_term_cw, g_term_ch));
+                              TERM_PAD + g_term_cur_row * g_term_ch, g_term_cw, g_term_ch));
     }
     // Scrollback indicator
     if (g_scroll_offset > 0) {
@@ -1392,7 +1414,7 @@ static NSColor *term_color(int idx) {
             if (sm->line < view_top_vline || sm->line >= view_bot_vline) continue;
             int row = sm->line - view_top_vline;
             float x = ox + sm->col * g_term_cw;
-            float y = row * g_term_ch;
+            float y = TERM_PAD + row * g_term_ch;
             float w = sm->len * g_term_cw;
             if (m == g_search_cursor) [hitCur setFill];
             else                       [hitAll setFill];
@@ -1535,8 +1557,8 @@ static NSColor *term_color(int idx) {
     }
     // ── Mouse selection start (terminal grid area) ──
     if (g_term_cw <= 0 || g_term_ch <= 0) return;
-    int col = (int)((p.x - eff_tbw) / g_term_cw);
-    int row = (int)(p.y / g_term_ch);
+    int col = (int)((p.x - eff_tbw - TERM_PAD) / g_term_cw);
+    int row = (int)((p.y - TERM_PAD) / g_term_ch);
     if (col < 0) col = 0;
     if (row < 0) row = 0;
     if (col >= g_term_cols) col = g_term_cols - 1;
@@ -1626,8 +1648,8 @@ static NSColor *term_color(int idx) {
     if (!g_sel_anchor_in_grid) return;
     if (g_term_cw <= 0 || g_term_ch <= 0) return;
     int eff_tbw = effective_tab_bar_w();
-    int col = (int)((p.x - eff_tbw) / g_term_cw);
-    int row = (int)(p.y / g_term_ch);
+    int col = (int)((p.x - eff_tbw - TERM_PAD) / g_term_cw);
+    int row = (int)((p.y - TERM_PAD) / g_term_ch);
     if (col < 0) col = 0;
     if (row < 0) row = 0;
     if (col >= g_term_cols) col = g_term_cols - 1;
@@ -3135,15 +3157,15 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             ww = screenFrame.size.width * 0.85;
             wh = screenFrame.size.height * 0.85;
             int init_tbw = effective_tab_bar_w();
-            g_term_cols = (int)((ww - init_tbw) / g_term_cw);
-            g_term_rows = (int)(wh / g_term_ch);
+            g_term_cols = (int)((ww - init_tbw - 2 * TERM_PAD) / g_term_cw);
+            g_term_rows = (int)((wh - 2 * TERM_PAD) / g_term_ch);
             if (g_term_cols < 80) g_term_cols = 80;
             if (g_term_rows < 24) g_term_rows = 24;
             if (g_term_cols > TERM_MAX_COLS) g_term_cols = TERM_MAX_COLS;
             if (g_term_rows > TERM_MAX_ROWS) g_term_rows = TERM_MAX_ROWS;
             tab_clear_grid(g_term_grid);
-            ww = init_tbw + g_term_cw * g_term_cols;
-            wh = g_term_ch * g_term_rows;
+            ww = init_tbw + 2 * TERM_PAD + g_term_cw * g_term_cols;
+            wh = 2 * TERM_PAD + g_term_ch * g_term_rows;
             wx = screenFrame.origin.x + (screenFrame.size.width - ww) / 2;
             wy = screenFrame.origin.y + (screenFrame.size.height - wh) / 2;
         }
@@ -3183,6 +3205,11 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         if (!is_shadow && void_server_enabled()) {
             int n = void_server_list();
             int attached = 0;
+            // Track which labels we've already attached so we don't
+            // create duplicate tabs for the same profile (e.g. two
+            // "nexus" sessions → only the first one gets a tab).
+            char seen_labels[MAX_TABS][64];
+            int seen_count = 0;
             for (int i = 0; i < n && i < VS_LIST_MAX &&
                             g_num_tabs < MAX_TABS; i++) {
                 if (g_vs_list[i].label[0] == 0) continue;
@@ -3192,6 +3219,17 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
                 // non-blocking protocol. Users can revive tombstones
                 // explicitly via the menu (Window → Hidden Sessions).
                 if (g_vs_list[i].proc_count == 0) continue;
+                // Deduplicate: skip if we already attached a session
+                // with this label. Prevents N stale "nexus" tabs.
+                int dup = 0;
+                for (int k = 0; k < seen_count; k++) {
+                    if (strncmp(seen_labels[k], g_vs_list[i].label, 64) == 0) {
+                        dup = 1; break;
+                    }
+                }
+                if (dup) continue;
+                if (seen_count < MAX_TABS)
+                    memcpy(seen_labels[seen_count++], g_vs_list[i].label, 64);
                 int fd = -1, rows = 0, cols = 0;
                 if (void_server_attach(g_vs_list[i].id, &fd, &rows, &cols) != 0)
                     continue;
@@ -4412,8 +4450,8 @@ long hexa_appkit_term_poll(void) {
                 }
             } else {
                 // Stacked mode: classic path — all tabs share g_term_rows/cols.
-                int new_cols = (int)((f.size.width - eff_tbw) / g_term_cw);
-                int new_rows = (int)(f.size.height / g_term_ch);
+                int new_cols = (int)((f.size.width - eff_tbw - 2 * TERM_PAD) / g_term_cw);
+                int new_rows = (int)((f.size.height - 2 * TERM_PAD) / g_term_ch);
                 if (new_cols < 20) new_cols = 20;
                 if (new_rows < 5)  new_rows = 5;
                 if (new_cols > TERM_MAX_COLS) new_cols = TERM_MAX_COLS;

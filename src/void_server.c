@@ -1342,10 +1342,10 @@ static void pump_one_session(int session_idx) {
                 if (c == '\n') {
                     s->cur_row++;
                     if (s->cur_row >= s->rows) {
-                        // scroll
-                        size_t row_bytes = sizeof(VsCell) * s->cols;
-                        memmove(s->grid, s->grid + s->cols, row_bytes * (s->rows - 1));
-                        VsCell *last = &s->grid[(s->rows - 1) * s->cols];
+                        // scroll — use VS_GRID_COLS stride to match ATTACH reads
+                        size_t row_bytes = sizeof(VsCell) * VS_GRID_COLS;
+                        memmove(s->grid, s->grid + VS_GRID_COLS, row_bytes * (s->rows - 1));
+                        VsCell *last = &s->grid[(s->rows - 1) * VS_GRID_COLS];
                         for (int c2 = 0; c2 < s->cols; c2++) {
                             last[c2].ch = ' '; last[c2].fg = 7; last[c2].bg = 0; last[c2].flags = 0;
                         }
@@ -1357,7 +1357,7 @@ static void pump_one_session(int session_idx) {
                 if (c < 0x20) continue;
                 if (s->cur_row >= 0 && s->cur_row < s->rows &&
                     s->cur_col >= 0 && s->cur_col < s->cols) {
-                    int idx = s->cur_row * s->cols + s->cur_col;
+                    int idx = s->cur_row * VS_GRID_COLS + s->cur_col;
                     s->grid[idx].ch = c;
                     s->grid[idx].fg = 7;
                     s->grid[idx].bg = 0;
@@ -1478,7 +1478,7 @@ int main(int argc, char **argv) {
     }
     // VS-03 fix: prune stale checkpoints before restoring, so the session
     // table cannot overflow from accumulated .bin files.
-    prune_old_checkpoints(32);
+    prune_old_checkpoints(8);
     scan_and_restore_checkpoints();
     g_sock_listen = bind_listener();
     // Non-blocking accept so the select loop never stalls on a half-open
