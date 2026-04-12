@@ -1847,7 +1847,7 @@ static NSColor *term_color(int idx) {
     int with_ctrl = (mods & NSEventModifierFlagControl) != 0;
 
     if (ch == 't') { g_tab_cmd = 1; return YES; } // Cmd+T new tab
-    if (ch == 'w') { g_tab_cmd = 2; return YES; } // Cmd+W close tab
+    if (ch == 'w') { g_tab_cmd = 2; { FILE *d=fopen("/tmp/void_dbg.log","a"); if(d){fprintf(d,"[cmd-w] performKey g_tab_cmd=2 active=%d ntabs=%d\n",g_active_tab,g_num_tabs);fclose(d);} } return YES; } // Cmd+W close tab
     if (ch == 'q') { g_term_quit = 1; return YES; } // Cmd+Q quit
     // Cmd+Z → undo the most recent tab close (reopen same profile fresh).
     if (ch == 'z' && !(mods & NSEventModifierFlagShift)) {
@@ -4615,7 +4615,7 @@ long hexa_appkit_term_poll(void) {
                             }
                             continue;
                         }
-                        if (ch == 'w') { g_tab_cmd = 2; continue; }
+                        if (ch == 'w') { g_tab_cmd = 2; { FILE *d=fopen("/tmp/void_dbg.log","a"); if(d){fprintf(d,"[cmd-w] poll-intercept g_tab_cmd=2 active=%d ntabs=%d\n",g_active_tab,g_num_tabs);fclose(d);} } continue; }
                         if (ch == 'q') { g_term_quit = 1; continue; }
                         // Cmd+Z → undo the most recent tab close.
                         if (ch == 'z' && !(mods & NSEventModifierFlagShift)) {
