@@ -7,4 +7,4 @@ smoke_dashboard.hexa 대시보드 스모크
 smoke_plugin.hexa   플러그인 스모크
 smoke_tabs.hexa     탭 스모크
 
-실행: scripts/build.sh (전체 스모크 일괄)
+실행: scripts/build.hexa (전체 스모크 일괄)

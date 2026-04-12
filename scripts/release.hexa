@@ -1,0 +1,76 @@
+// void release packaging — builds tarball after build passes.
+// Converted from release.sh to hexa-lang
+
+fn main() {
+    let argv = args()
+    if argv.len() < 1 {
+        println("usage: release.hexa <version>   (e.g. 0.5.0)")
+        exit(1)
+    }
+
+    let version = argv[0]
+
+    // validate version format N.N.N
+    let valid = exec("echo '" + version + "' | grep -qE '^[0-9]+\\.[0-9]+\\.[0-9]+$' && echo ok || echo no")
+    if valid != "ok" {
+        println("ERROR: version must match N.N.N (got: " + version + ")")
+        exit(1)
+    }
+
+    let root = exec("git rev-parse --show-toplevel 2>/dev/null")
+    if root == "" {
+        println("ERROR: could not determine repo root via git")
+        exit(1)
+    }
+
+    println("[release] version=" + version)
+    println("[release] running build...")
+
+    let build_result = exec("cd '" + root + "' && hexa '" + root + "/scripts/build.hexa'")
+    let build_exit = exec("cd '" + root + "' && hexa '" + root + "/scripts/build.hexa' >/dev/null 2>&1 && echo ok || echo fail")
+    if build_exit != "ok" {
+        println("[release] ABORT: build failed")
+        exit(1)
+    }
+
+    exec("mkdir -p '" + root + "/dist'")
+
+    let out = "dist/void-" + version + ".tar.gz"
+
+    // build include list
+    let mut includes = "src"
+    let check_readme = exec("test -f '" + root + "/README.md' && echo yes || echo no")
+    if check_readme == "yes" {
+        includes = includes + " README.md"
+    }
+    let check_license = exec("test -f '" + root + "/LICENSE' && echo yes || echo no")
+    if check_license == "yes" {
+        includes = includes + " LICENSE"
+    }
+    let check_claude = exec("test -f '" + root + "/CLAUDE.md' && echo yes || echo no")
+    if check_claude == "yes" {
+        includes = includes + " CLAUDE.md"
+    }
+    let check_changelog = exec("test -f '" + root + "/CHANGELOG.md' && echo yes || echo no")
+    if check_changelog == "yes" {
+        includes = includes + " CHANGELOG.md"
+    }
+    let check_release = exec("test -f '" + root + "/RELEASE.md' && echo yes || echo no")
+    if check_release == "yes" {
+        includes = includes + " RELEASE.md"
+    }
+
+    println("[release] packaging: " + includes)
+    exec("cd '" + root + "' && tar --exclude='.*' --exclude='dist' -czf '" + out + "' " + includes)
+
+    let size = exec("wc -c < '" + root + "/" + out + "' | tr -d ' '")
+    println("[release] wrote " + out + " (" + size + " bytes)")
+    println("")
+    println("Next steps (not executed automatically):")
+    println("  git tag v" + version)
+    println("  git push --tags")
+    println("")
+    println("[release] OK")
+}
+
+main()

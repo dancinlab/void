@@ -40,13 +40,13 @@ one pass. Per-layer smokes exist for deeper coverage.
 ## Build
 
 ```bash
-./scripts/build.sh
+hexa scripts/build.hexa
 ```
 
 Runs every smoke non-TTY and reports PASS/FAIL counts. Exit 0 iff all pass.
 
-> Note: `scripts/build.sh` and `scripts/release.sh` live under
-> `scripts/`. The root wrappers are the public interface.
+> Note: `scripts/build.hexa` and `scripts/release.hexa` live under
+> `scripts/`.
 
 ## Test
 
@@ -63,11 +63,11 @@ $HEXA_BIN tests/smoke_plugin.hexa
 ## Package
 
 ```bash
-./scripts/release.sh 0.5.0
+hexa scripts/release.hexa 0.5.0
 ```
 
 1. Validates version format (`N.N.N`).
-2. Runs `build.sh`; aborts on failure.
+2. Runs `build.hexa`; aborts on failure.
 3. Writes `dist/void-<version>.tar.gz` containing `app/`, `core/`, `ui/`, `plugin/`, `ai/`, `platform/`, `README.md`,
    `LICENSE`, `CLAUDE.md`, `CHANGELOG.md`, `RELEASE.md`. Dotfiles and
    `dist/` itself are excluded.

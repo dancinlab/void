@@ -13,5 +13,5 @@ Versions track the 6-layer architecture phase (Phase N → 0.N.x).
 - NEXUS-6 대시보드 스텁 — `ai/dashboard.hexa` with 6 layer panels.
 - 6-layer 통합 스모크 — `tests/smoke_6layer.hexa` exercising every layer
   in a single non-TTY run.
-- Release pipeline — `scripts/build.sh`, `scripts/release.sh`,
+- Release pipeline — `scripts/build.hexa`, `scripts/release.hexa`,
   `RELEASE.md`, and this `CHANGELOG.md`.

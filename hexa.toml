@@ -25,7 +25,7 @@ categories = ["terminal-emulator", "hexa-lang-native"]
 compiler = "~/Dev/hexa-lang/hexa"
 build_c = "~/Dev/hexa-lang/self/build_c.hexa"
 script = "build.hexa"
-wrapper = "scripts/build.sh"
+wrapper = "scripts/build.hexa"
 artifact_prefix = "/tmp/void_"
 
 [[bin]]
