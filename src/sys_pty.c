@@ -410,8 +410,46 @@ long hexa_pty_poll_read(long fd, long timeout_ms) {
 
     int subs = alt_screen_rewrite(g_pty_read_buf, &g_pty_read_len,
                                   PTY_READ_BUF_SIZE - 1);
+    // Ensure every LF (0x0A) is preceded by CR (0x0D). The VT parser
+    // treats LF as cursor-down only (no carriage return), matching the
+    // strict VT100 spec. But programs that bypass onlcr (raw PTY mode)
+    // send standalone LF expecting the terminal to auto-CR. Terminal.app
+    // does this implicitly. Insert CR before each standalone LF so the
+    // void parser behaves the same way.
+    {
+        // Count insertions needed first.
+        int need = 0;
+        for (int i = 0; i < g_pty_read_len; i++)
+            if (g_pty_read_buf[i] == '\n' && (i == 0 || g_pty_read_buf[i-1] != '\r'))
+                need++;
+        if (need > 0 && g_pty_read_len + need < PTY_READ_BUF_SIZE) {
+            // Expand from right to left to avoid overwrite.
+            int src = g_pty_read_len - 1;
+            int dst = g_pty_read_len + need - 1;
+            while (src >= 0) {
+                g_pty_read_buf[dst--] = g_pty_read_buf[src];
+                if (g_pty_read_buf[src] == '\n' && (src == 0 || g_pty_read_buf[src-1] != '\r'))
+                    g_pty_read_buf[dst--] = '\r';
+                src--;
+            }
+            g_pty_read_len += need;
+        }
+    }
     g_pty_read_buf[g_pty_read_len] = '\0';
 
+    // Debug: capture first PTY bytes after tab_become_profile
+    {
+        static long captured = 0;
+        FILE *chk = fopen("/tmp/void_pty_capture.bin", "r");
+        if (chk) {
+            fclose(chk);
+            if (captured < 8192 && g_pty_read_len > 0) {
+                FILE *cf = fopen("/tmp/void_pty_capture.bin", "a");
+                if (cf) { fwrite(g_pty_read_buf, 1, g_pty_read_len, cf); fclose(cf); }
+                captured += g_pty_read_len;
+            }
+        }
+    }
     // Debug trace — when VOID_PTY_TRACE is set, append each read to a log.
     // Used to diagnose sequences reaching hexa that shouldn't be. Off
     // by default.

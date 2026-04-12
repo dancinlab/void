@@ -2126,13 +2126,26 @@ static void void_tabs_renumber_profiles(void);
 @synthesize hiddenSessionsMenu = _hiddenSessionsMenu;
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)s { return YES; }
 - (void)applicationWillTerminate:(NSNotification *)n {
-    // Kill all server-backed sessions so they don't resurrect on next launch.
-    // Hot-swap exits via _exit(0) which bypasses this handler, so those
-    // sessions survive as intended.
+    // Kill ALL server sessions — not just the ones in g_tabs[].
+    // Previous crashes or prior instances may have left orphaned
+    // sessions that the current tab list doesn't know about.
+    // Hot-swap exits via _exit(0) which bypasses this handler, so
+    // those sessions survive as intended.
     if (void_server_enabled()) {
-        for (int i = 0; i < g_num_tabs; i++) {
-            if (g_tabs[i].used && g_tabs[i].session_id[0] != 0) {
-                void_server_kill(g_tabs[i].session_id);
+        int ns = void_server_list();
+        for (int i = 0; i < ns && i < VS_LIST_MAX; i++) {
+            void_server_kill(g_vs_list[i].id);
+        }
+        // Belt: nuke checkpoint dir so tombstones can't resurrect
+        // even if some KILLs failed or the server wrote a checkpoint
+        // between our KILL and its shutdown.
+        @autoreleasepool {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            NSString *dir = @"/tmp/void_server_ckpt";
+            NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
+            for (NSString *f in files) {
+                if ([f hasSuffix:@".bin"])
+                    [fm removeItemAtPath:[dir stringByAppendingPathComponent:f] error:nil];
             }
         }
     }
@@ -3386,6 +3399,28 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         // doesn't spawn a redundant blank tab on top of the restored
         // ones.
         if (!is_shadow && void_server_enabled()) {
+            // Fresh launch (not hot-swap): kill ALL prior sessions.
+            // The previous instance should have cleaned up via
+            // applicationWillTerminate, but that handler is bypassed
+            // when the auto-build hook uses _exit(0) for hot-swap,
+            // or when the app is force-quit. Clean slate on every
+            // fresh launch — hot-swap sessions survive because
+            // is_shadow is true in that path.
+            {
+                int nk = void_server_list();
+                for (int k = 0; k < nk && k < VS_LIST_MAX; k++)
+                    void_server_kill(g_vs_list[k].id);
+                // Also nuke checkpoint files
+                @autoreleasepool {
+                    NSFileManager *fm = [NSFileManager defaultManager];
+                    NSString *dir = @"/tmp/void_server_ckpt";
+                    NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
+                    for (NSString *f in files) {
+                        if ([f hasSuffix:@".bin"])
+                            [fm removeItemAtPath:[dir stringByAppendingPathComponent:f] error:nil];
+                    }
+                }
+            }
             int n = void_server_list();
             int attached = 0;
             // Track which labels we've already attached so we don't
@@ -3770,20 +3805,26 @@ static int tab_become_profile(int idx, VoidProfile *vp) {
         g_tabs[idx].pid = 0;
     }
 
+    // Update g_term_cols/rows BEFORE spawning the PTY so forkpty
+    // inside tab_spawn_pty_profile uses the correct dimensions.
+    if (g_window && g_term_cw > 0 && g_term_ch > 0) {
+        NSRect f = [[g_window contentView] frame];
+        int tbw = effective_tab_bar_w();
+        int cc = (int)((f.size.width - tbw - 2 * TERM_PAD) / g_term_cw);
+        int rc = (int)((f.size.height - 2 * TERM_PAD) / g_term_ch);
+        if (cc < 20) cc = 20;  if (rc < 5) rc = 5;
+        if (cc > TERM_MAX_COLS) cc = TERM_MAX_COLS;
+        if (rc > TERM_MAX_ROWS) rc = TERM_MAX_ROWS;
+        g_term_cols = cc;
+        g_term_rows = rc;
+    }
+
     int fd = tab_spawn_pty_profile(vp);
     if (fd < 0) return -1;
 
     g_tabs[idx].pty_fd = fd;
     g_tabs[idx].pid = 0;
     g_tabs[idx].is_blank = 0;
-
-    // Size the PTY to the current grid.
-    struct winsize ws;
-    ws.ws_row = (unsigned short)g_term_rows;
-    ws.ws_col = (unsigned short)g_term_cols;
-    ws.ws_xpixel = 0;
-    ws.ws_ypixel = 0;
-    ioctl(fd, TIOCSWINSZ, &ws);
 
     // Title / profile metadata (mirrors the hexa_tab_new logic).
     g_tabs[idx].title_locked = 0;
@@ -3807,8 +3848,15 @@ static int tab_become_profile(int idx, VoidProfile *vp) {
     tab_clear_grid(g_term_grid);
     g_term_cur_row = 0;
     g_term_cur_col = 0;
-    g_resized = 1;        // triggers scr_init + vt_reset_state + pty_resize
+    // Do NOT set g_resized — tab replacement doesn't change terminal
+    // dimensions. The cmd=3 handler already calls load_from_bridge +
+    // vt_reset_state. An extra resize would trigger a second
+    // scr_init + vt_reset_state that can race with incoming PTY data
+    // from fast profile commands.
     g_full_redraw = 1;
+    g_prev_grid_valid = 0;
+    // Debug: capture first PTY bytes for this tab
+    { FILE *f = fopen("/tmp/void_pty_capture.bin","w"); if(f) fclose(f); }
     return 0;
 }
 
@@ -3861,6 +3909,12 @@ long hexa_tab_new(void) {
     g_initial_tab_done = 1;
 
     int idx = g_num_tabs;
+    // Bump tab count BEFORE spawning so effective_tab_bar_w() returns
+    // the width that will actually be in effect once the tab is visible.
+    // Without this, the first profile shortcut (1→2 tabs) computes
+    // cols at full window width (tbw=0), but the tab bar appears
+    // immediately after, shrinking the display area by TAB_BAR_W.
+    g_num_tabs++;
     // Route through void-server when enabled — the daemon owns the PTY
     // master so the session survives void_term exit and hot-swap. Falls
     // back to direct fork-pty on server failure so the UI never breaks.
@@ -3870,7 +3924,21 @@ long hexa_tab_new(void) {
         const char *t = (vp && vp->title[0]) ? vp->title : "session";
         const char *p = (vp && vp->path[0])  ? vp->path  : (getenv("HOME") ?: "");
         const char *c = (vp && vp->cmd[0])   ? vp->cmd   : "";
-        if (void_server_spawn(t, p, c, g_term_rows, g_term_cols,
+        // Recalculate cols from the actual window frame using the
+        // CURRENT effective_tab_bar_w (which now accounts for the
+        // new tab since we already bumped g_num_tabs above).
+        int spawn_cols = g_term_cols, spawn_rows = g_term_rows;
+        if (g_window && g_term_cw > 0 && g_term_ch > 0) {
+            NSRect f = [[g_window contentView] frame];
+            int tbw = effective_tab_bar_w();
+            spawn_cols = (int)((f.size.width - tbw - 2 * TERM_PAD) / g_term_cw);
+            spawn_rows = (int)((f.size.height - 2 * TERM_PAD) / g_term_ch);
+            if (spawn_cols < 20) spawn_cols = 20;
+            if (spawn_rows < 5)  spawn_rows = 5;
+            if (spawn_cols > TERM_MAX_COLS) spawn_cols = TERM_MAX_COLS;
+            if (spawn_rows > TERM_MAX_ROWS) spawn_rows = TERM_MAX_ROWS;
+        }
+        if (void_server_spawn(t, p, c, spawn_rows, spawn_cols,
                               new_session_id, &fd) != 0) {
             fd = -1;
             if (getenv("VOID_DEBUG_SERVER"))
@@ -3880,7 +3948,7 @@ long hexa_tab_new(void) {
     if (fd < 0) {
         fd = tab_spawn_pty_profile(vp);
     }
-    if (fd < 0) return -1;
+    if (fd < 0) { g_num_tabs--; return -1; }
 
     g_tabs[idx].used = 1;
     g_tabs[idx].pty_fd = fd;
@@ -3888,13 +3956,28 @@ long hexa_tab_new(void) {
     g_tabs[idx].is_blank = make_blank ? 1 : 0;
     memcpy(g_tabs[idx].session_id, new_session_id, 32);
 
-    // Set PTY to actual window size immediately
+    // Set PTY to actual window size using current effective_tab_bar_w
+    // (g_num_tabs already bumped above, so tbw is correct).
+    int actual_cols = g_term_cols, actual_rows = g_term_rows;
+    if (g_window && g_term_cw > 0 && g_term_ch > 0) {
+        NSRect f = [[g_window contentView] frame];
+        int tbw = effective_tab_bar_w();
+        actual_cols = (int)((f.size.width - tbw - 2 * TERM_PAD) / g_term_cw);
+        actual_rows = (int)((f.size.height - 2 * TERM_PAD) / g_term_ch);
+        if (actual_cols < 20) actual_cols = 20;
+        if (actual_rows < 5)  actual_rows = 5;
+        if (actual_cols > TERM_MAX_COLS) actual_cols = TERM_MAX_COLS;
+        if (actual_rows > TERM_MAX_ROWS) actual_rows = TERM_MAX_ROWS;
+    }
     struct winsize ws;
-    ws.ws_row = (unsigned short)g_term_rows;
-    ws.ws_col = (unsigned short)g_term_cols;
+    ws.ws_row = (unsigned short)actual_rows;
+    ws.ws_col = (unsigned short)actual_cols;
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
     ioctl(fd, TIOCSWINSZ, &ws);
+    // Also update g_term_cols/rows so hexa's scr_init uses the right dims
+    g_term_cols = actual_cols;
+    g_term_rows = actual_rows;
 
     // Title: profile tabs are renumbered as a group by void_tabs_renumber_profiles.
     // 1 sibling → "nexus", 2+ siblings → "nexus (1)", "nexus (2)", … in tab order.
@@ -3924,7 +4007,7 @@ long hexa_tab_new(void) {
     g_tabs[idx].sb_total = 0;
     g_tabs[idx].has_alarm = 0;
 
-    g_num_tabs++;
+    // g_num_tabs already bumped at the top of this function.
     g_active_tab = idx;
 
     // Mirror the current shared rows/cols into the new tab's tile
@@ -4056,6 +4139,14 @@ close_bookkeeping:
 
     if (g_num_tabs == 0) {
         g_active_tab = -1;
+        // Last tab closed — terminate the app. Simply returning -1
+        // sets running=0 in hexa's main loop, but the NSApplication
+        // event machinery and the window may linger. Posting a proper
+        // terminate ensures applicationWillTerminate fires and the
+        // window closes cleanly.
+        @autoreleasepool {
+            [[NSApplication sharedApplication] terminate:nil];
+        }
         return -1;
     }
 
@@ -4460,11 +4551,13 @@ long hexa_appkit_term_poll(void) {
                                      g_tabs[0].profile_base[0] == 0);
                                 if (replace &&
                                     tab_become_profile(0, vp) == 0) {
+                                    { FILE *d=fopen("/tmp/void_dbg.log","a"); if(d){fprintf(d,"[shortcut] REPLACE path g_term=%dx%d tbw=%d\n",g_term_cols,g_term_rows,effective_tab_bar_w());fclose(d);} }
                                     g_tab_cmd = 3; // hexa reload screen
                                     clear_active_alarm();
                                     if (g_window)
                                         [[g_window contentView] setNeedsDisplay:YES];
                                 } else {
+                                    { FILE *d=fopen("/tmp/void_dbg.log","a"); if(d){fprintf(d,"[shortcut] NEW TAB path g_term=%dx%d tbw=%d ntabs=%d\n",g_term_cols,g_term_rows,effective_tab_bar_w(),g_num_tabs);fclose(d);} }
                                     g_pending_profile = vp;
                                     g_tab_cmd = 1; // new tab signal to hexa
                                 }
@@ -4704,7 +4797,16 @@ long hexa_appkit_term_poll(void) {
 
 // Returns 1 if window was resized since last check, 0 otherwise.
 long hexa_appkit_term_check_resize(void) {
-    if (g_resized) { g_resized = 0; return 1; }
+    if (g_resized) {
+        g_resized = 0;
+        FILE *dbg = fopen("/tmp/void_dbg.log", "a");
+        if (dbg) {
+            fprintf(dbg, "[resize] g_term=%dx%d tbw=%d\n",
+                    g_term_cols, g_term_rows, effective_tab_bar_w());
+            fclose(dbg);
+        }
+        return 1;
+    }
     return 0;
 }
 

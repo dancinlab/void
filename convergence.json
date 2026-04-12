@@ -459,5 +459,56 @@
       "evidence": "SCM_RIGHTS fd 공유 시 read() 경쟁으로 초기 프롬프트 소실. attached_client_fd >= 0이면 서버 PTY read skip. 시작 시 ghost@Mac 프롬프트 정상 표시."
     }
   ],
+    {
+      "id": "VC-58",
+      "item": "hexa_tab_new g_resized 제거 — VT 이중리셋 방지, 프로필 커맨드 출력 보호",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m hexa_tab_new",
+      "evidence": "cmd==1 핸들러가 scr_init+vt_reset_state 호출하므로 g_resized=1 중복. 이중 리셋이 cl 테이블 VT 시퀀스 중간 절단. 제거 후 Cmd+Ctrl+숫자 정상."
+    },
+    {
+      "id": "VC-59",
+      "item": "시작 시 유령세션 전체 kill — fresh launch에서 서버 세션 + 체크포인트 완전 삭제",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m hexa_appkit_init_term auto-attach 블록",
+      "evidence": "is_shadow=false일 때 LIST→전체 KILL + /tmp/void_server_ckpt/*.bin 삭제. applicationWillTerminate가 _exit(0)/force-quit 시 우회되는 구조적 한계 해결. hot-swap(is_shadow=true)은 영향 없음."
+    }
+  ],
+    {
+      "id": "VC-60",
+      "item": "standalone LF→CRLF 자동 삽입 — raw PTY 프로그램 호환",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_pty.c hexa_pty_poll_read LF→CRLF expand",
+      "evidence": "cl 테이블 PTY capture: offset 2303 이후 17개 standalone \\n → 커서 col 미복귀 → 테이블 점진적 밀림. right-to-left expand로 \\r 삽입. Terminal.app 동작 매칭. 25/25 PASS."
+    },
+    {
+      "id": "VC-61",
+      "item": "hexa_tab_new g_num_tabs 선행 증가 + 윈도우 프레임 실시간 cols 계산",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m hexa_tab_new + tab_become_profile",
+      "evidence": "첫 프로필 단축키에서 g_num_tabs=1→effective_tab_bar_w()=0→250 cols spawn, 직후 탭바 등장→233 cols 표시 불일치. g_num_tabs++ 선행 + 프레임 실시간 계산으로 해결."
+    },
+    {
+      "id": "VC-62",
+      "item": "시작 시 유령세션 전체 kill — fresh launch에서 서버 세션 + 체크포인트 삭제",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m hexa_appkit_init_term auto-attach 블록",
+      "evidence": "is_shadow=false일 때 LIST→전체 KILL + /tmp/void_server_ckpt/*.bin 삭제. _exit(0)/force-quit 시 applicationWillTerminate 우회 구조 해결."
+    }
+  ],
+    {
+      "id": "VC-63",
+      "item": "마지막 탭 Cmd+W 시 [NSApp terminate:] — 빈 창 잔존 방지",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m hexa_tab_close g_num_tabs==0 분기",
+      "evidence": "마지막 탭 닫으면 running=0으로 메인 루프 종료되지만 NSApplication/윈도우가 잔존. [NSApp terminate:nil] 호출로 applicationWillTerminate 정상 발동 + 윈도우 닫힘."
+    }
+  ],
   "pending_ossification": []
 }

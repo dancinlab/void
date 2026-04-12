@@ -25,7 +25,7 @@
     "helpers": ["src/sys_pty.c", "src/sys_appkit.m"],
     "output": "void_term",
     "app_bundle": "VOID.app",
-    "size_bytes": 197112,
+    "size_bytes": 197544,
     "arch": "arm64",
     "self_test": "25/25 pass"
   },
@@ -63,6 +63,6 @@
   "last_test": {
     "date": "2026-04-12",
     "result": "25/25 pass",
-    "binary_size": 197112
+    "binary_size": 197544
   }
 }
