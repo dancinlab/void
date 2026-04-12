@@ -10,12 +10,12 @@
 
 static const double PI = 3.14159265358979323846;
 static const double E = 2.71828182845904523536;
-static hexa_arr hexa_time_unix(void) { return (long)time(NULL); }
+static long hexa_time_unix(void) { return (long)time(NULL); }
 static double hexa_clock(void) { return (double)clock() / CLOCKS_PER_SEC; }
 static double hexa_sqrt(double x) { return sqrt(x); }
 static double hexa_pow(double b, double e) { return pow(b, e); }
 static double hexa_abs_f(double x) { return x < 0 ? -x : x; }
-static hexa_arr hexa_abs_i(long x) { return x < 0 ? -x : x; }
+static long hexa_abs_i(long x) { return x < 0 ? -x : x; }
 static double hexa_sin(double x) { return sin(x); }
 static double hexa_cos(double x) { return cos(x); }
 static double hexa_tan(double x) { return tan(x); }
@@ -61,16 +61,16 @@ static const char* hexa_substr(const char* s, long a, long b) {
     memcpy(p, s + a, n); p[n] = 0;
     return p;
 }
-static hexa_arr hexa_str_len(const char* s) { return (long)strlen(s); }
-static hexa_arr hexa_contains(const char* h, const char* n) { return strstr(h, n) ? 1 : 0; }
-static hexa_arr hexa_index_of(const char* h, const char* n) {
+static long hexa_str_len(const char* s) { return (long)strlen(s); }
+static long hexa_contains(const char* h, const char* n) { return strstr(h, n) ? 1 : 0; }
+static long hexa_index_of(const char* h, const char* n) {
     const char* p = strstr(h, n); if (!p) return -1;
     return (long)(p - h);
 }
-static hexa_arr hexa_starts_with(const char* h, const char* n) {
+static long hexa_starts_with(const char* h, const char* n) {
     size_t ln = strlen(n); return strncmp(h, n, ln) == 0 ? 1 : 0;
 }
-static hexa_arr hexa_ends_with(const char* h, const char* n) {
+static long hexa_ends_with(const char* h, const char* n) {
     size_t lh = strlen(h), ln = strlen(n);
     if (ln > lh) return 0; return strcmp(h + lh - ln, n) == 0 ? 1 : 0;
 }
@@ -92,7 +92,7 @@ static const char* hexa_to_lower(const char* s) {
     for (long i = 0; i < n; i++) { char c = s[i]; p[i] = (c>='A'&&c<='Z') ? c + 32 : c; }
     p[n] = 0; return p;
 }
-static hexa_arr hexa_parse_int(const char* s) {
+static long hexa_parse_int(const char* s) {
     while (*s == ' ' || *s == '\t') s++;
     long sign = 1; if (*s == '-') { sign = -1; s++; } else if (*s == '+') s++;
     long v = 0; while (*s >= '0' && *s <= '9') { v = v*10 + (*s - '0'); s++; }
@@ -100,7 +100,7 @@ static hexa_arr hexa_parse_int(const char* s) {
 }
 #include <stdlib.h>
 static double hexa_to_float(const char* s) { return strtod(s, NULL); }
-static hexa_arr* hexa_struct_alloc(const long* items, long n) {
+static long* hexa_struct_alloc(const long* items, long n) {
     long* p = (long*)hexa_alloc(n * sizeof(long));
     memcpy(p, items, n * sizeof(long));
     return p;
@@ -130,20 +130,20 @@ static const char* hexa_read_file(const char* path) {
     fread(p, 1, sz, f); p[sz] = 0; fclose(f);
     return p;
 }
-static hexa_arr hexa_write_file(const char* path, const char* content) {
+static long hexa_write_file(const char* path, const char* content) {
     FILE* f = fopen(path, "wb");
     if (!f) return 0;
     size_t n = strlen(content);
     fwrite(content, 1, n, f); fclose(f);
     return (long)n;
 }
-static hexa_arr hexa_file_exists(const char* path) {
+static long hexa_file_exists(const char* path) {
     FILE* f = fopen(path, "rb"); if (!f) return 0; fclose(f); return 1;
 }
-static hexa_arr hexa_dir_exists(const char* path) {
+static long hexa_dir_exists(const char* path) {
     struct stat st; if (stat(path, &st) != 0) return 0; return S_ISDIR(st.st_mode) ? 1 : 0;
 }
-static hexa_arr hexa_mkdir(const char* path) {
+static long hexa_mkdir(const char* path) {
     char tmp[1024]; snprintf(tmp, sizeof(tmp), "%s", path);
     for (char* p = tmp + 1; *p; p++) { if (*p == '/') { *p = 0; mkdir(tmp, 0755); *p = '/'; } }
     return (mkdir(tmp, 0755) == 0 || errno == EEXIST) ? 0 : 1;
@@ -152,17 +152,17 @@ typedef struct { long* d; long n; long cap; } hexa_arr;
 #define _HA(a) ((hexa_arr*)(a))
 #define _AD(a) (_HA(a)->d)
 #define _AN(a) (_HA(a)->n)
-static hexa_arr hexa_arr_new(void) {
+static long hexa_arr_new(void) {
     hexa_arr* p = (hexa_arr*)malloc(sizeof(hexa_arr));
     p->d = NULL; p->n = 0; p->cap = 0; return (long)p;
 }
-static hexa_arr hexa_arr_lit(const long* items, long n) {
+static long hexa_arr_lit(const long* items, long n) {
     hexa_arr* p = (hexa_arr*)malloc(sizeof(hexa_arr));
     p->d = (long*)malloc((n>0?n:1)*sizeof(long)); p->n = n; p->cap = (n>0?n:1);
     if (n > 0) memcpy(p->d, items, n*sizeof(long));
     return (long)p;
 }
-static hexa_arr hexa_arr_push(long a, long x) {
+static long hexa_arr_push(long a, long x) {
     hexa_arr* p = _HA(a);
     if (p->n >= p->cap) {
         p->cap = p->cap ? p->cap * 2 : 4;
@@ -171,16 +171,16 @@ static hexa_arr hexa_arr_push(long a, long x) {
     p->d[p->n++] = x;
     return a;
 }
-static hexa_arr hexa_arr_len(long a) { return a ? _AN(a) : 0; }
-static hexa_arr hexa_arr_get(long a, long i) { return _AD(a)[i]; }
-static hexa_arr hexa_arr_fill(long n, long v) {
+static long hexa_arr_len(long a) { return a ? _AN(a) : 0; }
+static long hexa_arr_get(long a, long i) { return _AD(a)[i]; }
+static long hexa_arr_fill(long n, long v) {
     hexa_arr* p = (hexa_arr*)malloc(sizeof(hexa_arr));
     p->n = n; p->cap = n > 0 ? n : 1;
     p->d = (long*)malloc(p->cap * sizeof(long));
     for (long i = 0; i < n; i++) p->d[i] = v;
     return (long)p;
 }
-static hexa_arr hexa_arr_concat(long a, long b) {
+static long hexa_arr_concat(long a, long b) {
     long an = a ? _AN(a) : 0, bn = b ? _AN(b) : 0;
     hexa_arr* p = (hexa_arr*)malloc(sizeof(hexa_arr));
     p->n = an + bn; p->cap = p->n > 0 ? p->n : 1;
@@ -189,7 +189,7 @@ static hexa_arr hexa_arr_concat(long a, long b) {
     if (bn > 0) memcpy(p->d + an, _AD(b), bn * sizeof(long));
     return (long)p;
 }
-static hexa_arr hexa_list_dir(const char* path) {
+static long hexa_list_dir(const char* path) {
     long a = hexa_arr_new();
     DIR* d = opendir(path); if (!d) return a;
     struct dirent* e; while ((e = readdir(d)) != NULL) {
@@ -199,8 +199,8 @@ static hexa_arr hexa_list_dir(const char* path) {
     }
     closedir(d); return a;
 }
-static hexa_arr hexa_to_int_str(const char* s) { return strtol(s, NULL, 10); }
-static hexa_arr hexa_append_file(const char* path, const char* content) {
+static long hexa_to_int_str(const char* s) { return strtol(s, NULL, 10); }
+static long hexa_append_file(const char* path, const char* content) {
     FILE* f = fopen(path, "ab");
     if (!f) return 0;
     size_t n = strlen(content);
@@ -244,29 +244,28 @@ static const char* hexa_exec(const char* cmd) {
     while (total > 0 && (out[total-1] == '\n' || out[total-1] == '\r')) { out[--total] = 0; }
     return out;
 }
-static hexa_arrhexa_chars(const char* s) {
+static long hexa_chars(const char* s) {
     long n = (long)strlen(s);
-    hexa_arr a; a.d = (long*)malloc((n>0?n:1)*sizeof(long)); a.n = n; a.cap = (n>0?n:1);
-    for (long i = 0; i < n; i++) a.d[i] = (long)(unsigned char)s[i];
+    long a = hexa_arr_new();
+    for (long i = 0; i < n; i++) a = hexa_arr_push(a, (long)(unsigned char)s[i]);
     return a;
 }
 #include <ctype.h>
-static hexa_arr hexa_is_alpha(long c) { return (long)(isalpha((int)c) ? 1 : 0); }
-static hexa_arr hexa_is_alnum(long c) { return (long)(isalnum((int)c) ? 1 : 0); }
+static long hexa_is_alpha(long c) { return (long)(isalpha((int)c) ? 1 : 0); }
+static long hexa_is_alnum(long c) { return (long)(isalnum((int)c) ? 1 : 0); }
 static int hexa_main_argc = 0;
 static char** hexa_main_argv = NULL;
-static hexa_arrhexa_args(void) {
-    hexa_arr a; a.n = hexa_main_argc; a.cap = hexa_main_argc;
-    a.d = (long*)malloc((hexa_main_argc>0?hexa_main_argc:1)*sizeof(long));
-    for (int i = 0; i < hexa_main_argc; i++) a.d[i] = (long)hexa_main_argv[i];
+static long hexa_args(void) {
+    long a = hexa_arr_new();
+    for (int i = 0; i < hexa_main_argc; i++) a = hexa_arr_push(a, (long)hexa_main_argv[i]);
     return a;
 }
 static const char* hexa_arg(long i) {
     if (i < 0 || i >= hexa_main_argc) return "";
     return hexa_main_argv[i];
 }
-static hexa_arr hexa_argc(void) { return (long)hexa_main_argc; }
-static hexa_arr hexa_split(const char* s, const char* sep) {
+static long hexa_argc(void) { return (long)hexa_main_argc; }
+static long hexa_split(const char* s, const char* sep) {
     long a = hexa_arr_new();
     long sl = (long)strlen(sep); if (sl == 0) { return hexa_arr_push(a, (long)s); }
     const char* cur = s;
@@ -310,63 +309,63 @@ long scr_put_raw(long cp);
 long csi_dispatch(long b);
 long scr_feed_byte(long b);
 long sync_to_bridge();
-long scr_find_probe(hexa_arr probe, long probe_len);
+long scr_find_probe(long probe, long probe_len);
 long self_test();
 long load_from_bridge();
 long vt_reset_state();
 long hexa_user_main();
 
-static hexa_arr COLS = 80;
-static hexa_arr ROWS = 24;
-static hexa_arr TOTAL = 1920;
-static hexa_arrscr_cells;
-static hexa_arrscr_fg;
-static hexa_arrscr_bg;
-static hexa_arrscr_flags;
-static hexa_arrscr_dirty;
-static hexa_arr scr_all_dirty = 1;
-static hexa_arr scr_cur_x = 0;
-static hexa_arr scr_cur_y = 0;
-static hexa_arr scr_scroll_top = 0;
-static hexa_arr scr_scroll_bot = 23;
-static hexa_arralt_cells;
-static hexa_arralt_fg;
-static hexa_arralt_bg;
-static hexa_arralt_flags;
-static hexa_arr alt_cur_x = 0;
-static hexa_arr alt_cur_y = 0;
-static hexa_arr alt_saved_cur_x = 0;
-static hexa_arr alt_saved_cur_y = 0;
-static hexa_arr alt_saved_fg = 7;
-static hexa_arr alt_saved_bg = 0;
-static hexa_arr alt_saved_bold = 0;
-static hexa_arr alt_saved_underline = 0;
-static hexa_arr alt_saved_inverse = 0;
-static hexa_arr scr_is_alt = 0;
-static hexa_arr alt_buf_len = 0;
-static hexa_arr vt_state = 0;
-static hexa_arr vt_param = 0;
-static hexa_arrvt_params;
-static hexa_arr vt_param_started = 0;
-static hexa_arr vt_private = 0;
-static hexa_arr cur_fg = 7;
-static hexa_arr cur_bg = 0;
-static hexa_arr cur_bold = 0;
-static hexa_arr cur_underline = 0;
-static hexa_arr cur_inverse = 0;
-static hexa_arr osc_num = 0;
-static hexa_arrosc_title_bytes;
-static hexa_arr saved_cur_x = 0;
-static hexa_arr saved_cur_y = 0;
-static hexa_arr utf8_cp = 0;
-static hexa_arr utf8_remain = 0;
-static hexa_arrvt_ground;
-static hexa_arrvt_utf8_base;
-static hexa_arrvt_utf8_remain;
-static hexa_arr cur_charset = 0;
-static hexa_arrwide_pages;
-static hexa_arr g_hangul_L;
-static hexa_arr g_hangul_V;
+static long COLS = 80;
+static long ROWS = 24;
+static long TOTAL = 1920;
+static long scr_cells;
+static long scr_fg;
+static long scr_bg;
+static long scr_flags;
+static long scr_dirty;
+static long scr_all_dirty = 1;
+static long scr_cur_x = 0;
+static long scr_cur_y = 0;
+static long scr_scroll_top = 0;
+static long scr_scroll_bot = 23;
+static long alt_cells;
+static long alt_fg;
+static long alt_bg;
+static long alt_flags;
+static long alt_cur_x = 0;
+static long alt_cur_y = 0;
+static long alt_saved_cur_x = 0;
+static long alt_saved_cur_y = 0;
+static long alt_saved_fg = 7;
+static long alt_saved_bg = 0;
+static long alt_saved_bold = 0;
+static long alt_saved_underline = 0;
+static long alt_saved_inverse = 0;
+static long scr_is_alt = 0;
+static long alt_buf_len = 0;
+static long vt_state = 0;
+static long vt_param = 0;
+static long vt_params;
+static long vt_param_started = 0;
+static long vt_private = 0;
+static long cur_fg = 7;
+static long cur_bg = 0;
+static long cur_bold = 0;
+static long cur_underline = 0;
+static long cur_inverse = 0;
+static long osc_num = 0;
+static long osc_title_bytes;
+static long saved_cur_x = 0;
+static long saved_cur_y = 0;
+static long utf8_cp = 0;
+static long utf8_remain = 0;
+static long vt_ground;
+static long vt_utf8_base;
+static long vt_utf8_remain;
+static long cur_charset = 0;
+static long wide_pages;
+static long g_hangul_L;
+static long g_hangul_V;
 
 extern int hexa_pty_spawn_login_shell(void);
 extern int hexa_pty_poll_read(int fd, int timeout_ms);
@@ -389,6 +388,7 @@ extern int hexa_keys_to_pty(int master_fd);
 extern int hexa_tab_new(void);
 extern int hexa_tab_close(int idx);
 extern int hexa_tab_get_pty(void);
+extern int hexa_tab_nudge_pty(void);
 extern int hexa_tab_poll_cmd(void);
 extern int hexa_tab_count(void);
 extern int hexa_tab_get_active(void);
@@ -421,7 +421,7 @@ extern int clock_us(void);
 
 long scr_mark_dirty(long r) {
     if (((r >= 0) && (r < ROWS))) {
-        scr_dirty.d[r] = 1;
+        _AD(scr_dirty)[r] = 1;
     }
     return 0;
 }
@@ -429,7 +429,7 @@ long scr_mark_dirty(long r) {
 long scr_mark_all_dirty() {
     long r = 0;
     while ((r < ROWS)) {
-        scr_dirty.d[r] = 1;
+        _AD(scr_dirty)[r] = 1;
         r = (r + 1);
     }
     scr_all_dirty = 1;
@@ -489,10 +489,10 @@ long scr_init() {
 long alt_save_from_scr() {
     long i = 0;
     while ((i < TOTAL)) {
-        alt_cells.d[i] = _AD(scr_cells)[i];
-        alt_fg.d[i] = _AD(scr_fg)[i];
-        alt_bg.d[i] = _AD(scr_bg)[i];
-        alt_flags.d[i] = _AD(scr_flags)[i];
+        _AD(alt_cells)[i] = _AD(scr_cells)[i];
+        _AD(alt_fg)[i] = _AD(scr_fg)[i];
+        _AD(alt_bg)[i] = _AD(scr_bg)[i];
+        _AD(alt_flags)[i] = _AD(scr_flags)[i];
         i = (i + 1);
     }
     alt_cur_x = scr_cur_x;
@@ -503,10 +503,10 @@ long alt_save_from_scr() {
 long alt_restore_to_scr() {
     long i = 0;
     while ((i < TOTAL)) {
-        scr_cells.d[i] = _AD(alt_cells)[i];
-        scr_fg.d[i] = _AD(alt_fg)[i];
-        scr_bg.d[i] = _AD(alt_bg)[i];
-        scr_flags.d[i] = _AD(alt_flags)[i];
+        _AD(scr_cells)[i] = _AD(alt_cells)[i];
+        _AD(scr_fg)[i] = _AD(alt_fg)[i];
+        _AD(scr_bg)[i] = _AD(alt_bg)[i];
+        _AD(scr_flags)[i] = _AD(alt_flags)[i];
         i = (i + 1);
     }
     scr_cur_x = alt_cur_x;
@@ -517,10 +517,10 @@ long alt_restore_to_scr() {
 long scr_clear_all() {
     long i = 0;
     while ((i < TOTAL)) {
-        scr_cells.d[i] = 32;
-        scr_fg.d[i] = 7;
-        scr_bg.d[i] = 0;
-        scr_flags.d[i] = 0;
+        _AD(scr_cells)[i] = 32;
+        _AD(scr_fg)[i] = 7;
+        _AD(scr_bg)[i] = 0;
+        _AD(scr_flags)[i] = 0;
         i = (i + 1);
     }
     (void)(scr_mark_all_dirty());
@@ -592,10 +592,10 @@ long scr_scroll_up() {
         long src = ((r + 1) * COLS);
         long c = 0;
         while ((c < COLS)) {
-            scr_cells.d[(dst + c)] = _AD(scr_cells)[(src + c)];
-            scr_fg.d[(dst + c)] = _AD(scr_fg)[(src + c)];
-            scr_bg.d[(dst + c)] = _AD(scr_bg)[(src + c)];
-            scr_flags.d[(dst + c)] = _AD(scr_flags)[(src + c)];
+            _AD(scr_cells)[(dst + c)] = _AD(scr_cells)[(src + c)];
+            _AD(scr_fg)[(dst + c)] = _AD(scr_fg)[(src + c)];
+            _AD(scr_bg)[(dst + c)] = _AD(scr_bg)[(src + c)];
+            _AD(scr_flags)[(dst + c)] = _AD(scr_flags)[(src + c)];
             c = (c + 1);
         }
         r = (r + 1);
@@ -603,10 +603,10 @@ long scr_scroll_up() {
     long bot = (scr_scroll_bot * COLS);
     long c = 0;
     while ((c < COLS)) {
-        scr_cells.d[(bot + c)] = 32;
-        scr_fg.d[(bot + c)] = 7;
-        scr_bg.d[(bot + c)] = 0;
-        scr_flags.d[(bot + c)] = 0;
+        _AD(scr_cells)[(bot + c)] = 32;
+        _AD(scr_fg)[(bot + c)] = 7;
+        _AD(scr_bg)[(bot + c)] = 0;
+        _AD(scr_flags)[(bot + c)] = 0;
         c = (c + 1);
     }
     return 0;
@@ -624,10 +624,10 @@ long scr_scroll_down() {
         long src = ((r - 1) * COLS);
         long c = 0;
         while ((c < COLS)) {
-            scr_cells.d[(dst + c)] = _AD(scr_cells)[(src + c)];
-            scr_fg.d[(dst + c)] = _AD(scr_fg)[(src + c)];
-            scr_bg.d[(dst + c)] = _AD(scr_bg)[(src + c)];
-            scr_flags.d[(dst + c)] = _AD(scr_flags)[(src + c)];
+            _AD(scr_cells)[(dst + c)] = _AD(scr_cells)[(src + c)];
+            _AD(scr_fg)[(dst + c)] = _AD(scr_fg)[(src + c)];
+            _AD(scr_bg)[(dst + c)] = _AD(scr_bg)[(src + c)];
+            _AD(scr_flags)[(dst + c)] = _AD(scr_flags)[(src + c)];
             c = (c + 1);
         }
         r = (r - 1);
@@ -635,10 +635,10 @@ long scr_scroll_down() {
     long top = (scr_scroll_top * COLS);
     long c = 0;
     while ((c < COLS)) {
-        scr_cells.d[(top + c)] = 32;
-        scr_fg.d[(top + c)] = 7;
-        scr_bg.d[(top + c)] = 0;
-        scr_flags.d[(top + c)] = 0;
+        _AD(scr_cells)[(top + c)] = 32;
+        _AD(scr_fg)[(top + c)] = 7;
+        _AD(scr_bg)[(top + c)] = 0;
+        _AD(scr_flags)[(top + c)] = 0;
         c = (c + 1);
     }
     return 0;
@@ -897,9 +897,9 @@ long scr_put_raw(long cp) {
         if ((scr_cur_y < ROWS)) {
             (void)(scr_mark_dirty(scr_cur_y));
             long idx = ((scr_cur_y * COLS) + scr_cur_x);
-            scr_cells.d[idx] = cp;
-            scr_fg.d[idx] = cur_fg;
-            scr_bg.d[idx] = cur_bg;
+            _AD(scr_cells)[idx] = cp;
+            _AD(scr_fg)[idx] = cur_fg;
+            _AD(scr_bg)[idx] = cur_bg;
             long f = 0;
             if ((cur_bold == 1)) {
                 f = (f + 1);
@@ -913,13 +913,13 @@ long scr_put_raw(long cp) {
             if ((wide == 1)) {
                 f = (f + 65536);
             }
-            scr_flags.d[idx] = f;
+            _AD(scr_flags)[idx] = f;
             if (((wide == 1) && ((scr_cur_x + 1) < COLS))) {
                 long idx2 = (idx + 1);
-                scr_cells.d[idx2] = 0;
-                scr_fg.d[idx2] = cur_fg;
-                scr_bg.d[idx2] = cur_bg;
-                scr_flags.d[idx2] = 131072;
+                _AD(scr_cells)[idx2] = 0;
+                _AD(scr_fg)[idx2] = cur_fg;
+                _AD(scr_bg)[idx2] = cur_bg;
+                _AD(scr_flags)[idx2] = 131072;
             }
         }
     }
@@ -1005,10 +1005,10 @@ long csi_dispatch(long b) {
                                     long start = ((scr_cur_y * COLS) + scr_cur_x);
                                     long i = start;
                                     while ((i < TOTAL)) {
-                                        scr_cells.d[i] = 32;
-                                        scr_fg.d[i] = 7;
-                                        scr_bg.d[i] = 0;
-                                        scr_flags.d[i] = 0;
+                                        _AD(scr_cells)[i] = 32;
+                                        _AD(scr_fg)[i] = 7;
+                                        _AD(scr_bg)[i] = 0;
+                                        _AD(scr_flags)[i] = 0;
                                         i = (i + 1);
                                     }
                                 } else {
@@ -1021,10 +1021,10 @@ long csi_dispatch(long b) {
                                         long stop = ((scr_cur_y * COLS) + scr_cur_x);
                                         long i = 0;
                                         while ((i <= stop)) {
-                                            scr_cells.d[i] = 32;
-                                            scr_fg.d[i] = 7;
-                                            scr_bg.d[i] = 0;
-                                            scr_flags.d[i] = 0;
+                                            _AD(scr_cells)[i] = 32;
+                                            _AD(scr_fg)[i] = 7;
+                                            _AD(scr_bg)[i] = 0;
+                                            _AD(scr_flags)[i] = 0;
                                             i = (i + 1);
                                         }
                                     } else {
@@ -1032,10 +1032,10 @@ long csi_dispatch(long b) {
                                             (void)(scr_mark_all_dirty());
                                             long i = 0;
                                             while ((i < TOTAL)) {
-                                                scr_cells.d[i] = 32;
-                                                scr_fg.d[i] = 7;
-                                                scr_bg.d[i] = 0;
-                                                scr_flags.d[i] = 0;
+                                                _AD(scr_cells)[i] = 32;
+                                                _AD(scr_fg)[i] = 7;
+                                                _AD(scr_bg)[i] = 0;
+                                                _AD(scr_flags)[i] = 0;
                                                 i = (i + 1);
                                             }
                                         }
@@ -1050,10 +1050,10 @@ long csi_dispatch(long b) {
                                         long i = (row_s + scr_cur_x);
                                         long row_e = (row_s + COLS);
                                         while ((i < row_e)) {
-                                            scr_cells.d[i] = 32;
-                                            scr_fg.d[i] = 7;
-                                            scr_bg.d[i] = 0;
-                                            scr_flags.d[i] = 0;
+                                            _AD(scr_cells)[i] = 32;
+                                            _AD(scr_fg)[i] = 7;
+                                            _AD(scr_bg)[i] = 0;
+                                            _AD(scr_flags)[i] = 0;
                                             i = (i + 1);
                                         }
                                     } else {
@@ -1061,10 +1061,10 @@ long csi_dispatch(long b) {
                                             long i = row_s;
                                             long stop = (row_s + scr_cur_x);
                                             while ((i <= stop)) {
-                                                scr_cells.d[i] = 32;
-                                                scr_fg.d[i] = 7;
-                                                scr_bg.d[i] = 0;
-                                                scr_flags.d[i] = 0;
+                                                _AD(scr_cells)[i] = 32;
+                                                _AD(scr_fg)[i] = 7;
+                                                _AD(scr_bg)[i] = 0;
+                                                _AD(scr_flags)[i] = 0;
                                                 i = (i + 1);
                                             }
                                         } else {
@@ -1072,10 +1072,10 @@ long csi_dispatch(long b) {
                                                 long i = row_s;
                                                 long row_e = (row_s + COLS);
                                                 while ((i < row_e)) {
-                                                    scr_cells.d[i] = 32;
-                                                    scr_fg.d[i] = 7;
-                                                    scr_bg.d[i] = 0;
-                                                    scr_flags.d[i] = 0;
+                                                    _AD(scr_cells)[i] = 32;
+                                                    _AD(scr_fg)[i] = 7;
+                                                    _AD(scr_bg)[i] = 0;
+                                                    _AD(scr_flags)[i] = 0;
                                                     i = (i + 1);
                                                 }
                                             }
@@ -1120,10 +1120,10 @@ long csi_dispatch(long b) {
                                                             long src = ((r - 1) * COLS);
                                                             long c = 0;
                                                             while ((c < COLS)) {
-                                                                scr_cells.d[(dst + c)] = _AD(scr_cells)[(src + c)];
-                                                                scr_fg.d[(dst + c)] = _AD(scr_fg)[(src + c)];
-                                                                scr_bg.d[(dst + c)] = _AD(scr_bg)[(src + c)];
-                                                                scr_flags.d[(dst + c)] = _AD(scr_flags)[(src + c)];
+                                                                _AD(scr_cells)[(dst + c)] = _AD(scr_cells)[(src + c)];
+                                                                _AD(scr_fg)[(dst + c)] = _AD(scr_fg)[(src + c)];
+                                                                _AD(scr_bg)[(dst + c)] = _AD(scr_bg)[(src + c)];
+                                                                _AD(scr_flags)[(dst + c)] = _AD(scr_flags)[(src + c)];
                                                                 c = (c + 1);
                                                             }
                                                             r = (r - 1);
@@ -1131,10 +1131,10 @@ long csi_dispatch(long b) {
                                                         long base = (scr_cur_y * COLS);
                                                         long c = 0;
                                                         while ((c < COLS)) {
-                                                            scr_cells.d[(base + c)] = 32;
-                                                            scr_fg.d[(base + c)] = 7;
-                                                            scr_bg.d[(base + c)] = 0;
-                                                            scr_flags.d[(base + c)] = 0;
+                                                            _AD(scr_cells)[(base + c)] = 32;
+                                                            _AD(scr_fg)[(base + c)] = 7;
+                                                            _AD(scr_bg)[(base + c)] = 0;
+                                                            _AD(scr_flags)[(base + c)] = 0;
                                                             c = (c + 1);
                                                         }
                                                         j = (j + 1);
@@ -1155,10 +1155,10 @@ long csi_dispatch(long b) {
                                                                 long src = ((r + 1) * COLS);
                                                                 long c = 0;
                                                                 while ((c < COLS)) {
-                                                                    scr_cells.d[(dst + c)] = _AD(scr_cells)[(src + c)];
-                                                                    scr_fg.d[(dst + c)] = _AD(scr_fg)[(src + c)];
-                                                                    scr_bg.d[(dst + c)] = _AD(scr_bg)[(src + c)];
-                                                                    scr_flags.d[(dst + c)] = _AD(scr_flags)[(src + c)];
+                                                                    _AD(scr_cells)[(dst + c)] = _AD(scr_cells)[(src + c)];
+                                                                    _AD(scr_fg)[(dst + c)] = _AD(scr_fg)[(src + c)];
+                                                                    _AD(scr_bg)[(dst + c)] = _AD(scr_bg)[(src + c)];
+                                                                    _AD(scr_flags)[(dst + c)] = _AD(scr_flags)[(src + c)];
                                                                     c = (c + 1);
                                                                 }
                                                                 r = (r + 1);
@@ -1166,10 +1166,10 @@ long csi_dispatch(long b) {
                                                             long base = (scr_scroll_bot * COLS);
                                                             long c = 0;
                                                             while ((c < COLS)) {
-                                                                scr_cells.d[(base + c)] = 32;
-                                                                scr_fg.d[(base + c)] = 7;
-                                                                scr_bg.d[(base + c)] = 0;
-                                                                scr_flags.d[(base + c)] = 0;
+                                                                _AD(scr_cells)[(base + c)] = 32;
+                                                                _AD(scr_fg)[(base + c)] = 7;
+                                                                _AD(scr_bg)[(base + c)] = 0;
+                                                                _AD(scr_flags)[(base + c)] = 0;
                                                                 c = (c + 1);
                                                             }
                                                             j = (j + 1);
@@ -1181,10 +1181,10 @@ long csi_dispatch(long b) {
                                                             long row_s = (scr_cur_y * COLS);
                                                             long i = scr_cur_x;
                                                             while ((i < (COLS - n))) {
-                                                                scr_cells.d[(row_s + i)] = _AD(scr_cells)[((row_s + i) + n)];
-                                                                scr_fg.d[(row_s + i)] = _AD(scr_fg)[((row_s + i) + n)];
-                                                                scr_bg.d[(row_s + i)] = _AD(scr_bg)[((row_s + i) + n)];
-                                                                scr_flags.d[(row_s + i)] = _AD(scr_flags)[((row_s + i) + n)];
+                                                                _AD(scr_cells)[(row_s + i)] = _AD(scr_cells)[((row_s + i) + n)];
+                                                                _AD(scr_fg)[(row_s + i)] = _AD(scr_fg)[((row_s + i) + n)];
+                                                                _AD(scr_bg)[(row_s + i)] = _AD(scr_bg)[((row_s + i) + n)];
+                                                                _AD(scr_flags)[(row_s + i)] = _AD(scr_flags)[((row_s + i) + n)];
                                                                 i = (i + 1);
                                                             }
                                                             long j = (COLS - n);
@@ -1192,10 +1192,10 @@ long csi_dispatch(long b) {
                                                                 j = scr_cur_x;
                                                             }
                                                             while ((j < COLS)) {
-                                                                scr_cells.d[(row_s + j)] = 32;
-                                                                scr_fg.d[(row_s + j)] = 7;
-                                                                scr_bg.d[(row_s + j)] = 0;
-                                                                scr_flags.d[(row_s + j)] = 0;
+                                                                _AD(scr_cells)[(row_s + j)] = 32;
+                                                                _AD(scr_fg)[(row_s + j)] = 7;
+                                                                _AD(scr_bg)[(row_s + j)] = 0;
+                                                                _AD(scr_flags)[(row_s + j)] = 0;
                                                                 j = (j + 1);
                                                             }
                                                         } else {
@@ -1205,19 +1205,19 @@ long csi_dispatch(long b) {
                                                                 long row_s = (scr_cur_y * COLS);
                                                                 long i = (COLS - 1);
                                                                 while ((i >= (scr_cur_x + n))) {
-                                                                    scr_cells.d[(row_s + i)] = _AD(scr_cells)[((row_s + i) - n)];
-                                                                    scr_fg.d[(row_s + i)] = _AD(scr_fg)[((row_s + i) - n)];
-                                                                    scr_bg.d[(row_s + i)] = _AD(scr_bg)[((row_s + i) - n)];
-                                                                    scr_flags.d[(row_s + i)] = _AD(scr_flags)[((row_s + i) - n)];
+                                                                    _AD(scr_cells)[(row_s + i)] = _AD(scr_cells)[((row_s + i) - n)];
+                                                                    _AD(scr_fg)[(row_s + i)] = _AD(scr_fg)[((row_s + i) - n)];
+                                                                    _AD(scr_bg)[(row_s + i)] = _AD(scr_bg)[((row_s + i) - n)];
+                                                                    _AD(scr_flags)[(row_s + i)] = _AD(scr_flags)[((row_s + i) - n)];
                                                                     i = (i - 1);
                                                                 }
                                                                 long j = scr_cur_x;
                                                                 while ((j < (scr_cur_x + n))) {
                                                                     if ((j < COLS)) {
-                                                                        scr_cells.d[(row_s + j)] = 32;
-                                                                        scr_fg.d[(row_s + j)] = 7;
-                                                                        scr_bg.d[(row_s + j)] = 0;
-                                                                        scr_flags.d[(row_s + j)] = 0;
+                                                                        _AD(scr_cells)[(row_s + j)] = 32;
+                                                                        _AD(scr_fg)[(row_s + j)] = 7;
+                                                                        _AD(scr_bg)[(row_s + j)] = 0;
+                                                                        _AD(scr_flags)[(row_s + j)] = 0;
                                                                     }
                                                                     j = (j + 1);
                                                                 }
@@ -1623,7 +1623,7 @@ long sync_to_bridge() {
                 (void)(hexa_appkit_term_set_cell(r, c, _AD(scr_cells)[idx], _AD(scr_fg)[idx], _AD(scr_bg)[idx], _AD(scr_flags)[idx]));
                 c = (c + 1);
             }
-            scr_dirty.d[r] = 0;
+            _AD(scr_dirty)[r] = 0;
         }
         r = (r + 1);
     }
@@ -1633,7 +1633,7 @@ long sync_to_bridge() {
     return 0;
 }
 
-long scr_find_probe(hexa_arr probe, long probe_len) {
+long scr_find_probe(long probe, long probe_len) {
     long bound = (TOTAL - probe_len);
     long i = 0;
     while ((i <= bound)) {
@@ -2447,10 +2447,10 @@ long self_test() {
 long load_from_bridge() {
     long i = 0;
     while ((i < TOTAL)) {
-        scr_cells.d[i] = hexa_tab_cell_cp(i);
-        scr_fg.d[i] = hexa_tab_cell_fg(i);
-        scr_bg.d[i] = hexa_tab_cell_bg(i);
-        scr_flags.d[i] = hexa_tab_cell_flags(i);
+        _AD(scr_cells)[i] = hexa_tab_cell_cp(i);
+        _AD(scr_fg)[i] = hexa_tab_cell_fg(i);
+        _AD(scr_bg)[i] = hexa_tab_cell_bg(i);
+        _AD(scr_flags)[i] = hexa_tab_cell_flags(i);
         i = (i + 1);
     }
     (void)(scr_mark_all_dirty());
@@ -2534,6 +2534,7 @@ long hexa_user_main() {
         if ((cmd == 3)) {
             (void)(load_from_bridge());
             (void)(vt_reset_state());
+            (void)(hexa_tab_nudge_pty());
         }
         if ((hexa_appkit_term_check_resize() == 1)) {
             long new_r = hexa_appkit_term_get_rows();

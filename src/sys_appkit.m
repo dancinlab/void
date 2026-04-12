@@ -426,6 +426,7 @@ static TermCell g_term_grid[TERM_MAX_ROWS][TERM_MAX_COLS];
 // scrollback, or any event that sets g_full_redraw = 1.
 static TermCell g_prev_grid[TERM_MAX_ROWS][TERM_MAX_COLS];
 static int g_prev_grid_valid = 0;
+static int g_prev_grid_tab = -1;  // which tab was active when prev_grid was snapshot
 static int g_term_rows;
 static int g_term_cols;
 static int g_term_cur_row;
@@ -1378,6 +1379,10 @@ static NSColor *term_color(int idx) {
     // scrollback), only repaint cells whose content changed since the
     // last drawRect. Scrollback, search overlay, and full-redraw events
     // invalidate the cache and fall back to painting everything.
+    // Invalidate prev_grid if active tab changed since snapshot
+    if (g_prev_grid_tab != g_active_tab) {
+        g_prev_grid_valid = 0;
+    }
     int use_prev = (g_prev_grid_valid && !g_full_redraw && g_scroll_offset == 0 && !g_search_active);
     if (!use_prev) {
         // Full repaint: clear the entire grid background once.
@@ -1417,7 +1422,8 @@ static NSColor *term_color(int idx) {
         // ── Batch background fill: merge consecutive cells with the
         // same bg color into one NSRectFill.  A typical all-black row
         // (bg==0 everywhere) produces zero fill calls instead of 80+.
-        {
+        // Skip in delta mode — changed cells handle their own bg erase.
+        if (!use_prev) {
             int run_bg = 0;
             float run_x = 0.0f;
             float run_w = 0.0f;
@@ -1493,6 +1499,7 @@ static NSColor *term_color(int idx) {
     if (g_scroll_offset == 0 && !g_search_active) {
         memcpy(g_prev_grid, g_term_grid, sizeof(g_prev_grid));
         g_prev_grid_valid = 1;
+        g_prev_grid_tab = g_active_tab;
     }
     // ── Selection overlay ── translucent blue shade painted ON TOP of the
     // glyph layer so both background and foreground remain visible through
@@ -2081,6 +2088,7 @@ typedef struct VsSessionEntry_ {
 extern VsSessionEntry g_vs_list[VS_LIST_MAX];
 extern int g_vs_list_count;
 static int  void_server_enabled(void);
+static int  void_server_kill(const char id[32]);
 static int  void_server_list(void);
 static int  void_server_attach(const char id[32], int *out_fd,
                                int *out_rows, int *out_cols);
@@ -2117,7 +2125,19 @@ static void void_tabs_renumber_profiles(void);
 @implementation HexaTermDelegate
 @synthesize hiddenSessionsMenu = _hiddenSessionsMenu;
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)s { return YES; }
-- (void)applicationWillTerminate:(NSNotification *)n { g_term_quit = 1; }
+- (void)applicationWillTerminate:(NSNotification *)n {
+    // Kill all server-backed sessions so they don't resurrect on next launch.
+    // Hot-swap exits via _exit(0) which bypasses this handler, so those
+    // sessions survive as intended.
+    if (void_server_enabled()) {
+        for (int i = 0; i < g_num_tabs; i++) {
+            if (g_tabs[i].used && g_tabs[i].session_id[0] != 0) {
+                void_server_kill(g_tabs[i].session_id);
+            }
+        }
+    }
+    g_term_quit = 1;
+}
 - (void)windowWillClose:(NSNotification *)n { g_term_quit = 1; }
 
 // Menu actions — each mirrors the equivalent Cmd-intercept branch so
@@ -2817,6 +2837,30 @@ static int void_server_detach(const char id[32]) {
     uint32_t rhdr[3];
     if (vs_read_exact(g_server_sock, rhdr, sizeof(rhdr)) < 0) goto fail;
     // Drain body if any
+    uint32_t body_len = rhdr[2];
+    if (body_len > 0 && body_len < 1 << 20) {
+        char skip[4096];
+        uint32_t left = body_len;
+        while (left > 0) {
+            uint32_t chunk = left > sizeof(skip) ? sizeof(skip) : left;
+            if (vs_read_exact(g_server_sock, skip, chunk) < 0) goto fail;
+            left -= chunk;
+        }
+    }
+    return 0;
+fail:
+    if (g_server_sock >= 0) { close(g_server_sock); g_server_sock = -1; }
+    return -1;
+}
+
+// Send KILL command. Server terminates the shell and frees the session.
+static int void_server_kill(const char id[32]) {
+    if (void_server_ensure() != 0) return -1;
+    uint32_t hdr[3] = { VS_MAGIC_CLIENT, VS_CMD_KILL, 32 };
+    if (vs_write_exact(g_server_sock, hdr, sizeof(hdr)) < 0) goto fail;
+    if (vs_write_exact(g_server_sock, id, 32) < 0) goto fail;
+    uint32_t rhdr[3];
+    if (vs_read_exact(g_server_sock, rhdr, sizeof(rhdr)) < 0) goto fail;
     uint32_t body_len = rhdr[2];
     if (body_len > 0 && body_len < 1 << 20) {
         char skip[4096];
@@ -4043,6 +4087,22 @@ close_bookkeeping:
 long hexa_tab_get_pty(void) {
     if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
     return (long)g_tabs[g_active_tab].pty_fd;
+}
+
+// Nudge the active tab's PTY with a same-size TIOCSWINSZ so the shell
+// redraws its prompt (SIGWINCH). Called after tab switch so hexa's VT
+// parser picks up the fresh output instead of showing a frozen snapshot.
+long hexa_tab_nudge_pty(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
+    int fd = g_tabs[g_active_tab].pty_fd;
+    if (fd < 0) return -1;
+    struct winsize ws;
+    ws.ws_row = (unsigned short)g_term_rows;
+    ws.ws_col = (unsigned short)g_term_cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+    ioctl(fd, TIOCSWINSZ, &ws);
+    return 0;
 }
 
 // Poll for tab commands: 0=none, 1=new, 2=close, 3=switched

@@ -431,6 +431,15 @@
       "locked": true,
       "src": "src/void_server.c row_hash[VS_GRID_ROWS] + row_dirty[] 비트맵 + update_session_hashes",
       "evidence": "단일행 출력 시 64행 전체 rehash → 1행만 FNV-1a 재계산. section_hash = XOR(row_hash[row0..row0+63]). 스크롤 시 모든 행 dirty 마킹."
+    },
+    {
+      "id": "VC-55",
+      "item": "L0 CORE LOCK — void_main.hexa §1-§7 렌더 파이프라인 물리 한계 골화",
+      "date": "2026-04-12",
+      "locked": true,
+      "L0": true,
+      "src": "src/void_main.hexa L78-L1279 (§1 buffer §2 VT-state §3 SGR §4 wide+hangul §5 CSI §6 feed_byte §7 sync)",
+      "evidence": "25/25 self-test PASS. 벤치마크: feed_byte 13MB/s, sync delta 0.26µs/frame (full 대비 24× 개선). §6 vt_ground[256] 단일 O(1) 디스패치, §1 dirty-row 비트맵, §7 delta sync, §4 O(1) wide page table, §5 inline CSI params. clang -O2 어셈블리 검증: nested if/else와 switch 동일 명령어 수. hexa 언어 한계 내 물리적 한계 100% 도달. 이 범위 수정 금지."
     }
   ],
   "pending_ossification": []

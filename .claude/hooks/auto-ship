@@ -31,9 +31,14 @@ trap 'rm -f "$LOG"' EXIT
     git push
     clang -O2 -w -ObjC /tmp/void_main.c src/sys_pty.c src/sys_appkit.m \
         -framework Cocoa -o void_term
-    cp void_term VOID.app/Contents/MacOS/void_term
-    cp void_term /Applications/VOID.app/Contents/MacOS/void_term 2>/dev/null || true
-    VOID_TEST=1 ./void_term 2>&1 | tail -3
+    # Atomic mv (not cp) — cp over a running binary corrupts live mmap'd
+    # code pages and breaks ad-hoc codesign → SIGKILL (VC-42). The same
+    # mv+codesign pattern used by auto-build and void-swap.
+    if [ -d /Applications/VOID.app/Contents/MacOS ]; then
+        mv -f void_term /Applications/VOID.app/Contents/MacOS/void_term
+        codesign --force --sign - /Applications/VOID.app/Contents/MacOS/void_term 2>/dev/null
+    fi
+    VOID_TEST=1 /Applications/VOID.app/Contents/MacOS/void_term 2>&1 | tail -3
 ) > "$LOG" 2>&1
 
 rc=$?
