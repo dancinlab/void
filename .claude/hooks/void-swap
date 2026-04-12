@@ -37,9 +37,17 @@ if [ "$mode" != "--signal-only" ]; then
         # not a launch target — installing a binary there creates the
         # duplicate Dock tile issue.
         if [ -d /Applications/VOID.app/Contents/MacOS ]; then
-            cp void_term /Applications/VOID.app/Contents/MacOS/void_term
+            # Atomic mv (rename) — NEVER `cp` over a running binary.
+            # `cp` writes bytes into the existing inode, which corrupts
+            # the live process's mmapped code pages AND leaves the
+            # bundle's ad-hoc signature pointing at stale hashes →
+            # taskgated SIGKILLs the next launch with
+            # "Code Signature Invalid" (bug_type 309, CODESIGNING=1).
+            mv -f void_term /Applications/VOID.app/Contents/MacOS/void_term
+            codesign --force --sign - /Applications/VOID.app/Contents/MacOS/void_term 2>/dev/null
             if [ -f void_server ]; then
-                cp void_server /Applications/VOID.app/Contents/MacOS/void_server
+                mv -f void_server /Applications/VOID.app/Contents/MacOS/void_server
+                codesign --force --sign - /Applications/VOID.app/Contents/MacOS/void_server 2>/dev/null
             fi
         fi
         VOID_TEST=1 ./void_term 2>&1 | tail -3

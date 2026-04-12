@@ -327,6 +327,14 @@
       "locked": true,
       "src": "src/sys_appkit.m tab_spawn_pty_profile shell resolution chain",
       "evidence": "$SHELL → getpwuid(getuid())->pw_shell → /bin/zsh fallback 순. Finder 런치 sparse env로 $SHELL 미설정 시 기존 /bin/sh fallback이 ZLE/completion/history 전부 disable. /etc/passwd login shell 읽어와 setenv(SHELL,...) 까지 보장 → zsh ZLE가 자연스럽게 Tab completion 처리."
+    },
+    {
+      "id": "VC-42",
+      "item": "Hotfix codesign re-sign — /Applications bundle 핫릴로드 무한 크래시 루프 종결",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": ".claude/hooks/auto-build, .claude/hooks/void-swap — mv 후 codesign --force --sign -",
+      "evidence": "증상: mv/cp 후 self-binary watcher가 NSWorkspace relaunch → 새 프로세스 12ms만에 SIGKILL. 크래시 리포트 bug_type=309 CODESIGNING code=1 'Taskgated Invalid Signature'. 원인: mktemp 생성 tempfile의 linker ad-hoc 시그니처가 identifier='void_term.XXXXXX.yyy' + 리소스 디렉토리 해시 참조를 가진 채 /Applications/VOID.app 경로로 이동. taskgated가 번들 CodeResources 미스매치를 SIGKILL로 처벌. 해결: mv 직후 `codesign --force --sign -` 로 재서명 → identifier=com.need-singularity.void (Info.plist 기반), 플래그 0x20002(adhoc,linker-signed) → 0x2(adhoc), 리소스 디렉토리 해시 재계산. 검증: 6890 → 15864 PID 전환 후 크래시 리포트 0건. 또한 void-swap 훅은 `cp`를 `mv`로 교체 (cp는 inode preservation → 라이브 mmap 페이지 손상)."
     }
   ],
   "pending_ossification": []
