@@ -26,6 +26,19 @@ if [ "$mode" != "--signal-only" ]; then
     trap 'rm -f "$LOG"' EXIT
     (
         set -e
+        # mtime-based transpile cache (ROI #2): only re-transpile when
+        # void_main.hexa is newer than /tmp/void_main.c. Saves minutes
+        # when only .m/.c files changed and the hexa source is unchanged.
+        HEXA_SRC=src/void_main.hexa
+        HEXA_OUT=/tmp/void_main.c
+        if [ -f "$HEXA_SRC" ] && [ -f "$HEXA_OUT" ]; then
+            if [ "$HEXA_SRC" -nt "$HEXA_OUT" ]; then
+                ~/Dev/hexa-lang/hexa ~/Dev/hexa-lang/self/build_c.hexa "$HEXA_SRC" > "$HEXA_OUT"
+            fi
+        elif [ -f "$HEXA_SRC" ]; then
+            ~/Dev/hexa-lang/hexa ~/Dev/hexa-lang/self/build_c.hexa "$HEXA_SRC" > "$HEXA_OUT"
+        fi
+
         clang -O2 -w -ObjC /tmp/void_main.c src/sys_pty.c src/sys_appkit.m \
             -framework Cocoa -o void_term
         # Build the server too when present. Missing source = skip.

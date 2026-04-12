@@ -442,5 +442,22 @@
       "evidence": "25/25 self-test PASS. 벤치마크: feed_byte 13MB/s, sync delta 0.26µs/frame (full 대비 24× 개선). §6 vt_ground[256] 단일 O(1) 디스패치, §1 dirty-row 비트맵, §7 delta sync, §4 O(1) wide page table, §5 inline CSI params. clang -O2 어셈블리 검증: nested if/else와 switch 동일 명령어 수. hexa 언어 한계 내 물리적 한계 100% 도달. 이 범위 수정 금지."
     }
   ],
+    {
+      "id": "VC-56",
+      "item": "flush 전체 뷰 redraw — setNeedsDisplayInRect 폐기, setNeedsDisplay:YES + g_prev_grid_valid=0",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m hexa_appkit_term_flush",
+      "evidence": "macOS 15+ layer-backed view에서 부분 업데이트 backing store 미보존. 전체 뷰 redraw + 델타 캐시 무효화로 렌더 깨짐 완전 해소. 25/25 PASS."
+    },
+    {
+      "id": "VC-57",
+      "item": "void_server PTY read 가드 — attached client 있으면 pump_one_session skip",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_server.c pump_one_session",
+      "evidence": "SCM_RIGHTS fd 공유 시 read() 경쟁으로 초기 프롬프트 소실. attached_client_fd >= 0이면 서버 PTY read skip. 시작 시 ghost@Mac 프롬프트 정상 표시."
+    }
+  ],
   "pending_ossification": []
 }

@@ -1337,6 +1337,12 @@ static void client_on_disconnect(int idx) {
 static void pump_one_session(int session_idx) {
     VsSession *s = &g_sessions[session_idx];
     if (!s->used || s->pty_fd < 0) return;
+    // When a client is attached it reads the PTY master directly (the
+    // fd was passed via SCM_RIGHTS). Both sides share the same file
+    // description, so read() is a race — whoever calls it first
+    // consumes the bytes. Skip server-side reads while attached so the
+    // client sees all output (especially the initial shell prompt).
+    if (s->attached_client_fd >= 0) return;
 
     int wrote_any = 0;
     int shell_gone = 0;

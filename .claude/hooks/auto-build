@@ -44,6 +44,19 @@ trap 'rm -f "$LOG"' EXIT
     # Build directly into a temp file, run tests, then atomic-mv into
     # the app bundle. The atomic mv is what fires the running process's
     # kqueue NOTE_DELETE/NOTE_RENAME → self_watch_thread → relaunch.
+    # mtime-based transpile cache (ROI #2): only re-transpile when
+    # void_main.hexa is newer than /tmp/void_main.c. Saves minutes on
+    # builds triggered by .m/.c edits where the hexa source is unchanged.
+    HEXA_SRC=src/void_main.hexa
+    HEXA_OUT=/tmp/void_main.c
+    if [ -f "$HEXA_SRC" ] && [ -f "$HEXA_OUT" ]; then
+        if [ "$HEXA_SRC" -nt "$HEXA_OUT" ]; then
+            ~/Dev/hexa-lang/hexa ~/Dev/hexa-lang/self/build_c.hexa "$HEXA_SRC" > "$HEXA_OUT"
+        fi
+    elif [ -f "$HEXA_SRC" ]; then
+        ~/Dev/hexa-lang/hexa ~/Dev/hexa-lang/self/build_c.hexa "$HEXA_SRC" > "$HEXA_OUT"
+    fi
+
     TMP_BIN=$(mktemp -t void_term.XXXXXX)
     TMP_SRV=$(mktemp -t void_server.XXXXXX)
     clang -O2 -w -ObjC /tmp/void_main.c src/sys_pty.c src/sys_appkit.m \

@@ -4407,19 +4407,13 @@ void hexa_appkit_term_flush(void) {
             return;
         }
         if (g_dirty_min < 0) return; // nothing dirty
-        // Convert dirty row range → minimal setNeedsDisplayInRect.
-        // Expand by 1 row on each side to catch partial glyph overhang.
-        int r0 = g_dirty_min - 1; if (r0 < 0) r0 = 0;
-        int r1 = g_dirty_max + 1; if (r1 >= g_term_rows) r1 = g_term_rows - 1;
-        int eff_tbw = effective_tab_bar_w();
-        NSRect rect = NSMakeRect(eff_tbw,
-                                  r0 * g_term_ch,
-                                  [v bounds].size.width - eff_tbw,
-                                  (r1 - r0 + 1) * g_term_ch);
-        [v setNeedsDisplayInRect:rect];
-        // Tab bar also needs repaint if title changed — cheap, do always
-        if (eff_tbw > 0)
-            [v setNeedsDisplayInRect:NSMakeRect(0, 0, eff_tbw, [v bounds].size.height)];
+        // Force full-view redraw + invalidate delta cache so every cell
+        // is repainted from scratch.  The previous setNeedsDisplayInRect
+        // partial-update path relied on macOS preserving the backing store
+        // for non-dirty regions, which is not guaranteed on layer-backed
+        // views (macOS 15+).
+        g_prev_grid_valid = 0;
+        [v setNeedsDisplay:YES];
         g_dirty_min = -1;
         g_dirty_max = -1;
     }

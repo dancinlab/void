@@ -25,9 +25,9 @@
     "helpers": ["src/sys_pty.c", "src/sys_appkit.m"],
     "output": "void_term",
     "app_bundle": "VOID.app",
-    "size_bytes": 120120,
+    "size_bytes": 197112,
     "arch": "arm64",
-    "self_test": "17/17 pass"
+    "self_test": "25/25 pass"
   },
   "features": {
     "vt_parser": "6-state (GROUND/ESC/CSI/OSC_NUM/OSC_STR/CHARSET)",
@@ -42,7 +42,7 @@
     "resize": "window resize → TIOCSWINSZ to all PTYs, screen buffer reinit",
     "single_instance": "/tmp/void_term.lock Unix socket",
     "app_bundle": "VOID.app (Info.plist + AppIcon.icns)",
-    "damage_tracking": "set_cell equal-exit + dirty row range → setNeedsDisplayInRect (drawRect only processes rows that actually changed)",
+    "damage_tracking": "set_cell equal-exit + dirty row range → setNeedsDisplay:YES full-view redraw (macOS 15+ layer-backed view backing store 미보존 대응)",
     "resource_isolation": "per-child setrlimit RLIMIT_NOFILE=4096 / RLIMIT_AS=4GB, setsid, optional per-profile cpu/mem/nice caps",
     "memory_safety": "drawRect @autoreleasepool + NSAttributedString release + cached bold font + ANSI color cache (fixes Terminal.app-style heap pressure)"
   },
@@ -62,7 +62,7 @@
   ],
   "last_test": {
     "date": "2026-04-12",
-    "result": "17/17 pass",
-    "binary_size": 120120
+    "result": "25/25 pass",
+    "binary_size": 197112
   }
 }
