@@ -139,6 +139,11 @@ typedef struct {
     // block; recalc lazily when the section has been written since last hash.
     uint64_t section_hash[VS_GRID_ROWS / VS_SECTION_LINES + 1];
     int      section_dirty[VS_GRID_ROWS / VS_SECTION_LINES + 1];
+    // Per-row hash cache + dirty bitmap for incremental rehash.
+    // section_hash[sec] = XOR(row_hash[row0..row0+63]).
+    // Only dirty rows are re-hashed; the rest keep their cached value.
+    uint64_t row_hash[VS_GRID_ROWS];
+    uint8_t  row_dirty[(VS_GRID_ROWS + 7) / 8]; // 1 bit per row
     // Snapshot of the binary mtime (ns) at the moment this session was
     // last attached. Clients can diff this against current_binary_mtime
     // in LIST responses to know whether a hot-swap happened while they
@@ -423,7 +428,12 @@ static void binwatch_pump(void) {
 #define VS_N_SECTIONS  ((VS_GRID_ROWS + VS_SECTION_LINES - 1) / VS_SECTION_LINES)
 
 // Recompute the per-section Merkle hash for every section flagged
-// dirty. Called from pump_sessions after each drain and at the top of
+// dirty. Uses per-row hash caching: only rows whose row_dirty bit is
+// set get re-hashed (FNV-1a). The section hash is the XOR of all its
+// constituent row hashes, which is order-independent and lets us swap
+// a single row hash without touching the other 63.
+//
+// Called from pump_sessions after each drain and at the top of
 // handle_attach so the reply never ships stale hashes. Rows past
 // VS_GRID_ROWS are zero-padded so client and server see the same byte
 // sequence regardless of session resize.
@@ -434,21 +444,28 @@ static void update_session_hashes(VsSession *s) {
     size_t per_row = (size_t)cols * sizeof(VsCell);
     unsigned char zeros[VS_GRID_COLS * sizeof(VsCell)];
     memset(zeros, 0, per_row);
+    uint64_t zero_row_hash = fnv1a64(zeros, per_row);
     for (int sec = 0; sec < VS_N_SECTIONS; sec++) {
         if (!s->section_dirty[sec]) continue;
         int row0 = sec * VS_SECTION_LINES;
-        uint64_t h = 0xcbf29ce484222325ULL;
+        // Rehash only dirty rows within this section
         for (int dr = 0; dr < VS_SECTION_LINES; dr++) {
             int r = row0 + dr;
-            const unsigned char *p = (r >= VS_GRID_ROWS)
-                ? zeros
-                : (const unsigned char *)&s->grid[r * VS_GRID_COLS];
-            for (size_t i = 0; i < per_row; i++) {
-                h ^= p[i];
-                h *= 0x100000001b3ULL;
-            }
+            if (r >= VS_GRID_ROWS) break;  // past-end rows use zero_row_hash
+            if (!(s->row_dirty[r / 8] & (1u << (r % 8)))) continue;
+            const unsigned char *p =
+                (const unsigned char *)&s->grid[r * VS_GRID_COLS];
+            s->row_hash[r] = fnv1a64(p, per_row);
+            s->row_dirty[r / 8] &= ~(1u << (r % 8));
         }
-        s->section_hash[sec] = h;
+        // Section hash = XOR of all row hashes in this section.
+        // Rows past VS_GRID_ROWS contribute zero_row_hash.
+        uint64_t sh = 0;
+        for (int dr = 0; dr < VS_SECTION_LINES; dr++) {
+            int r = row0 + dr;
+            sh ^= (r < VS_GRID_ROWS) ? s->row_hash[r] : zero_row_hash;
+        }
+        s->section_hash[sec] = sh;
         s->section_dirty[sec] = 0;
     }
 }
@@ -689,10 +706,12 @@ static int spawn_session_pty(VsSession *s,
         s->grid[i].bg    = 0;
         s->grid[i].flags = 0;
     }
-    // Mark every section dirty so the first ATTACH computes real hashes
-    // from the space-fill grid instead of returning the zero-init values.
+    // Mark every section and row dirty so the first ATTACH computes
+    // real hashes from the space-fill grid instead of returning the
+    // zero-init values.
     for (int sec = 0; sec < VS_N_SECTIONS; sec++)
         s->section_dirty[sec] = 1;
+    memset(s->row_dirty, 0xFF, sizeof(s->row_dirty));
     return 0;
 }
 
@@ -844,6 +863,7 @@ static void scan_and_restore_checkpoints(void) {
         // we might have written into the checkpoint.
         for (int sec = 0; sec < VS_N_SECTIONS; sec++)
             s->section_dirty[sec] = 1;
+        memset(s->row_dirty, 0xFF, sizeof(s->row_dirty));
         close(fd);
     }
     closedir(d);
@@ -1329,6 +1349,9 @@ static void pump_one_session(int session_idx) {
             // Naive plain-text grid update for background preview only —
             // strips ESC sequences by skipping bytes between ESC and the
             // next final byte. Real VT parsing happens on the client side.
+            //
+            // Row-level dirty tracking: mark only the rows that actually
+            // change so update_session_hashes can skip clean rows.
             for (ssize_t k = 0; k < n; k++) {
                 unsigned char c = (unsigned char)buf[k];
                 if (c == 0x1b) {
@@ -1342,7 +1365,7 @@ static void pump_one_session(int session_idx) {
                 if (c == '\n') {
                     s->cur_row++;
                     if (s->cur_row >= s->rows) {
-                        // scroll — use VS_GRID_COLS stride to match ATTACH reads
+                        // scroll — every row shifts up, mark all dirty
                         size_t row_bytes = sizeof(VsCell) * VS_GRID_COLS;
                         memmove(s->grid, s->grid + VS_GRID_COLS, row_bytes * (s->rows - 1));
                         VsCell *last = &s->grid[(s->rows - 1) * VS_GRID_COLS];
@@ -1350,6 +1373,11 @@ static void pump_one_session(int session_idx) {
                             last[c2].ch = ' '; last[c2].fg = 7; last[c2].bg = 0; last[c2].flags = 0;
                         }
                         s->cur_row = s->rows - 1;
+                        // Scroll invalidates all rows up to s->rows
+                        for (int r = 0; r < s->rows && r < VS_GRID_ROWS; r++) {
+                            s->row_dirty[r / 8] |= (1u << (r % 8));
+                            s->section_dirty[r / VS_SECTION_LINES] = 1;
+                        }
                     }
                     continue;
                 }
@@ -1362,6 +1390,9 @@ static void pump_one_session(int session_idx) {
                     s->grid[idx].fg = 7;
                     s->grid[idx].bg = 0;
                     s->grid[idx].flags = 0;
+                    // Mark only the written row dirty
+                    s->row_dirty[s->cur_row / 8] |= (1u << (s->cur_row % 8));
+                    s->section_dirty[s->cur_row / VS_SECTION_LINES] = 1;
                 }
                 s->cur_col++;
                 if (s->cur_col >= s->cols) {
@@ -1369,8 +1400,6 @@ static void pump_one_session(int session_idx) {
                     s->cur_row++;
                 }
             }
-            for (int sec = 0; sec < VS_N_SECTIONS; sec++)
-                s->section_dirty[sec] = 1;
             continue;
         }
         if (n == 0) {

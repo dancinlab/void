@@ -7,19 +7,15 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
-// Forward declarations for hexa runtime (used before defined)
-typedef struct { long* d; long n; long cap; } hexa_arr;
-static hexa_arr hexa_arr_new(void);
-static hexa_arr hexa_arr_push(hexa_arr a, long x);
 
 static const double PI = 3.14159265358979323846;
 static const double E = 2.71828182845904523536;
-static long hexa_time_unix(void) { return (long)time(NULL); }
+static hexa_arr hexa_time_unix(void) { return (long)time(NULL); }
 static double hexa_clock(void) { return (double)clock() / CLOCKS_PER_SEC; }
 static double hexa_sqrt(double x) { return sqrt(x); }
 static double hexa_pow(double b, double e) { return pow(b, e); }
 static double hexa_abs_f(double x) { return x < 0 ? -x : x; }
-static long hexa_abs_i(long x) { return x < 0 ? -x : x; }
+static hexa_arr hexa_abs_i(long x) { return x < 0 ? -x : x; }
 static double hexa_sin(double x) { return sin(x); }
 static double hexa_cos(double x) { return cos(x); }
 static double hexa_tan(double x) { return tan(x); }
@@ -65,16 +61,16 @@ static const char* hexa_substr(const char* s, long a, long b) {
     memcpy(p, s + a, n); p[n] = 0;
     return p;
 }
-static long hexa_str_len(const char* s) { return (long)strlen(s); }
-static long hexa_contains(const char* h, const char* n) { return strstr(h, n) ? 1 : 0; }
-static long hexa_index_of(const char* h, const char* n) {
+static hexa_arr hexa_str_len(const char* s) { return (long)strlen(s); }
+static hexa_arr hexa_contains(const char* h, const char* n) { return strstr(h, n) ? 1 : 0; }
+static hexa_arr hexa_index_of(const char* h, const char* n) {
     const char* p = strstr(h, n); if (!p) return -1;
     return (long)(p - h);
 }
-static long hexa_starts_with(const char* h, const char* n) {
+static hexa_arr hexa_starts_with(const char* h, const char* n) {
     size_t ln = strlen(n); return strncmp(h, n, ln) == 0 ? 1 : 0;
 }
-static long hexa_ends_with(const char* h, const char* n) {
+static hexa_arr hexa_ends_with(const char* h, const char* n) {
     size_t lh = strlen(h), ln = strlen(n);
     if (ln > lh) return 0; return strcmp(h + lh - ln, n) == 0 ? 1 : 0;
 }
@@ -96,7 +92,7 @@ static const char* hexa_to_lower(const char* s) {
     for (long i = 0; i < n; i++) { char c = s[i]; p[i] = (c>='A'&&c<='Z') ? c + 32 : c; }
     p[n] = 0; return p;
 }
-static long hexa_parse_int(const char* s) {
+static hexa_arr hexa_parse_int(const char* s) {
     while (*s == ' ' || *s == '\t') s++;
     long sign = 1; if (*s == '-') { sign = -1; s++; } else if (*s == '+') s++;
     long v = 0; while (*s >= '0' && *s <= '9') { v = v*10 + (*s - '0'); s++; }
@@ -104,7 +100,7 @@ static long hexa_parse_int(const char* s) {
 }
 #include <stdlib.h>
 static double hexa_to_float(const char* s) { return strtod(s, NULL); }
-static long* hexa_struct_alloc(const long* items, long n) {
+static hexa_arr* hexa_struct_alloc(const long* items, long n) {
     long* p = (long*)hexa_alloc(n * sizeof(long));
     memcpy(p, items, n * sizeof(long));
     return p;
@@ -134,26 +130,67 @@ static const char* hexa_read_file(const char* path) {
     fread(p, 1, sz, f); p[sz] = 0; fclose(f);
     return p;
 }
-static long hexa_write_file(const char* path, const char* content) {
+static hexa_arr hexa_write_file(const char* path, const char* content) {
     FILE* f = fopen(path, "wb");
     if (!f) return 0;
     size_t n = strlen(content);
     fwrite(content, 1, n, f); fclose(f);
     return (long)n;
 }
-static long hexa_file_exists(const char* path) {
+static hexa_arr hexa_file_exists(const char* path) {
     FILE* f = fopen(path, "rb"); if (!f) return 0; fclose(f); return 1;
 }
-static long hexa_dir_exists(const char* path) {
+static hexa_arr hexa_dir_exists(const char* path) {
     struct stat st; if (stat(path, &st) != 0) return 0; return S_ISDIR(st.st_mode) ? 1 : 0;
 }
-static long hexa_mkdir(const char* path) {
+static hexa_arr hexa_mkdir(const char* path) {
     char tmp[1024]; snprintf(tmp, sizeof(tmp), "%s", path);
     for (char* p = tmp + 1; *p; p++) { if (*p == '/') { *p = 0; mkdir(tmp, 0755); *p = '/'; } }
     return (mkdir(tmp, 0755) == 0 || errno == EEXIST) ? 0 : 1;
 }
+typedef struct { long* d; long n; long cap; } hexa_arr;
+#define _HA(a) ((hexa_arr*)(a))
+#define _AD(a) (_HA(a)->d)
+#define _AN(a) (_HA(a)->n)
+static hexa_arr hexa_arr_new(void) {
+    hexa_arr* p = (hexa_arr*)malloc(sizeof(hexa_arr));
+    p->d = NULL; p->n = 0; p->cap = 0; return (long)p;
+}
+static hexa_arr hexa_arr_lit(const long* items, long n) {
+    hexa_arr* p = (hexa_arr*)malloc(sizeof(hexa_arr));
+    p->d = (long*)malloc((n>0?n:1)*sizeof(long)); p->n = n; p->cap = (n>0?n:1);
+    if (n > 0) memcpy(p->d, items, n*sizeof(long));
+    return (long)p;
+}
+static hexa_arr hexa_arr_push(long a, long x) {
+    hexa_arr* p = _HA(a);
+    if (p->n >= p->cap) {
+        p->cap = p->cap ? p->cap * 2 : 4;
+        p->d = (long*)realloc(p->d, p->cap * sizeof(long));
+    }
+    p->d[p->n++] = x;
+    return a;
+}
+static hexa_arr hexa_arr_len(long a) { return a ? _AN(a) : 0; }
+static hexa_arr hexa_arr_get(long a, long i) { return _AD(a)[i]; }
+static hexa_arr hexa_arr_fill(long n, long v) {
+    hexa_arr* p = (hexa_arr*)malloc(sizeof(hexa_arr));
+    p->n = n; p->cap = n > 0 ? n : 1;
+    p->d = (long*)malloc(p->cap * sizeof(long));
+    for (long i = 0; i < n; i++) p->d[i] = v;
+    return (long)p;
+}
+static hexa_arr hexa_arr_concat(long a, long b) {
+    long an = a ? _AN(a) : 0, bn = b ? _AN(b) : 0;
+    hexa_arr* p = (hexa_arr*)malloc(sizeof(hexa_arr));
+    p->n = an + bn; p->cap = p->n > 0 ? p->n : 1;
+    p->d = (long*)malloc(p->cap * sizeof(long));
+    if (an > 0) memcpy(p->d, _AD(a), an * sizeof(long));
+    if (bn > 0) memcpy(p->d + an, _AD(b), bn * sizeof(long));
+    return (long)p;
+}
 static hexa_arr hexa_list_dir(const char* path) {
-    hexa_arr a = hexa_arr_new();
+    long a = hexa_arr_new();
     DIR* d = opendir(path); if (!d) return a;
     struct dirent* e; while ((e = readdir(d)) != NULL) {
         if (e->d_name[0] == '.' && (e->d_name[1] == 0 || (e->d_name[1] == '.' && e->d_name[2] == 0))) continue;
@@ -162,8 +199,8 @@ static hexa_arr hexa_list_dir(const char* path) {
     }
     closedir(d); return a;
 }
-static long hexa_to_int_str(const char* s) { return strtol(s, NULL, 10); }
-static long hexa_append_file(const char* path, const char* content) {
+static hexa_arr hexa_to_int_str(const char* s) { return strtol(s, NULL, 10); }
+static hexa_arr hexa_append_file(const char* path, const char* content) {
     FILE* f = fopen(path, "ab");
     if (!f) return 0;
     size_t n = strlen(content);
@@ -207,47 +244,18 @@ static const char* hexa_exec(const char* cmd) {
     while (total > 0 && (out[total-1] == '\n' || out[total-1] == '\r')) { out[--total] = 0; }
     return out;
 }
-static hexa_arr hexa_arr_new(void) { hexa_arr a = {NULL, 0, 0}; return a; }
-static hexa_arr hexa_arr_lit(const long* items, long n) {
-    hexa_arr a; a.d = (long*)malloc((n>0?n:1)*sizeof(long)); a.n = n; a.cap = (n>0?n:1);
-    if (n > 0) memcpy(a.d, items, n*sizeof(long));
-    return a;
-}
-static hexa_arr hexa_arr_push(hexa_arr a, long x) {
-    if (a.n >= a.cap) {
-        a.cap = a.cap ? a.cap * 2 : 4;
-        a.d = (long*)realloc(a.d, a.cap * sizeof(long));
-    }
-    a.d[a.n++] = x;
-    return a;
-}
-static long hexa_arr_len(hexa_arr a) { return a.n; }
-static long hexa_arr_get(hexa_arr a, long i) { return a.d[i]; }
-static hexa_arr hexa_arr_fill(long n, long v) {
-    hexa_arr a; a.n = n; a.cap = n > 0 ? n : 1;
-    a.d = (long*)malloc(a.cap * sizeof(long));
-    for (long i = 0; i < n; i++) a.d[i] = v;
-    return a;
-}
-static hexa_arr hexa_arr_concat(hexa_arr a, hexa_arr b) {
-    hexa_arr r; r.n = a.n + b.n; r.cap = r.n > 0 ? r.n : 1;
-    r.d = (long*)malloc(r.cap * sizeof(long));
-    if (a.n > 0) memcpy(r.d, a.d, a.n * sizeof(long));
-    if (b.n > 0) memcpy(r.d + a.n, b.d, b.n * sizeof(long));
-    return r;
-}
-static hexa_arr hexa_chars(const char* s) {
+static hexa_arrhexa_chars(const char* s) {
     long n = (long)strlen(s);
     hexa_arr a; a.d = (long*)malloc((n>0?n:1)*sizeof(long)); a.n = n; a.cap = (n>0?n:1);
     for (long i = 0; i < n; i++) a.d[i] = (long)(unsigned char)s[i];
     return a;
 }
 #include <ctype.h>
-static long hexa_is_alpha(long c) { return (long)(isalpha((int)c) ? 1 : 0); }
-static long hexa_is_alnum(long c) { return (long)(isalnum((int)c) ? 1 : 0); }
+static hexa_arr hexa_is_alpha(long c) { return (long)(isalpha((int)c) ? 1 : 0); }
+static hexa_arr hexa_is_alnum(long c) { return (long)(isalnum((int)c) ? 1 : 0); }
 static int hexa_main_argc = 0;
 static char** hexa_main_argv = NULL;
-static hexa_arr hexa_args(void) {
+static hexa_arrhexa_args(void) {
     hexa_arr a; a.n = hexa_main_argc; a.cap = hexa_main_argc;
     a.d = (long*)malloc((hexa_main_argc>0?hexa_main_argc:1)*sizeof(long));
     for (int i = 0; i < hexa_main_argc; i++) a.d[i] = (long)hexa_main_argv[i];
@@ -257,9 +265,9 @@ static const char* hexa_arg(long i) {
     if (i < 0 || i >= hexa_main_argc) return "";
     return hexa_main_argv[i];
 }
-static long hexa_argc(void) { return (long)hexa_main_argc; }
+static hexa_arr hexa_argc(void) { return (long)hexa_main_argc; }
 static hexa_arr hexa_split(const char* s, const char* sep) {
-    hexa_arr a = hexa_arr_new();
+    long a = hexa_arr_new();
     long sl = (long)strlen(sep); if (sl == 0) { return hexa_arr_push(a, (long)s); }
     const char* cur = s;
     while (1) {
@@ -280,6 +288,8 @@ static hexa_arr hexa_split(const char* s, const char* sep) {
     return a;
 }
 
+long scr_mark_dirty(long r);
+long scr_mark_all_dirty();
 long scr_init();
 long alt_save_from_scr();
 long alt_restore_to_scr();
@@ -292,6 +302,7 @@ long vt_csi_reset();
 long vt_csi_flush();
 long vt_csi_get(long idx, long def);
 long sgr_apply();
+long is_wide_cjk_mixed(long cp);
 long is_wide_cjk(long cp);
 long hangul_flush_pending();
 long scr_put(long cp);
@@ -305,51 +316,57 @@ long load_from_bridge();
 long vt_reset_state();
 long hexa_user_main();
 
-static long COLS = 80;
-static long ROWS = 24;
-static long TOTAL = 1920;
-static hexa_arr scr_cells;
-static hexa_arr scr_fg;
-static hexa_arr scr_bg;
-static hexa_arr scr_flags;
-static long scr_cur_x = 0;
-static long scr_cur_y = 0;
-static long scr_scroll_top = 0;
-static long scr_scroll_bot = 23;
-static hexa_arr alt_cells;
-static hexa_arr alt_fg;
-static hexa_arr alt_bg;
-static hexa_arr alt_flags;
-static long alt_cur_x = 0;
-static long alt_cur_y = 0;
-static long alt_saved_cur_x = 0;
-static long alt_saved_cur_y = 0;
-static long alt_saved_fg = 7;
-static long alt_saved_bg = 0;
-static long alt_saved_bold = 0;
-static long alt_saved_underline = 0;
-static long alt_saved_inverse = 0;
-static long scr_is_alt = 0;
-static long alt_buf_len = 0;
-static long vt_state = 0;
-static long vt_param = 0;
-static hexa_arr vt_params;
-static long vt_param_started = 0;
-static long vt_private = 0;
-static long cur_fg = 7;
-static long cur_bg = 0;
-static long cur_bold = 0;
-static long cur_underline = 0;
-static long cur_inverse = 0;
-static long osc_num = 0;
-static hexa_arr osc_title_bytes;
-static long saved_cur_x = 0;
-static long saved_cur_y = 0;
-static long utf8_cp = 0;
-static long utf8_remain = 0;
-static long cur_charset = 0;
-static long g_hangul_L;
-static long g_hangul_V;
+static hexa_arr COLS = 80;
+static hexa_arr ROWS = 24;
+static hexa_arr TOTAL = 1920;
+static hexa_arrscr_cells;
+static hexa_arrscr_fg;
+static hexa_arrscr_bg;
+static hexa_arrscr_flags;
+static hexa_arrscr_dirty;
+static hexa_arr scr_all_dirty = 1;
+static hexa_arr scr_cur_x = 0;
+static hexa_arr scr_cur_y = 0;
+static hexa_arr scr_scroll_top = 0;
+static hexa_arr scr_scroll_bot = 23;
+static hexa_arralt_cells;
+static hexa_arralt_fg;
+static hexa_arralt_bg;
+static hexa_arralt_flags;
+static hexa_arr alt_cur_x = 0;
+static hexa_arr alt_cur_y = 0;
+static hexa_arr alt_saved_cur_x = 0;
+static hexa_arr alt_saved_cur_y = 0;
+static hexa_arr alt_saved_fg = 7;
+static hexa_arr alt_saved_bg = 0;
+static hexa_arr alt_saved_bold = 0;
+static hexa_arr alt_saved_underline = 0;
+static hexa_arr alt_saved_inverse = 0;
+static hexa_arr scr_is_alt = 0;
+static hexa_arr alt_buf_len = 0;
+static hexa_arr vt_state = 0;
+static hexa_arr vt_param = 0;
+static hexa_arrvt_params;
+static hexa_arr vt_param_started = 0;
+static hexa_arr vt_private = 0;
+static hexa_arr cur_fg = 7;
+static hexa_arr cur_bg = 0;
+static hexa_arr cur_bold = 0;
+static hexa_arr cur_underline = 0;
+static hexa_arr cur_inverse = 0;
+static hexa_arr osc_num = 0;
+static hexa_arrosc_title_bytes;
+static hexa_arr saved_cur_x = 0;
+static hexa_arr saved_cur_y = 0;
+static hexa_arr utf8_cp = 0;
+static hexa_arr utf8_remain = 0;
+static hexa_arrvt_ground;
+static hexa_arrvt_utf8_base;
+static hexa_arrvt_utf8_remain;
+static hexa_arr cur_charset = 0;
+static hexa_arrwide_pages;
+static hexa_arr g_hangul_L;
+static hexa_arr g_hangul_V;
 
 extern int hexa_pty_spawn_login_shell(void);
 extern int hexa_pty_poll_read(int fd, int timeout_ms);
@@ -400,12 +417,31 @@ extern int hexa_reply_flush(void);
 extern int hexa_keybuf_len(void);
 extern int hexa_keybuf_byte(int idx);
 extern int hexa_keybuf_clear(void);
+extern int clock_us(void);
+
+long scr_mark_dirty(long r) {
+    if (((r >= 0) && (r < ROWS))) {
+        scr_dirty.d[r] = 1;
+    }
+    return 0;
+}
+
+long scr_mark_all_dirty() {
+    long r = 0;
+    while ((r < ROWS)) {
+        scr_dirty.d[r] = 1;
+        r = (r + 1);
+    }
+    scr_all_dirty = 1;
+    return 0;
+}
 
 long scr_init() {
     scr_cells = hexa_arr_new();
     scr_fg = hexa_arr_new();
     scr_bg = hexa_arr_new();
     scr_flags = hexa_arr_new();
+    scr_dirty = hexa_arr_new();
     long i = 0;
     while ((i < TOTAL)) {
         scr_cells = hexa_arr_push(scr_cells, 32);
@@ -414,6 +450,12 @@ long scr_init() {
         scr_flags = hexa_arr_push(scr_flags, 0);
         i = (i + 1);
     }
+    long r = 0;
+    while ((r < 200)) {
+        scr_dirty = hexa_arr_push(scr_dirty, 1);
+        r = (r + 1);
+    }
+    scr_all_dirty = 1;
     scr_cur_x = 0;
     scr_cur_y = 0;
     scr_scroll_top = 0;
@@ -447,10 +489,10 @@ long scr_init() {
 long alt_save_from_scr() {
     long i = 0;
     while ((i < TOTAL)) {
-        alt_cells.d[i] = scr_cells.d[i];
-        alt_fg.d[i] = scr_fg.d[i];
-        alt_bg.d[i] = scr_bg.d[i];
-        alt_flags.d[i] = scr_flags.d[i];
+        alt_cells.d[i] = _AD(scr_cells)[i];
+        alt_fg.d[i] = _AD(scr_fg)[i];
+        alt_bg.d[i] = _AD(scr_bg)[i];
+        alt_flags.d[i] = _AD(scr_flags)[i];
         i = (i + 1);
     }
     alt_cur_x = scr_cur_x;
@@ -461,10 +503,10 @@ long alt_save_from_scr() {
 long alt_restore_to_scr() {
     long i = 0;
     while ((i < TOTAL)) {
-        scr_cells.d[i] = alt_cells.d[i];
-        scr_fg.d[i] = alt_fg.d[i];
-        scr_bg.d[i] = alt_bg.d[i];
-        scr_flags.d[i] = alt_flags.d[i];
+        scr_cells.d[i] = _AD(alt_cells)[i];
+        scr_fg.d[i] = _AD(alt_fg)[i];
+        scr_bg.d[i] = _AD(alt_bg)[i];
+        scr_flags.d[i] = _AD(alt_flags)[i];
         i = (i + 1);
     }
     scr_cur_x = alt_cur_x;
@@ -481,6 +523,7 @@ long scr_clear_all() {
         scr_flags.d[i] = 0;
         i = (i + 1);
     }
+    (void)(scr_mark_all_dirty());
     scr_cur_x = 0;
     scr_cur_y = 0;
     return 0;
@@ -533,10 +576,15 @@ long scr_scroll_up() {
         (void)(hexa_scrollback_push_begin());
         long sc = 0;
         while ((sc < COLS)) {
-            (void)(hexa_scrollback_push_cell(scr_cells.d[sc], scr_fg.d[sc], scr_bg.d[sc], scr_flags.d[sc]));
+            (void)(hexa_scrollback_push_cell(_AD(scr_cells)[sc], _AD(scr_fg)[sc], _AD(scr_bg)[sc], _AD(scr_flags)[sc]));
             sc = (sc + 1);
         }
         (void)(hexa_scrollback_push_end());
+    }
+    long dr = scr_scroll_top;
+    while ((dr <= scr_scroll_bot)) {
+        (void)(scr_mark_dirty(dr));
+        dr = (dr + 1);
     }
     long r = scr_scroll_top;
     while ((r < scr_scroll_bot)) {
@@ -544,10 +592,10 @@ long scr_scroll_up() {
         long src = ((r + 1) * COLS);
         long c = 0;
         while ((c < COLS)) {
-            scr_cells.d[(dst + c)] = scr_cells.d[(src + c)];
-            scr_fg.d[(dst + c)] = scr_fg.d[(src + c)];
-            scr_bg.d[(dst + c)] = scr_bg.d[(src + c)];
-            scr_flags.d[(dst + c)] = scr_flags.d[(src + c)];
+            scr_cells.d[(dst + c)] = _AD(scr_cells)[(src + c)];
+            scr_fg.d[(dst + c)] = _AD(scr_fg)[(src + c)];
+            scr_bg.d[(dst + c)] = _AD(scr_bg)[(src + c)];
+            scr_flags.d[(dst + c)] = _AD(scr_flags)[(src + c)];
             c = (c + 1);
         }
         r = (r + 1);
@@ -565,16 +613,21 @@ long scr_scroll_up() {
 }
 
 long scr_scroll_down() {
+    long dr = scr_scroll_top;
+    while ((dr <= scr_scroll_bot)) {
+        (void)(scr_mark_dirty(dr));
+        dr = (dr + 1);
+    }
     long r = scr_scroll_bot;
     while ((r > scr_scroll_top)) {
         long dst = (r * COLS);
         long src = ((r - 1) * COLS);
         long c = 0;
         while ((c < COLS)) {
-            scr_cells.d[(dst + c)] = scr_cells.d[(src + c)];
-            scr_fg.d[(dst + c)] = scr_fg.d[(src + c)];
-            scr_bg.d[(dst + c)] = scr_bg.d[(src + c)];
-            scr_flags.d[(dst + c)] = scr_flags.d[(src + c)];
+            scr_cells.d[(dst + c)] = _AD(scr_cells)[(src + c)];
+            scr_fg.d[(dst + c)] = _AD(scr_fg)[(src + c)];
+            scr_bg.d[(dst + c)] = _AD(scr_bg)[(src + c)];
+            scr_flags.d[(dst + c)] = _AD(scr_flags)[(src + c)];
             c = (c + 1);
         }
         r = (r - 1);
@@ -609,14 +662,14 @@ long vt_csi_flush() {
 }
 
 long vt_csi_get(long idx, long def) {
-    if ((idx < vt_params.n)) {
-        return vt_params.d[idx];
+    if ((idx < _AN(vt_params))) {
+        return _AD(vt_params)[idx];
     }
     return def;
 }
 
 long sgr_apply() {
-    long n = vt_params.n;
+    long n = _AN(vt_params);
     if ((n == 0)) {
         cur_fg = 7;
         cur_bg = 0;
@@ -627,7 +680,7 @@ long sgr_apply() {
     }
     long i = 0;
     while ((i < n)) {
-        long c = vt_params.d[i];
+        long c = _AD(vt_params)[i];
         if ((c == 0)) {
             cur_fg = 7;
             cur_bg = 0;
@@ -661,15 +714,15 @@ long sgr_apply() {
                                         } else {
                                             if ((c == 38)) {
                                                 if (((i + 2) < n)) {
-                                                    if ((vt_params.d[(i + 1)] == 5)) {
-                                                        cur_fg = vt_params.d[(i + 2)];
+                                                    if ((_AD(vt_params)[(i + 1)] == 5)) {
+                                                        cur_fg = _AD(vt_params)[(i + 2)];
                                                         i = (i + 2);
                                                     } else {
-                                                        if ((vt_params.d[(i + 1)] == 2)) {
+                                                        if ((_AD(vt_params)[(i + 1)] == 2)) {
                                                             if (((i + 4) < n)) {
-                                                                long r = vt_params.d[(i + 2)];
-                                                                long g = vt_params.d[(i + 3)];
-                                                                long b = vt_params.d[(i + 4)];
+                                                                long r = _AD(vt_params)[(i + 2)];
+                                                                long g = _AD(vt_params)[(i + 3)];
+                                                                long b = _AD(vt_params)[(i + 4)];
                                                                 cur_fg = (((256 + (r * 65536)) + (g * 256)) + b);
                                                                 i = (i + 4);
                                                             }
@@ -679,15 +732,15 @@ long sgr_apply() {
                                             } else {
                                                 if ((c == 48)) {
                                                     if (((i + 2) < n)) {
-                                                        if ((vt_params.d[(i + 1)] == 5)) {
-                                                            cur_bg = vt_params.d[(i + 2)];
+                                                        if ((_AD(vt_params)[(i + 1)] == 5)) {
+                                                            cur_bg = _AD(vt_params)[(i + 2)];
                                                             i = (i + 2);
                                                         } else {
-                                                            if ((vt_params.d[(i + 1)] == 2)) {
+                                                            if ((_AD(vt_params)[(i + 1)] == 2)) {
                                                                 if (((i + 4) < n)) {
-                                                                    long r = vt_params.d[(i + 2)];
-                                                                    long g = vt_params.d[(i + 3)];
-                                                                    long b = vt_params.d[(i + 4)];
+                                                                    long r = _AD(vt_params)[(i + 2)];
+                                                                    long g = _AD(vt_params)[(i + 3)];
+                                                                    long b = _AD(vt_params)[(i + 4)];
                                                                     cur_bg = (((256 + (r * 65536)) + (g * 256)) + b);
                                                                     i = (i + 4);
                                                                 }
@@ -734,35 +787,26 @@ long sgr_apply() {
     return 0;
 }
 
-long is_wide_cjk(long cp) {
-    if ((cp < 4352)) {
-        return 0;
-    }
+long is_wide_cjk_mixed(long cp) {
     if (((cp >= 4352) && (cp <= 4447))) {
         return 1;
     }
-    if (((cp >= 11904) && (cp <= 12350))) {
+    if (((cp >= 11904) && (cp <= 12031))) {
         return 1;
     }
-    if ((cp == 12288)) {
+    if (((cp >= 12288) && (cp <= 12350))) {
         return 1;
     }
-    if (((cp >= 12353) && (cp <= 13311))) {
+    if (((cp >= 12353) && (cp <= 12543))) {
         return 1;
     }
-    if (((cp >= 13312) && (cp <= 19903))) {
+    if (((cp >= 19712) && (cp <= 19903))) {
         return 1;
     }
-    if (((cp >= 19968) && (cp <= 40959))) {
+    if (((cp >= 41984) && (cp <= 42191))) {
         return 1;
     }
-    if (((cp >= 40960) && (cp <= 42191))) {
-        return 1;
-    }
-    if (((cp >= 44032) && (cp <= 55203))) {
-        return 1;
-    }
-    if (((cp >= 63744) && (cp <= 64255))) {
+    if (((cp >= 55040) && (cp <= 55203))) {
         return 1;
     }
     if (((cp >= 65072) && (cp <= 65103))) {
@@ -774,13 +818,31 @@ long is_wide_cjk(long cp) {
     if (((cp >= 65504) && (cp <= 65510))) {
         return 1;
     }
+    return 0;
+}
+
+long is_wide_cjk(long cp) {
+    if ((cp < 4352)) {
+        return 0;
+    }
     if (((cp >= 131072) && (cp <= 196605))) {
         return 1;
     }
     if (((cp >= 196608) && (cp <= 262141))) {
         return 1;
     }
-    return 0;
+    if ((cp > 65535)) {
+        return 0;
+    }
+    long page = (cp / 256);
+    long tag = _AD(wide_pages)[page];
+    if ((tag == 0)) {
+        return 0;
+    }
+    if ((tag == 1)) {
+        return 1;
+    }
+    return is_wide_cjk_mixed(cp);
 }
 
 long hangul_flush_pending() {
@@ -833,6 +895,7 @@ long scr_put_raw(long cp) {
     }
     if ((scr_cur_y >= 0)) {
         if ((scr_cur_y < ROWS)) {
+            (void)(scr_mark_dirty(scr_cur_y));
             long idx = ((scr_cur_y * COLS) + scr_cur_x);
             scr_cells.d[idx] = cp;
             scr_fg.d[idx] = cur_fg;
@@ -866,9 +929,10 @@ long scr_put_raw(long cp) {
 
 long csi_dispatch(long b) {
     (void)(vt_csi_flush());
+    long vt_n = _AN(vt_params);
     if ((b == 72)) {
-        long row = (vt_csi_get(0, 1) - 1);
-        long col = (vt_csi_get(1, 1) - 1);
+        long row = ((((vt_n > 0)) ? (_AD(vt_params)[0]) : (1)) - 1);
+        long col = ((((vt_n > 1)) ? (_AD(vt_params)[1]) : (1)) - 1);
         if ((row < 0)) {
             row = 0;
         }
@@ -885,8 +949,8 @@ long csi_dispatch(long b) {
         scr_cur_x = col;
     } else {
         if ((b == 102)) {
-            long row = (vt_csi_get(0, 1) - 1);
-            long col = (vt_csi_get(1, 1) - 1);
+            long row = ((((vt_n > 0)) ? (_AD(vt_params)[0]) : (1)) - 1);
+            long col = ((((vt_n > 1)) ? (_AD(vt_params)[1]) : (1)) - 1);
             if ((row < 0)) {
                 row = 0;
             }
@@ -903,36 +967,41 @@ long csi_dispatch(long b) {
             scr_cur_x = col;
         } else {
             if ((b == 65)) {
-                long n = vt_csi_get(0, 1);
+                long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                 scr_cur_y = (scr_cur_y - n);
                 if ((scr_cur_y < scr_scroll_top)) {
                     scr_cur_y = scr_scroll_top;
                 }
             } else {
                 if ((b == 66)) {
-                    long n = vt_csi_get(0, 1);
+                    long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                     scr_cur_y = (scr_cur_y + n);
                     if ((scr_cur_y > scr_scroll_bot)) {
                         scr_cur_y = scr_scroll_bot;
                     }
                 } else {
                     if ((b == 67)) {
-                        long n = vt_csi_get(0, 1);
+                        long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                         scr_cur_x = (scr_cur_x + n);
                         if ((scr_cur_x >= COLS)) {
                             scr_cur_x = (COLS - 1);
                         }
                     } else {
                         if ((b == 68)) {
-                            long n = vt_csi_get(0, 1);
+                            long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                             scr_cur_x = (scr_cur_x - n);
                             if ((scr_cur_x < 0)) {
                                 scr_cur_x = 0;
                             }
                         } else {
                             if ((b == 74)) {
-                                long mode = vt_csi_get(0, 0);
+                                long mode = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (0));
                                 if ((mode == 0)) {
+                                    long dr = scr_cur_y;
+                                    while ((dr < ROWS)) {
+                                        (void)(scr_mark_dirty(dr));
+                                        dr = (dr + 1);
+                                    }
                                     long start = ((scr_cur_y * COLS) + scr_cur_x);
                                     long i = start;
                                     while ((i < TOTAL)) {
@@ -944,6 +1013,11 @@ long csi_dispatch(long b) {
                                     }
                                 } else {
                                     if ((mode == 1)) {
+                                        long dr = 0;
+                                        while ((dr <= scr_cur_y)) {
+                                            (void)(scr_mark_dirty(dr));
+                                            dr = (dr + 1);
+                                        }
                                         long stop = ((scr_cur_y * COLS) + scr_cur_x);
                                         long i = 0;
                                         while ((i <= stop)) {
@@ -955,6 +1029,7 @@ long csi_dispatch(long b) {
                                         }
                                     } else {
                                         if ((mode == 2)) {
+                                            (void)(scr_mark_all_dirty());
                                             long i = 0;
                                             while ((i < TOTAL)) {
                                                 scr_cells.d[i] = 32;
@@ -968,7 +1043,8 @@ long csi_dispatch(long b) {
                                 }
                             } else {
                                 if ((b == 75)) {
-                                    long mode = vt_csi_get(0, 0);
+                                    (void)(scr_mark_dirty(scr_cur_y));
+                                    long mode = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (0));
                                     long row_s = (scr_cur_y * COLS);
                                     if ((mode == 0)) {
                                         long i = (row_s + scr_cur_x);
@@ -1010,7 +1086,7 @@ long csi_dispatch(long b) {
                                         (void)(sgr_apply());
                                     } else {
                                         if ((b == 71)) {
-                                            long col = (vt_csi_get(0, 1) - 1);
+                                            long col = ((((vt_n > 0)) ? (_AD(vt_params)[0]) : (1)) - 1);
                                             if ((col < 0)) {
                                                 col = 0;
                                             }
@@ -1020,7 +1096,7 @@ long csi_dispatch(long b) {
                                             scr_cur_x = col;
                                         } else {
                                             if ((b == 100)) {
-                                                long row = (vt_csi_get(0, 1) - 1);
+                                                long row = ((((vt_n > 0)) ? (_AD(vt_params)[0]) : (1)) - 1);
                                                 if ((row < 0)) {
                                                     row = 0;
                                                 }
@@ -1030,7 +1106,12 @@ long csi_dispatch(long b) {
                                                 scr_cur_y = row;
                                             } else {
                                                 if ((b == 76)) {
-                                                    long n = vt_csi_get(0, 1);
+                                                    long dr = scr_cur_y;
+                                                    while ((dr <= scr_scroll_bot)) {
+                                                        (void)(scr_mark_dirty(dr));
+                                                        dr = (dr + 1);
+                                                    }
+                                                    long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                                                     long j = 0;
                                                     while ((j < n)) {
                                                         long r = scr_scroll_bot;
@@ -1039,10 +1120,10 @@ long csi_dispatch(long b) {
                                                             long src = ((r - 1) * COLS);
                                                             long c = 0;
                                                             while ((c < COLS)) {
-                                                                scr_cells.d[(dst + c)] = scr_cells.d[(src + c)];
-                                                                scr_fg.d[(dst + c)] = scr_fg.d[(src + c)];
-                                                                scr_bg.d[(dst + c)] = scr_bg.d[(src + c)];
-                                                                scr_flags.d[(dst + c)] = scr_flags.d[(src + c)];
+                                                                scr_cells.d[(dst + c)] = _AD(scr_cells)[(src + c)];
+                                                                scr_fg.d[(dst + c)] = _AD(scr_fg)[(src + c)];
+                                                                scr_bg.d[(dst + c)] = _AD(scr_bg)[(src + c)];
+                                                                scr_flags.d[(dst + c)] = _AD(scr_flags)[(src + c)];
                                                                 c = (c + 1);
                                                             }
                                                             r = (r - 1);
@@ -1060,7 +1141,12 @@ long csi_dispatch(long b) {
                                                     }
                                                 } else {
                                                     if ((b == 77)) {
-                                                        long n = vt_csi_get(0, 1);
+                                                        long dr = scr_cur_y;
+                                                        while ((dr <= scr_scroll_bot)) {
+                                                            (void)(scr_mark_dirty(dr));
+                                                            dr = (dr + 1);
+                                                        }
+                                                        long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                                                         long j = 0;
                                                         while ((j < n)) {
                                                             long r = scr_cur_y;
@@ -1069,10 +1155,10 @@ long csi_dispatch(long b) {
                                                                 long src = ((r + 1) * COLS);
                                                                 long c = 0;
                                                                 while ((c < COLS)) {
-                                                                    scr_cells.d[(dst + c)] = scr_cells.d[(src + c)];
-                                                                    scr_fg.d[(dst + c)] = scr_fg.d[(src + c)];
-                                                                    scr_bg.d[(dst + c)] = scr_bg.d[(src + c)];
-                                                                    scr_flags.d[(dst + c)] = scr_flags.d[(src + c)];
+                                                                    scr_cells.d[(dst + c)] = _AD(scr_cells)[(src + c)];
+                                                                    scr_fg.d[(dst + c)] = _AD(scr_fg)[(src + c)];
+                                                                    scr_bg.d[(dst + c)] = _AD(scr_bg)[(src + c)];
+                                                                    scr_flags.d[(dst + c)] = _AD(scr_flags)[(src + c)];
                                                                     c = (c + 1);
                                                                 }
                                                                 r = (r + 1);
@@ -1090,14 +1176,15 @@ long csi_dispatch(long b) {
                                                         }
                                                     } else {
                                                         if ((b == 80)) {
-                                                            long n = vt_csi_get(0, 1);
+                                                            (void)(scr_mark_dirty(scr_cur_y));
+                                                            long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                                                             long row_s = (scr_cur_y * COLS);
                                                             long i = scr_cur_x;
                                                             while ((i < (COLS - n))) {
-                                                                scr_cells.d[(row_s + i)] = scr_cells.d[((row_s + i) + n)];
-                                                                scr_fg.d[(row_s + i)] = scr_fg.d[((row_s + i) + n)];
-                                                                scr_bg.d[(row_s + i)] = scr_bg.d[((row_s + i) + n)];
-                                                                scr_flags.d[(row_s + i)] = scr_flags.d[((row_s + i) + n)];
+                                                                scr_cells.d[(row_s + i)] = _AD(scr_cells)[((row_s + i) + n)];
+                                                                scr_fg.d[(row_s + i)] = _AD(scr_fg)[((row_s + i) + n)];
+                                                                scr_bg.d[(row_s + i)] = _AD(scr_bg)[((row_s + i) + n)];
+                                                                scr_flags.d[(row_s + i)] = _AD(scr_flags)[((row_s + i) + n)];
                                                                 i = (i + 1);
                                                             }
                                                             long j = (COLS - n);
@@ -1113,14 +1200,15 @@ long csi_dispatch(long b) {
                                                             }
                                                         } else {
                                                             if ((b == 64)) {
-                                                                long n = vt_csi_get(0, 1);
+                                                                (void)(scr_mark_dirty(scr_cur_y));
+                                                                long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                                                                 long row_s = (scr_cur_y * COLS);
                                                                 long i = (COLS - 1);
                                                                 while ((i >= (scr_cur_x + n))) {
-                                                                    scr_cells.d[(row_s + i)] = scr_cells.d[((row_s + i) - n)];
-                                                                    scr_fg.d[(row_s + i)] = scr_fg.d[((row_s + i) - n)];
-                                                                    scr_bg.d[(row_s + i)] = scr_bg.d[((row_s + i) - n)];
-                                                                    scr_flags.d[(row_s + i)] = scr_flags.d[((row_s + i) - n)];
+                                                                    scr_cells.d[(row_s + i)] = _AD(scr_cells)[((row_s + i) - n)];
+                                                                    scr_fg.d[(row_s + i)] = _AD(scr_fg)[((row_s + i) - n)];
+                                                                    scr_bg.d[(row_s + i)] = _AD(scr_bg)[((row_s + i) - n)];
+                                                                    scr_flags.d[(row_s + i)] = _AD(scr_flags)[((row_s + i) - n)];
                                                                     i = (i - 1);
                                                                 }
                                                                 long j = scr_cur_x;
@@ -1135,7 +1223,7 @@ long csi_dispatch(long b) {
                                                                 }
                                                             } else {
                                                                 if ((b == 83)) {
-                                                                    long n = vt_csi_get(0, 1);
+                                                                    long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                                                                     long j = 0;
                                                                     while ((j < n)) {
                                                                         (void)(scr_scroll_up());
@@ -1143,7 +1231,7 @@ long csi_dispatch(long b) {
                                                                     }
                                                                 } else {
                                                                     if ((b == 84)) {
-                                                                        long n = vt_csi_get(0, 1);
+                                                                        long n = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (1));
                                                                         long j = 0;
                                                                         while ((j < n)) {
                                                                             (void)(scr_scroll_down());
@@ -1151,8 +1239,8 @@ long csi_dispatch(long b) {
                                                                         }
                                                                     } else {
                                                                         if ((b == 114)) {
-                                                                            long top = (vt_csi_get(0, 1) - 1);
-                                                                            long bot = (vt_csi_get(1, ROWS) - 1);
+                                                                            long top = ((((vt_n > 0)) ? (_AD(vt_params)[0]) : (1)) - 1);
+                                                                            long bot = ((((vt_n > 1)) ? (_AD(vt_params)[1]) : (ROWS)) - 1);
                                                                             if ((top < 0)) {
                                                                                 top = 0;
                                                                             }
@@ -1166,7 +1254,7 @@ long csi_dispatch(long b) {
                                                                         } else {
                                                                             if ((b == 104)) {
                                                                                 if ((vt_private == 1)) {
-                                                                                    long pn = vt_csi_get(0, 0);
+                                                                                    long pn = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (0));
                                                                                     if ((pn == 1049)) {
                                                                                         (void)(enter_alt_screen(1, 1));
                                                                                     } else {
@@ -1192,7 +1280,7 @@ long csi_dispatch(long b) {
                                                                             } else {
                                                                                 if ((b == 108)) {
                                                                                     if ((vt_private == 1)) {
-                                                                                        long pn = vt_csi_get(0, 0);
+                                                                                        long pn = (((vt_n > 0)) ? (_AD(vt_params)[0]) : (0));
                                                                                         if ((pn == 1049)) {
                                                                                             (void)(leave_alt_screen(1));
                                                                                         } else {
@@ -1302,63 +1390,50 @@ long csi_dispatch(long b) {
 
 long scr_feed_byte(long b) {
     if ((vt_state == 0)) {
-        if ((b == 27)) {
-            utf8_cp = 0;
-            utf8_remain = 0;
-            vt_state = 1;
+        long cls = _AD(vt_ground)[b];
+        if ((cls == 0)) {
+            (void)(scr_put(b));
         } else {
-            if ((b == 10)) {
-                scr_cur_y = (scr_cur_y + 1);
-                if ((scr_cur_y > scr_scroll_bot)) {
-                    (void)(scr_scroll_up());
-                    scr_cur_y = scr_scroll_bot;
-                }
+            if ((cls == 1)) {
+                utf8_cp = 0;
+                utf8_remain = 0;
+                vt_state = 1;
             } else {
-                if ((b == 13)) {
+                if ((cls == 2)) {
                     scr_cur_x = 0;
                 } else {
-                    if ((b == 8)) {
-                        scr_cur_x = (scr_cur_x - 1);
-                        if ((scr_cur_x < 0)) {
-                            scr_cur_x = 0;
+                    if ((cls == 3)) {
+                        scr_cur_y = (scr_cur_y + 1);
+                        if ((scr_cur_y > scr_scroll_bot)) {
+                            (void)(scr_scroll_up());
+                            scr_cur_y = scr_scroll_bot;
                         }
                     } else {
-                        if ((b == 9)) {
-                            long rem = (scr_cur_x - ((scr_cur_x / 8) * 8));
-                            scr_cur_x = (scr_cur_x + (8 - rem));
-                            if ((scr_cur_x >= COLS)) {
-                                scr_cur_x = (COLS - 1);
+                        if ((cls == 4)) {
+                            scr_cur_x = (scr_cur_x - 1);
+                            if ((scr_cur_x < 0)) {
+                                scr_cur_x = 0;
                             }
                         } else {
-                            if ((b == 7)) {
-                                (void)(0);
+                            if ((cls == 5)) {
+                                long rem = (scr_cur_x - ((scr_cur_x / 8) * 8));
+                                scr_cur_x = (scr_cur_x + (8 - rem));
+                                if ((scr_cur_x >= COLS)) {
+                                    scr_cur_x = (COLS - 1);
+                                }
                             } else {
-                                if ((b >= 32)) {
-                                    if ((b < 128)) {
-                                        (void)(scr_put(b));
-                                    } else {
-                                        if ((b >= 192)) {
-                                            if ((b < 224)) {
-                                                utf8_cp = (b - 192);
-                                                utf8_remain = 1;
-                                            } else {
-                                                if ((b < 240)) {
-                                                    utf8_cp = (b - 224);
-                                                    utf8_remain = 2;
-                                                } else {
-                                                    utf8_cp = (b - 240);
-                                                    utf8_remain = 3;
-                                                }
-                                            }
-                                        } else {
-                                            if ((utf8_remain > 0)) {
-                                                utf8_cp = ((utf8_cp * 64) + (b - 128));
-                                                utf8_remain = (utf8_remain - 1);
-                                                if ((utf8_remain == 0)) {
-                                                    (void)(scr_put(utf8_cp));
-                                                }
-                                            }
+                                if ((cls == 11)) {
+                                    if ((utf8_remain > 0)) {
+                                        utf8_cp = ((utf8_cp * 64) + (b - 128));
+                                        utf8_remain = (utf8_remain - 1);
+                                        if ((utf8_remain == 0)) {
+                                            (void)(scr_put(utf8_cp));
                                         }
+                                    }
+                                } else {
+                                    if (((cls >= 8) && (cls <= 10))) {
+                                        utf8_cp = (b - _AD(vt_utf8_base)[cls]);
+                                        utf8_remain = _AD(vt_utf8_remain)[cls];
                                     }
                                 }
                             }
@@ -1478,8 +1553,8 @@ long scr_feed_byte(long b) {
             if ((osc_num <= 2)) {
                 (void)(hexa_appkit_term_title_reset());
                 long i = 0;
-                while ((i < osc_title_bytes.n)) {
-                    (void)(hexa_appkit_term_title_push(osc_title_bytes.d[i]));
+                while ((i < _AN(osc_title_bytes))) {
+                    (void)(hexa_appkit_term_title_push(_AD(osc_title_bytes)[i]));
                     i = (i + 1);
                 }
                 (void)(hexa_appkit_term_title_apply());
@@ -1487,8 +1562,8 @@ long scr_feed_byte(long b) {
             if ((osc_num == 7)) {
                 (void)(hexa_appkit_cwd_reset());
                 long i = 0;
-                while ((i < osc_title_bytes.n)) {
-                    (void)(hexa_appkit_cwd_push(osc_title_bytes.d[i]));
+                while ((i < _AN(osc_title_bytes))) {
+                    (void)(hexa_appkit_cwd_push(_AD(osc_title_bytes)[i]));
                     i = (i + 1);
                 }
                 (void)(hexa_appkit_cwd_apply());
@@ -1500,8 +1575,8 @@ long scr_feed_byte(long b) {
             if ((osc_num <= 2)) {
                 (void)(hexa_appkit_term_title_reset());
                 long i = 0;
-                while ((i < osc_title_bytes.n)) {
-                    (void)(hexa_appkit_term_title_push(osc_title_bytes.d[i]));
+                while ((i < _AN(osc_title_bytes))) {
+                    (void)(hexa_appkit_term_title_push(_AD(osc_title_bytes)[i]));
                     i = (i + 1);
                 }
                 (void)(hexa_appkit_term_title_apply());
@@ -1509,8 +1584,8 @@ long scr_feed_byte(long b) {
             if ((osc_num == 7)) {
                 (void)(hexa_appkit_cwd_reset());
                 long i = 0;
-                while ((i < osc_title_bytes.n)) {
-                    (void)(hexa_appkit_cwd_push(osc_title_bytes.d[i]));
+                while ((i < _AN(osc_title_bytes))) {
+                    (void)(hexa_appkit_cwd_push(_AD(osc_title_bytes)[i]));
                     i = (i + 1);
                 }
                 (void)(hexa_appkit_cwd_apply());
@@ -1541,14 +1616,18 @@ long scr_feed_byte(long b) {
 long sync_to_bridge() {
     long r = 0;
     while ((r < ROWS)) {
-        long c = 0;
-        while ((c < COLS)) {
-            long idx = ((r * COLS) + c);
-            (void)(hexa_appkit_term_set_cell(r, c, scr_cells.d[idx], scr_fg.d[idx], scr_bg.d[idx], scr_flags.d[idx]));
-            c = (c + 1);
+        if (((_AD(scr_dirty)[r] == 1) || (scr_all_dirty == 1))) {
+            long c = 0;
+            while ((c < COLS)) {
+                long idx = ((r * COLS) + c);
+                (void)(hexa_appkit_term_set_cell(r, c, _AD(scr_cells)[idx], _AD(scr_fg)[idx], _AD(scr_bg)[idx], _AD(scr_flags)[idx]));
+                c = (c + 1);
+            }
+            scr_dirty.d[r] = 0;
         }
         r = (r + 1);
     }
+    scr_all_dirty = 0;
     (void)(hexa_appkit_term_set_cursor(scr_cur_y, scr_cur_x, 1));
     (void)(hexa_appkit_term_flush());
     return 0;
@@ -1561,7 +1640,7 @@ long scr_find_probe(hexa_arr probe, long probe_len) {
         long hit = 1;
         long j = 0;
         while ((j < probe_len)) {
-            if ((scr_cells.d[(i + j)] != probe.d[j])) {
+            if ((_AD(scr_cells)[(i + j)] != _AD(probe)[j])) {
                 hit = 0;
                 j = probe_len;
             }
@@ -1583,21 +1662,21 @@ long self_test() {
     (void)(scr_feed_byte(65));
     (void)(scr_feed_byte(66));
     (void)(scr_feed_byte(67));
-    if ((scr_cells.d[0] == 65)) {
-        if ((scr_cells.d[1] == 66)) {
-            if ((scr_cells.d[2] == 67)) {
+    if ((_AD(scr_cells)[0] == 65)) {
+        if ((_AD(scr_cells)[1] == 66)) {
+            if ((_AD(scr_cells)[2] == 67)) {
                 printf("%s\n", "[void-test] T1 PASS  VT print ABC");
                 pass = (pass + 1);
             } else {
-                printf("%s %ld\n", "[void-test] T1 FAIL  cell[2]=", (long)(scr_cells.d[2]));
+                printf("%s %ld\n", "[void-test] T1 FAIL  cell[2]=", (long)(_AD(scr_cells)[2]));
                 fail = (fail + 1);
             }
         } else {
-            printf("%s %ld\n", "[void-test] T1 FAIL  cell[1]=", (long)(scr_cells.d[1]));
+            printf("%s %ld\n", "[void-test] T1 FAIL  cell[1]=", (long)(_AD(scr_cells)[1]));
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld\n", "[void-test] T1 FAIL  cell[0]=", (long)(scr_cells.d[0]));
+        printf("%s %ld\n", "[void-test] T1 FAIL  cell[0]=", (long)(_AD(scr_cells)[0]));
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -1609,11 +1688,11 @@ long self_test() {
     (void)(scr_feed_byte(72));
     (void)(scr_feed_byte(88));
     long idx2 = ((1 * COLS) + 2);
-    if ((scr_cells.d[idx2] == 88)) {
+    if ((_AD(scr_cells)[idx2] == 88)) {
         printf("%s\n", "[void-test] T2 PASS  CUP + put X at (1,2)");
         pass = (pass + 1);
     } else {
-        printf("%s %ld\n", "[void-test] T2 FAIL  cell=", (long)(scr_cells.d[idx2]));
+        printf("%s %ld\n", "[void-test] T2 FAIL  cell=", (long)(_AD(scr_cells)[idx2]));
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -1626,16 +1705,16 @@ long self_test() {
     (void)(scr_feed_byte(49));
     (void)(scr_feed_byte(109));
     (void)(scr_feed_byte(82));
-    if ((scr_fg.d[0] == 1)) {
-        if ((scr_cells.d[0] == 82)) {
+    if ((_AD(scr_fg)[0] == 1)) {
+        if ((_AD(scr_cells)[0] == 82)) {
             printf("%s\n", "[void-test] T3 PASS  SGR fg=1 (red)");
             pass = (pass + 1);
         } else {
-            printf("%s %ld\n", "[void-test] T3 FAIL  cell=", (long)(scr_cells.d[0]));
+            printf("%s %ld\n", "[void-test] T3 FAIL  cell=", (long)(_AD(scr_cells)[0]));
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld\n", "[void-test] T3 FAIL  fg=", (long)(scr_fg.d[0]));
+        printf("%s %ld\n", "[void-test] T3 FAIL  fg=", (long)(_AD(scr_fg)[0]));
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -1663,16 +1742,16 @@ long self_test() {
     (void)(scr_feed_byte(91));
     (void)(scr_feed_byte(50));
     (void)(scr_feed_byte(74));
-    if ((scr_cells.d[0] == 32)) {
-        if ((scr_cells.d[1] == 32)) {
+    if ((_AD(scr_cells)[0] == 32)) {
+        if ((_AD(scr_cells)[1] == 32)) {
             printf("%s\n", "[void-test] T5 PASS  ED erase all");
             pass = (pass + 1);
         } else {
-            printf("%s %ld\n", "[void-test] T5 FAIL  cell[1]=", (long)(scr_cells.d[1]));
+            printf("%s %ld\n", "[void-test] T5 FAIL  cell[1]=", (long)(_AD(scr_cells)[1]));
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld\n", "[void-test] T5 FAIL  cell[0]=", (long)(scr_cells.d[0]));
+        printf("%s %ld\n", "[void-test] T5 FAIL  cell[0]=", (long)(_AD(scr_cells)[0]));
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -1688,21 +1767,21 @@ long self_test() {
     (void)(scr_feed_byte(27));
     (void)(scr_feed_byte(91));
     (void)(scr_feed_byte(75));
-    if ((scr_cells.d[0] == 65)) {
-        if ((scr_cells.d[1] == 32)) {
-            if ((scr_cells.d[2] == 32)) {
+    if ((_AD(scr_cells)[0] == 65)) {
+        if ((_AD(scr_cells)[1] == 32)) {
+            if ((_AD(scr_cells)[2] == 32)) {
                 printf("%s\n", "[void-test] T6 PASS  EL erase to EOL");
                 pass = (pass + 1);
             } else {
-                printf("%s %ld\n", "[void-test] T6 FAIL  cell[2]=", (long)(scr_cells.d[2]));
+                printf("%s %ld\n", "[void-test] T6 FAIL  cell[2]=", (long)(_AD(scr_cells)[2]));
                 fail = (fail + 1);
             }
         } else {
-            printf("%s %ld\n", "[void-test] T6 FAIL  cell[1]=", (long)(scr_cells.d[1]));
+            printf("%s %ld\n", "[void-test] T6 FAIL  cell[1]=", (long)(_AD(scr_cells)[1]));
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld\n", "[void-test] T6 FAIL  cell[0]=", (long)(scr_cells.d[0]));
+        printf("%s %ld\n", "[void-test] T6 FAIL  cell[0]=", (long)(_AD(scr_cells)[0]));
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -1730,7 +1809,7 @@ long self_test() {
             fi = (fi + 1);
         }
         (void)(hexa_sh_reap());
-        hexa_arr probe = hexa_arr_lit((long[]){104, 101, 120, 97, 45, 116, 101, 114, 109}, 9);
+        long probe = hexa_arr_lit((long[]){104, 101, 120, 97, 45, 116, 101, 114, 109}, 9);
         long found = scr_find_probe(probe, 9);
         if ((found == 1)) {
             printf("%s %ld %s\n", "[void-test] T7 PASS  PTY→VT→screen pipeline ('hexa-term' found, ", (long)(accum_n), " bytes)");
@@ -1751,16 +1830,16 @@ long self_test() {
     (void)(scr_feed_byte(66));
     (void)(scr_feed_byte(67));
     (void)(scr_feed_byte(7));
-    if ((osc_title_bytes.n == 3)) {
-        if ((osc_title_bytes.d[0] == 65)) {
+    if ((_AN(osc_title_bytes) == 3)) {
+        if ((_AD(osc_title_bytes)[0] == 65)) {
             printf("%s\n", "[void-test] T8 PASS  OSC 0 title parse (3 bytes)");
             pass = (pass + 1);
         } else {
-            printf("%s %ld\n", "[void-test] T8 FAIL  title[0]=", (long)(osc_title_bytes.d[0]));
+            printf("%s %ld\n", "[void-test] T8 FAIL  title[0]=", (long)(_AD(osc_title_bytes)[0]));
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld\n", "[void-test] T8 FAIL  title len=", (long)(osc_title_bytes.n));
+        printf("%s %ld\n", "[void-test] T8 FAIL  title len=", (long)(_AN(osc_title_bytes)));
         fail = (fail + 1);
     }
     COLS = 120;
@@ -1775,11 +1854,11 @@ long self_test() {
     }
     if ((scr_cur_y == 1)) {
         if ((scr_cur_x == 1)) {
-            if ((scr_cells.d[120] == 65)) {
+            if ((_AD(scr_cells)[120] == 65)) {
                 printf("%s\n", "[void-test] T9 PASS  dynamic grid 120x40 (wrap at col 120)");
                 pass = (pass + 1);
             } else {
-                printf("%s %ld\n", "[void-test] T9 FAIL  cell[120]=", (long)(scr_cells.d[120]));
+                printf("%s %ld\n", "[void-test] T9 FAIL  cell[120]=", (long)(_AD(scr_cells)[120]));
                 fail = (fail + 1);
             }
         } else {
@@ -1798,7 +1877,7 @@ long self_test() {
     (void)(scr_feed_byte(237));
     (void)(scr_feed_byte(149));
     (void)(scr_feed_byte(156));
-    long han_cp = scr_cells.d[0];
+    long han_cp = _AD(scr_cells)[0];
     if ((han_cp == 54620)) {
         printf("%s %ld %s\n", "[void-test] T10 PASS UTF-8 한 (U+D55C=", (long)(han_cp), ")");
         pass = (pass + 1);
@@ -1829,7 +1908,7 @@ long self_test() {
             fi11 = (fi11 + 1);
         }
         (void)(hexa_sh_reap());
-        hexa_arr probe11 = hexa_arr_lit((long[]){104, 101, 120, 97, 45, 116, 101, 114, 109}, 9);
+        long probe11 = hexa_arr_lit((long[]){104, 101, 120, 97, 45, 116, 101, 114, 109}, 9);
         long found11 = scr_find_probe(probe11, 9);
         if ((found11 == 1)) {
             printf("%s %ld %s\n", "[void-test] T11 PASS PTY pipeline at 100x30 (", (long)(a11), " bytes)");
@@ -1970,7 +2049,7 @@ long self_test() {
     (void)(scr_feed_byte(72));
     (void)(scr_feed_byte(66));
     (void)(scr_feed_byte(10));
-    if ((scr_cells.d[0] == 90)) {
+    if ((_AD(scr_cells)[0] == 90)) {
         if ((scr_scroll_top == 2)) {
             if ((scr_scroll_bot == 5)) {
                 printf("%s\n", "[void-test] T15 PASS DECSTBM scroll region (row 0 intact)");
@@ -1984,7 +2063,7 @@ long self_test() {
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld %s\n", "[void-test] T15 FAIL  row0[0]=", (long)(scr_cells.d[0]), " expected 90 (Z)");
+        printf("%s %ld %s\n", "[void-test] T15 FAIL  row0[0]=", (long)(_AD(scr_cells)[0]), " expected 90 (Z)");
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -2000,22 +2079,22 @@ long self_test() {
     (void)(scr_feed_byte(27));
     (void)(scr_feed_byte(91));
     (void)(scr_feed_byte(76));
-    if ((scr_cells.d[0] == 32)) {
+    if ((_AD(scr_cells)[0] == 32)) {
         long r1 = (1 * COLS);
-        if ((scr_cells.d[r1] == 65)) {
-            if ((scr_cells.d[(r1 + 1)] == 66)) {
+        if ((_AD(scr_cells)[r1] == 65)) {
+            if ((_AD(scr_cells)[(r1 + 1)] == 66)) {
                 printf("%s\n", "[void-test] T16 PASS IL insert line (AB pushed to row 1)");
                 pass = (pass + 1);
             } else {
-                printf("%s %ld\n", "[void-test] T16 FAIL  row1[1]=", (long)(scr_cells.d[(r1 + 1)]));
+                printf("%s %ld\n", "[void-test] T16 FAIL  row1[1]=", (long)(_AD(scr_cells)[(r1 + 1)]));
                 fail = (fail + 1);
             }
         } else {
-            printf("%s %ld\n", "[void-test] T16 FAIL  row1[0]=", (long)(scr_cells.d[r1]));
+            printf("%s %ld\n", "[void-test] T16 FAIL  row1[0]=", (long)(_AD(scr_cells)[r1]));
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld %s\n", "[void-test] T16 FAIL  row0[0]=", (long)(scr_cells.d[0]), " expected 32");
+        printf("%s %ld %s\n", "[void-test] T16 FAIL  row0[0]=", (long)(_AD(scr_cells)[0]), " expected 32");
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -2035,21 +2114,21 @@ long self_test() {
     (void)(scr_feed_byte(91));
     (void)(scr_feed_byte(50));
     (void)(scr_feed_byte(80));
-    if ((scr_cells.d[0] == 65)) {
-        if ((scr_cells.d[1] == 68)) {
-            if ((scr_cells.d[2] == 69)) {
+    if ((_AD(scr_cells)[0] == 65)) {
+        if ((_AD(scr_cells)[1] == 68)) {
+            if ((_AD(scr_cells)[2] == 69)) {
                 printf("%s\n", "[void-test] T17 PASS DCH delete 2 chars (ABCDE→ADE)");
                 pass = (pass + 1);
             } else {
-                printf("%s %ld %s\n", "[void-test] T17 FAIL  cell[2]=", (long)(scr_cells.d[2]), " expected 69(E)");
+                printf("%s %ld %s\n", "[void-test] T17 FAIL  cell[2]=", (long)(_AD(scr_cells)[2]), " expected 69(E)");
                 fail = (fail + 1);
             }
         } else {
-            printf("%s %ld %s\n", "[void-test] T17 FAIL  cell[1]=", (long)(scr_cells.d[1]), " expected 68(D)");
+            printf("%s %ld %s\n", "[void-test] T17 FAIL  cell[1]=", (long)(_AD(scr_cells)[1]), " expected 68(D)");
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld %s\n", "[void-test] T17 FAIL  cell[0]=", (long)(scr_cells.d[0]), " expected 65(A)");
+        printf("%s %ld %s\n", "[void-test] T17 FAIL  cell[0]=", (long)(_AD(scr_cells)[0]), " expected 65(A)");
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -2073,11 +2152,11 @@ long self_test() {
     (void)(scr_feed_byte(52));
     (void)(scr_feed_byte(57));
     (void)(scr_feed_byte(104));
-    long t18_alt_ok = (((scr_cells.d[0] == 32)) ? (1) : (0));
+    long t18_alt_ok = (((_AD(scr_cells)[0] == 32)) ? (1) : (0));
     (void)(scr_feed_byte(65));
     (void)(scr_feed_byte(76));
     (void)(scr_feed_byte(84));
-    long t18_alt_write_ok = (((scr_cells.d[0] == 65)) ? (1) : (0));
+    long t18_alt_write_ok = (((_AD(scr_cells)[0] == 65)) ? (1) : (0));
     (void)(scr_feed_byte(27));
     (void)(scr_feed_byte(91));
     (void)(scr_feed_byte(63));
@@ -2088,8 +2167,8 @@ long self_test() {
     (void)(scr_feed_byte(108));
     if ((t18_alt_ok == 1)) {
         if ((t18_alt_write_ok == 1)) {
-            if ((scr_cells.d[0] == 78)) {
-                if ((scr_cells.d[3] == 77)) {
+            if ((_AD(scr_cells)[0] == 78)) {
+                if ((_AD(scr_cells)[3] == 77)) {
                     if ((scr_cur_x == 10)) {
                         if ((scr_cur_y == 0)) {
                             if ((scr_is_alt == 0)) {
@@ -2108,19 +2187,19 @@ long self_test() {
                         fail = (fail + 1);
                     }
                 } else {
-                    printf("%s %ld %s\n", "[void-test] T18 FAIL  cell[3]=", (long)(scr_cells.d[3]), " expected 77(M)");
+                    printf("%s %ld %s\n", "[void-test] T18 FAIL  cell[3]=", (long)(_AD(scr_cells)[3]), " expected 77(M)");
                     fail = (fail + 1);
                 }
             } else {
-                printf("%s %ld %s\n", "[void-test] T18 FAIL  cell[0]=", (long)(scr_cells.d[0]), " expected 78(N)");
+                printf("%s %ld %s\n", "[void-test] T18 FAIL  cell[0]=", (long)(_AD(scr_cells)[0]), " expected 78(N)");
                 fail = (fail + 1);
             }
         } else {
-            printf("%s %ld\n", "[void-test] T18 FAIL  alt write cell[0]=", (long)(scr_cells.d[0]));
+            printf("%s %ld\n", "[void-test] T18 FAIL  alt write cell[0]=", (long)(_AD(scr_cells)[0]));
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld\n", "[void-test] T18 FAIL  alt clear cell[0]=", (long)(scr_cells.d[0]));
+        printf("%s %ld\n", "[void-test] T18 FAIL  alt clear cell[0]=", (long)(_AD(scr_cells)[0]));
         fail = (fail + 1);
     }
     COLS = 80;
@@ -2157,13 +2236,13 @@ long self_test() {
     long t19_r = 0;
     while ((t19_r < 10)) {
         long base = (t19_r * COLS);
-        if ((scr_cells.d[base] != 32)) {
+        if ((_AD(scr_cells)[base] != 32)) {
             t19_fail = (t19_fail + 1);
         }
-        if ((scr_cells.d[(base + 1)] != 32)) {
+        if ((_AD(scr_cells)[(base + 1)] != 32)) {
             t19_fail = (t19_fail + 1);
         }
-        if ((scr_cells.d[(base + 2)] != 124)) {
+        if ((_AD(scr_cells)[(base + 2)] != 124)) {
             t19_fail = (t19_fail + 1);
         }
         t19_r = (t19_r + 1);
@@ -2185,7 +2264,7 @@ long self_test() {
     (void)(scr_feed_byte(49));
     (void)(scr_feed_byte(109));
     (void)(scr_feed_byte(65));
-    if ((scr_cells.d[0] == 65)) {
+    if ((_AD(scr_cells)[0] == 65)) {
         if ((scr_cur_x == 1)) {
             printf("%s\n", "[void-test] T20 PASS utf8 state reset on ESC (A printed after interrupted UTF-8)");
             pass = (pass + 1);
@@ -2194,7 +2273,7 @@ long self_test() {
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld %s\n", "[void-test] T20 FAIL  cell[0]=", (long)(scr_cells.d[0]), " expected 65(A)");
+        printf("%s %ld %s\n", "[void-test] T20 FAIL  cell[0]=", (long)(_AD(scr_cells)[0]), " expected 65(A)");
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -2208,7 +2287,7 @@ long self_test() {
     (void)(scr_feed_byte(225));
     (void)(scr_feed_byte(134));
     (void)(scr_feed_byte(168));
-    if ((scr_cells.d[0] == 44033)) {
+    if ((_AD(scr_cells)[0] == 44033)) {
         if ((scr_cur_x == 2)) {
             printf("%s\n", "[void-test] T21 PASS Hangul NFD composed (U+1100+U+1161+U+11A8 -> U+AC01)");
             pass = (pass + 1);
@@ -2217,7 +2296,7 @@ long self_test() {
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld %s\n", "[void-test] T21 FAIL  cell[0]=", (long)(scr_cells.d[0]), " expected 44033");
+        printf("%s %ld %s\n", "[void-test] T21 FAIL  cell[0]=", (long)(_AD(scr_cells)[0]), " expected 44033");
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -2234,16 +2313,16 @@ long self_test() {
     (void)(scr_feed_byte(52));
     (void)(scr_feed_byte(109));
     (void)(scr_feed_byte(75));
-    if (((scr_cells.d[0] == 82) && (scr_fg.d[0] == 1))) {
-        if (((scr_cells.d[1] == 75) && (scr_bg.d[1] == 4))) {
+    if (((_AD(scr_cells)[0] == 82) && (_AD(scr_fg)[0] == 1))) {
+        if (((_AD(scr_cells)[1] == 75) && (_AD(scr_bg)[1] == 4))) {
             printf("%s\n", "[void-test] T22 PASS SGR 3x/4x color cells (R red fg, K blue bg)");
             pass = (pass + 1);
         } else {
-            printf("%s %ld %s %ld\n", "[void-test] T22 FAIL  cell[1]=", (long)(scr_cells.d[1]), " bg=", (long)(scr_bg.d[1]));
+            printf("%s %ld %s %ld\n", "[void-test] T22 FAIL  cell[1]=", (long)(_AD(scr_cells)[1]), " bg=", (long)(_AD(scr_bg)[1]));
             fail = (fail + 1);
         }
     } else {
-        printf("%s %ld %s %ld\n", "[void-test] T22 FAIL  cell[0]=", (long)(scr_cells.d[0]), " fg=", (long)(scr_fg.d[0]));
+        printf("%s %ld %s %ld\n", "[void-test] T22 FAIL  cell[0]=", (long)(_AD(scr_cells)[0]), " fg=", (long)(_AD(scr_fg)[0]));
         fail = (fail + 1);
     }
     (void)(scr_init());
@@ -2322,10 +2401,47 @@ long self_test() {
     printf("%s %ld %s %ld %s\n", "[void-test] ", (long)(pass), "/", (long)((pass + fail)), " passed");
     if ((fail == 0)) {
         printf("%s\n", "[void-test] === ALL TESTS PASS ===");
-        return 0;
+    } else {
+        printf("%s %ld %s\n", "[void-test] === ", (long)(fail), " FAILURES ===");
     }
-    printf("%s %ld %s\n", "[void-test] === ", (long)(fail), " FAILURES ===");
-    return 1;
+    (void)(scr_init());
+    long bench_bytes = 100000;
+    long t0 = clock_us();
+    long bi = 0;
+    while ((bi < bench_bytes)) {
+        long bb = (32 + (bi - ((bi / 94) * 94)));
+        (void)(scr_feed_byte(bb));
+        bi = (bi + 1);
+    }
+    long t1 = clock_us();
+    long us = (t1 - t0);
+    printf("%s %ld %s %ld %s\n", "[void-bench] scr_feed_byte: ", (long)(bench_bytes), " bytes in ", (long)(us), " us");
+    if ((us > 0)) {
+        long mbps = (bench_bytes / us);
+        printf("%s %ld %s\n", "[void-bench] throughput: ~", (long)(mbps), " MB/s");
+    }
+    (void)(scr_mark_all_dirty());
+    long t2 = clock_us();
+    long si = 0;
+    while ((si < 100)) {
+        (void)(scr_mark_all_dirty());
+        (void)(sync_to_bridge());
+        si = (si + 1);
+    }
+    long t3 = clock_us();
+    long sync_us = (t3 - t2);
+    printf("%s %ld %s\n", "[void-bench] sync_to_bridge (full, 100x): ", (long)(sync_us), " us");
+    long t4 = clock_us();
+    long di = 0;
+    while ((di < 100)) {
+        (void)(scr_mark_dirty(0));
+        (void)(sync_to_bridge());
+        di = (di + 1);
+    }
+    long t5 = clock_us();
+    long delta_us = (t5 - t4);
+    printf("%s %ld %s\n", "[void-bench] sync_to_bridge (1-row delta, 100x): ", (long)(delta_us), " us");
+    return fail;
 }
 
 long load_from_bridge() {
@@ -2337,6 +2453,7 @@ long load_from_bridge() {
         scr_flags.d[i] = hexa_tab_cell_flags(i);
         i = (i + 1);
     }
+    (void)(scr_mark_all_dirty());
     scr_cur_x = hexa_tab_cursor_x();
     scr_cur_y = hexa_tab_cursor_y();
     return 0;
@@ -2440,19 +2557,34 @@ long hexa_user_main() {
             (void)(hexa_sleep_us(10000));
         } else {
             (void)(hexa_keys_to_pty(m));
-            long nread = hexa_pty_poll_read(m, 5);
-            if ((nread > 0)) {
-                long i = 0;
-                while ((i < nread)) {
-                    long b = hexa_pty_read_byte(i);
-                    if ((b >= 0)) {
-                        (void)(scr_feed_byte(b));
+            long drained = 0;
+            long drain_cap = 65536;
+            long drain_tmo = 5;
+            long drain_more = 1;
+            while ((drain_more == 1)) {
+                long nread = hexa_pty_poll_read(m, drain_tmo);
+                drain_tmo = 0;
+                if ((nread > 0)) {
+                    long i = 0;
+                    while ((i < nread)) {
+                        long b = hexa_pty_read_byte(i);
+                        if ((b >= 0)) {
+                            (void)(scr_feed_byte(b));
+                        }
+                        i = (i + 1);
                     }
-                    i = (i + 1);
+                    drained = (drained + nread);
+                    if ((drained >= drain_cap)) {
+                        drain_more = 0;
+                    }
+                } else {
+                    drain_more = 0;
                 }
+            }
+            if ((drained > 0)) {
                 (void)(sync_to_bridge());
             }
-            if ((nread == 0)) {
+            if ((drained == 0)) {
                 (void)(hexa_sleep_us(2000));
             }
         }
@@ -2512,16 +2644,22 @@ int main(int argc, char** argv) {
     /* unsupported stmt */
     /* unsupported stmt */
     /* unsupported stmt */
+    /* unsupported stmt */
     scr_cells = hexa_arr_new();
     scr_fg = hexa_arr_new();
     scr_bg = hexa_arr_new();
     scr_flags = hexa_arr_new();
+    scr_dirty = hexa_arr_new();
     alt_cells = hexa_arr_new();
     alt_fg = hexa_arr_new();
     alt_bg = hexa_arr_new();
     alt_flags = hexa_arr_new();
     vt_params = hexa_arr_new();
     osc_title_bytes = hexa_arr_new();
+    vt_ground = hexa_arr_lit((long[]){(long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(6), (long)(4), (long)(5), (long)(3), (long)(7), (long)(7), (long)(2), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(7), (long)(1), (long)(7), (long)(7), (long)(7), (long)(7), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(11), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(8), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(9), (long)(10), (long)(10), (long)(10), (long)(10), (long)(10), (long)(10), (long)(10), (long)(10), (long)(12), (long)(12), (long)(12), (long)(12), (long)(12), (long)(12), (long)(12), (long)(12)}, 256);
+    vt_utf8_base = hexa_arr_lit((long[]){(long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(192), (long)(224), (long)(240), (long)(0), (long)(0)}, 13);
+    vt_utf8_remain = hexa_arr_lit((long[]){(long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(1), (long)(2), (long)(3), (long)(0), (long)(0)}, 13);
+    wide_pages = hexa_arr_lit((long[]){(long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(2), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(2), (long)(1), (long)(2), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(2), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(2), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(1), (long)(2), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(0), (long)(1), (long)(1), (long)(0), (long)(0), (long)(0), (long)(2), (long)(2)}, 256);
     g_hangul_L = (-1);
     g_hangul_V = (-1);
     hexa_user_main();

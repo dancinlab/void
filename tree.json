@@ -1,0 +1,118 @@
+{
+  "_meta": {
+    "purpose": "void 소스 트리 — CORE/APP 분리 구조도",
+    "updated": "2026-04-12",
+    "total_lines": 9595,
+    "note": "void_gen.c는 transpile 산출물 (SSoT 아님)"
+  },
+  "pipeline": "PTY read → VT parse → screen buffer → sync → drawRect → pixel",
+  "files": {
+    "src/void_main.hexa": {
+      "lines": 2236,
+      "role": "hexa-only 터미널 로직 (VT 파서 + 스크린 버퍼)",
+      "core": {
+        "range": "L78–L1279",
+        "sections": [
+          { "id": "§1", "name": "SCREEN BUFFER",    "range": "L83–L314",   "desc": "scr_cells/fg/bg/flags flat array, init, clear, scroll_up/down" },
+          { "id": "§2", "name": "VT STATE MACHINE",  "range": "L317–L413",  "desc": "vt_state, utf8_class[256], utf8_cls_base/remain, CSI params" },
+          { "id": "§3", "name": "SGR",               "range": "L416–L503",  "desc": "cur_fg/bg/bold/underline/inverse, sgr_apply 38;5 256-color" },
+          { "id": "§4", "name": "WIDE+HANGUL+PUT",   "range": "L506–L652",  "desc": "wide_pages[256] O(1) LUT, NFD→NFC 합성, scr_put_raw" },
+          { "id": "§5", "name": "CSI DISPATCH",      "range": "L655–L1030", "desc": "CUP/CUU/CUD/ED/EL/SGR/DECSTBM/alt-screen/DSR/DA1" },
+          { "id": "§6", "name": "VT FEED BYTE",      "range": "L1033–L1259","desc": "scr_feed_byte — GROUND/ESC/CSI/OSC/CHARSET 5-state, 최고 핫패스" },
+          { "id": "§7", "name": "SYNC → BRIDGE",     "range": "L1262–L1279","desc": "sync_to_bridge → hexa_appkit_term_set_cell per cell" }
+        ],
+        "rule": "CORE는 APP에 의존 금지. 성능 회귀 금지."
+      },
+      "app": {
+        "range": "L1282–EOF",
+        "sections": [
+          { "name": "SELF-TEST",  "range": "L1288–L2052", "desc": "headless VT+PTY 파이프라인 검증 (T1–T22)" },
+          { "name": "MAIN",       "range": "L2055–EOF",   "desc": "main loop: init → poll → drain → sync → keys" }
+        ]
+      }
+    },
+    "src/sys_appkit.m": {
+      "lines": 5197,
+      "role": "Cocoa/AppKit UI + C-side bridge (drawRect, 탭, 메뉴, 서버 글루)",
+      "core_render": {
+        "TermCell":       "L205–L208",
+        "g_term_grid":    "L422",
+        "g_prev_grid":    "L427–L428",
+        "font_metrics":   "L684–L692 (g_term_cw/ch, g_term_font)",
+        "term_color":     "L1068–L1116",
+        "drawRect":       "L1128–L1625",
+        "bg_batch_fill":  "L1420–L1448",
+        "glyph_render":   "L1450–L1487",
+        "dirty_region":   "L1376–L1386 (use_prev) + L1490–L1496 (snapshot)",
+        "isFlipped":      "L1124 → YES (CTFontDrawGlyphs 사용 시 y-flip 보정 필요)"
+      },
+      "app_sections": [
+        "scrollback (SbSection/SbCompressedRow)",
+        "tab management (VoidTab, g_tabs[])",
+        "selection + clipboard",
+        "search overlay",
+        "menu bar",
+        "font zoom (Cmd+=/-/0)",
+        "grid layout (Cmd+G)",
+        "void_server client glue",
+        "self-binary kqueue watcher",
+        "handoff restore",
+        "alarm/badge"
+      ]
+    },
+    "src/sys_pty.c": {
+      "lines": 497,
+      "role": "PTY/termios/poll FFI — 전체가 CORE",
+      "core": {
+        "hexa_pty_spawn_login_shell": "L330–L345",
+        "hexa_pty_poll_read":         "L397–L453 (alt_screen_rewrite 인젝션 포함)",
+        "g_pty_read_buf":             "L348 (65536 bytes static)",
+        "hexa_pty_read_byte":         "L463–L466"
+      }
+    },
+    "src/void_server.c": {
+      "lines": 1665,
+      "role": "supervisor 데몬 — PTY master 보유, unix socket, Merkle delta sync",
+      "core": false,
+      "sections": [
+        "VsSession/VsCell grid",
+        "SPAWN/ATTACH/DETACH/LIST/KILL/PING/CHECKPOINT",
+        "FNV-1a section hash + per-row incremental",
+        "kqueue binary watcher",
+        "process classifier (semantic labels)"
+      ]
+    },
+    "src/void_gen.c": {
+      "lines": 2553,
+      "role": "hexa transpile 산출물 — 편집 금지, void_main.hexa가 SSoT",
+      "core": false,
+      "generated": true
+    }
+  },
+  "data_flow": {
+    "1_pty_read":   "sys_pty.c:hexa_pty_poll_read → g_pty_read_buf[65536]",
+    "2_drain":      "void_main.hexa:main loop → hexa_pty_read_byte(i) per byte",
+    "3_vt_parse":   "void_main.hexa:scr_feed_byte(b) → state machine → scr_put(cp)",
+    "4_cell_write":  "void_main.hexa:scr_put_raw(cp) → scr_cells[idx]/fg/bg/flags",
+    "5_sync":       "void_main.hexa:sync_to_bridge → hexa_appkit_term_set_cell(r,c,...)",
+    "6_bridge":     "sys_appkit.m:hexa_appkit_term_set_cell → g_term_grid[r][c]",
+    "7_draw":       "sys_appkit.m:drawRect → g_term_grid → NSAttributedString → pixel"
+  },
+  "optimization_applied": {
+    "VC-46": "dirty-region g_prev_grid (§7→drawRect skip ~90% cells)",
+    "VC-47": "bg batch draw (run-length NSRectFill merge)",
+    "VC-49": "PTY drain-then-render (65KB cap, 0ms non-blocking poll)",
+    "VC-50": "UTF-8 class table (§2, 256-byte O(1) LUT)",
+    "VC-51": "wide-char page table (§4, 256-page O(1) BMP lookup)",
+    "VC-52": "CSI inline parse (§5, vt_csi_get 호출 제거)",
+    "VC-53": "scrollback trailing-space trim",
+    "VC-54": "void_server per-row incremental hash"
+  },
+  "optimization_pending": {
+    "glyph_cache": "CTFontDrawGlyphs — isFlipped=YES에서 y-flip 보정 후 재도입 (VC-48 일시 revert)",
+    "vt_byte_class": "256-entry O(1) 전체 바이트 디스패치 (ROI #2, §6 대체, ROI #12와 통합 필요)",
+    "cell_flat_array": "scr_cells/fg/bg/flags → 단일 int64 packed (ROI #3, §1 구조 변경)",
+    "scroll_ring_buffer": "scr_head 포인터 기반 O(1) 스크롤 (ROI #7, §1 구조 변경)",
+    "metal_render": "Core Text → Metal 텍스트 렌더 (ROI #14, drawRect 대체)"
+  }
+}

@@ -359,6 +359,78 @@
       "locked": true,
       "src": "src/sys_appkit.m g_reply_buf + src/void_main.hexa csi_dispatch DSR/DA1",
       "evidence": "hexa에 ptr 타입 없음 → extern fn hexa_term_reply(data: ptr, len: int) 파싱 실패. C측 g_reply_buf[64] 바이트 버퍼 + reset/push/flush 3-call API로 교체. CSI 6n(CPR), CSI 5n(DSR), CSI c(DA1) 응답 구현."
+    },
+    {
+      "id": "VC-46",
+      "item": "dirty-region 셀 렌더링 — g_prev_grid 프레임 비교 + g_full_redraw 탭 전환 가드",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m g_prev_grid + drawRect use_prev + g_full_redraw 체크",
+      "evidence": "drawRect에서 prev_grid와 현재 grid 셀 비교, 동일하면 skip. 타이핑/스크롤 시 ~90% 셀 스킵. 최초 버그: use_prev가 g_full_redraw를 체크하지 않아 탭 전환 시 이전 탭 잔상 발생. 수정: use_prev = g_prev_grid_valid && !g_full_redraw && g_scroll_offset==0 && !g_search_active."
+    },
+    {
+      "id": "VC-47",
+      "item": "배경색 batch draw — 연속 동일 bg 셀을 1회 NSRectFill로 병합",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m drawRect 배경 루프 (stacked path)",
+      "evidence": "run-length 방식으로 동일 bg 셀을 병합. 전형적 올블랙 행은 NSRectFill 0회 (bg==0 스킵). wide/continuation/reverse 정확 처리."
+    },
+    {
+      "id": "VC-48",
+      "item": "ASCII glyph 캐시 — CTFont 128글리프 사전 캐시 + CTFontDrawGlyphs 직접 호출",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m g_ascii_glyphs[128] + cache_ascii_glyphs() + drawRect fast path",
+      "evidence": "프레임당 ~1920 NSAttributedString alloc 제거. ASCII 셀(~99%)은 CTFontDrawGlyphs 1-call. 폰트 크기 변경 시 cache_ascii_glyphs() 재호출."
+    },
+    {
+      "id": "VC-49",
+      "item": "PTY drain-then-render — 데이터 있는 한 0ms poll로 일괄 읽기, 1회만 렌더",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa main loop drain_cap=65536",
+      "evidence": "첫 poll 5ms → 이후 0ms non-blocking. 65KB 캡 도달 또는 데이터 소진 시 1회 렌더. cat large_file 시 N회 렌더 → 1회."
+    },
+    {
+      "id": "VC-50",
+      "item": "UTF-8 디코드 테이블 — 256바이트 클래스 LUT로 분기 제거",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa utf8_class[256] + utf8_cls_base + utf8_cls_remain",
+      "evidence": "class 0=ASCII 1=continuation 2=2byte 3=3byte 4=4byte 5=invalid. scr_feed_byte GROUND 상태에서 if-else 체인 대신 테이블 룩업. O(1)/byte."
+    },
+    {
+      "id": "VC-51",
+      "item": "wide-char O(1) 페이지 테이블 룩업 — 256페이지 BMP + SMP 직접 범위",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa wide_pages[256] + is_wide_cjk_mixed() + is_wide_cjk()",
+      "evidence": "256페이지 중 248페이지가 0(narrow) 또는 1(wide)로 분기 없이 결정. 8개 mixed 페이지만 폴백 범위 체크. SMP(U+20000+)는 직접 범위. 한글/CJK/히라가나 정확 커버."
+    },
+    {
+      "id": "VC-52",
+      "item": "CSI 파라미터 인라인 파싱 — vt_csi_get() 호출 제거, vt_params[] 직접 접근",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_main.hexa csi_dispatch",
+      "evidence": "vt_n = len(vt_params) 캐시 후 인라인 if/else로 디폴트값 처리. 함수 호출 오버헤드 제거."
+    },
+    {
+      "id": "VC-53",
+      "item": "스크롤백 trailing-space 트리밍 압축 저장",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/sys_appkit.m SbCompressedRow + sb_line_ptr 디코드",
+      "evidence": "각 행 trailing default-space 제거 후 저장. 80칸 실사용 400칸 터미널에서 행당 ~6400B → ~1280B. 디코드 시 sb_decode_buf에 복원."
+    },
+    {
+      "id": "VC-54",
+      "item": "void_server 증분 해시 — per-row dirty 비트맵 + XOR 섹션 해시",
+      "date": "2026-04-12",
+      "locked": true,
+      "src": "src/void_server.c row_hash[VS_GRID_ROWS] + row_dirty[] 비트맵 + update_session_hashes",
+      "evidence": "단일행 출력 시 64행 전체 rehash → 1행만 FNV-1a 재계산. section_hash = XOR(row_hash[row0..row0+63]). 스크롤 시 모든 행 dirty 마킹."
     }
   ],
   "pending_ossification": []

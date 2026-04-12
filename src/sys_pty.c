@@ -495,3 +495,8 @@ long hexa_sleep_us(long us) {
     usleep((useconds_t)us);
     return 0;
 }
+long clock_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)(ts.tv_sec * 1000000L + ts.tv_nsec / 1000L);
+}
