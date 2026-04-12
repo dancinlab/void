@@ -906,8 +906,29 @@ static int send_response(int client_fd, uint32_t status,
         memcpy(CMSG_DATA(cm), &fd_to_pass, sizeof(int));
     }
 
+    // sendmsg delivers the ancillary fd + header in the first call;
+    // for large payloads on non-blocking sockets the data portion may
+    // need follow-up write() calls to drain fully.
     ssize_t r = sendmsg(client_fd, &msg, 0);
-    return r > 0 ? 0 : -1;
+    if (r < 0) return -1;
+    // Calculate total expected bytes
+    size_t total = sizeof(hdr) + body_len;
+    size_t sent = (size_t)r;
+    if (sent < total && body_len > 0) {
+        // sendmsg partially delivered — the header went but body is
+        // incomplete. Retry the remainder with blocking write so the
+        // client doesn't see a truncated response.
+        size_t hdr_bytes = sizeof(hdr);
+        size_t body_sent = (sent > hdr_bytes) ? sent - hdr_bytes : 0;
+        const char *remaining = (const char *)body + body_sent;
+        size_t remain_len = body_len - body_sent;
+        // Temporarily set blocking for the drain
+        int fl = fcntl(client_fd, F_GETFL, 0);
+        fcntl(client_fd, F_SETFL, fl & ~O_NONBLOCK);
+        write_exact(client_fd, remaining, remain_len);
+        fcntl(client_fd, F_SETFL, fl);
+    }
+    return 0;
 }
 
 // ── command handlers ────────────────────────────────────────────────

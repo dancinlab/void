@@ -3186,6 +3186,12 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             for (int i = 0; i < n && i < VS_LIST_MAX &&
                             g_num_tabs < MAX_TABS; i++) {
                 if (g_vs_list[i].label[0] == 0) continue;
+                // Skip tombstone sessions (checkpoint-restored, no live
+                // shell). Reanimating them on startup would spawn N shells
+                // at once and the large ATTACH responses can stall the
+                // non-blocking protocol. Users can revive tombstones
+                // explicitly via the menu (Window → Hidden Sessions).
+                if (g_vs_list[i].proc_count == 0) continue;
                 int fd = -1, rows = 0, cols = 0;
                 if (void_server_attach(g_vs_list[i].id, &fd, &rows, &cols) != 0)
                     continue;
