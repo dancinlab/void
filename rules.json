@@ -1,7 +1,7 @@
 {
   "_meta": {
     "purpose": "void 프로젝트 규칙 — 모든 세션에서 준수",
-    "updated": "2026-04-11"
+    "updated": "2026-04-12"
   },
   "rules": {
     "VD1": {
@@ -30,6 +30,11 @@
       "title": "포인터 FFI 금지",
       "desc": "hexa↔C 간 포인터 전달 금지. hexa int는 32비트 — 64비트 포인터 절삭됨.",
       "enforce": "모든 버퍼/메모리 조작은 C-side에서 완결. hexa는 int 값만 주고받음."
+    },
+    "VD6": {
+      "title": "void_server 단일 세션 영속성",
+      "desc": "세션 영속성·PTY 생존·크래시 복구는 void_server PPID=1 데몬과 /tmp/void_server_ckpt/*.bin 체크포인트로만 처리한다. 외부 세션 래퍼/멀티플렉서/서드파티 도구 의존·제안·설치·문서화 금지.",
+      "enforce": "void_term ↔ void_server connect/reconnect 버그는 항상 최우선. Terminal.app/void_term 크래시 시 복구 경로는 'claude --continue + void_term 재실행'만 인정. 외부 도구 단어는 코드/문서/메모리 어디에도 남기지 않음."
     }
   }
 }

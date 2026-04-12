@@ -2554,9 +2554,13 @@ static int void_server_ensure(void) {
     if (!void_server_enabled()) return -1;
     if (g_server_sock >= 0) return 0;
     g_server_sock = void_server_try_connect();
+    if (getenv("VOID_DEBUG_SERVER"))
+        fprintf(stderr, "[void] try_connect => %d errno=%d\n", g_server_sock, errno);
     if (g_server_sock >= 0) return 0;
     void_server_spawn_daemon();
     g_server_sock = void_server_try_connect();
+    if (getenv("VOID_DEBUG_SERVER"))
+        fprintf(stderr, "[void] after spawn => %d errno=%d\n", g_server_sock, errno);
     return g_server_sock >= 0 ? 0 : -1;
 }
 
@@ -3642,6 +3646,8 @@ long hexa_tab_new(void) {
         if (void_server_spawn(t, p, c, g_term_rows, g_term_cols,
                               new_session_id, &fd) != 0) {
             fd = -1;
+            if (getenv("VOID_DEBUG_SERVER"))
+                fprintf(stderr, "[void] server_spawn failed, falling back to direct fork-pty (no crash resilience for this tab)\n");
         }
     }
     if (fd < 0) {

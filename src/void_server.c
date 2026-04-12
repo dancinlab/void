@@ -149,6 +149,54 @@ typedef struct {
 static VsSession g_sessions[VS_MAX_SESSIONS];
 static int       g_sock_listen = -1;
 static int       g_shutdown   = 0;
+static long      g_last_ckpt_ns = 0;   // VS-07: last periodic checkpoint time
+#define VS_CKPT_INTERVAL_NS (5L * 1000000000L)  // 5 seconds
+
+// ── per-client state (VS-17 single-process refactor) ────────────────
+//
+// The fork-per-client model was replaced with a single-process select()
+// loop so that the listener parent retains ownership of every PTY
+// master fd. When a client dies (SIGKILL, crash, whatever), the
+// listener simply drops its client slot — the shell's master fd stays
+// open in this process and the shell keeps running until explicitly
+// killed or the server itself dies. See VP-05.
+#define VS_CLIENT_RECV_BUF_SIZE (1 << 20)
+
+typedef struct {
+    int      used;
+    int      fd;                 // accepted socket
+    // Frame assembly state — a complete request is hdr[3] followed by
+    // hdr[2] bytes of body. We buffer partial reads because the socket
+    // is non-blocking and may deliver a frame in many chunks.
+    unsigned char recv_buf[VS_CLIENT_RECV_BUF_SIZE];
+    size_t   recv_have;          // bytes currently held in recv_buf
+} VsClient;
+
+static VsClient g_clients[VS_MAX_CLIENTS];
+
+static int alloc_client_slot(int fd) {
+    for (int i = 0; i < VS_MAX_CLIENTS; i++) {
+        if (!g_clients[i].used) {
+            g_clients[i].used = 1;
+            g_clients[i].fd   = fd;
+            g_clients[i].recv_have = 0;
+            return i;
+        }
+    }
+    return -1;
+}
+
+static void free_client_slot(int idx) {
+    if (idx < 0 || idx >= VS_MAX_CLIENTS) return;
+    g_clients[idx].used = 0;
+    g_clients[idx].fd   = -1;
+    g_clients[idx].recv_have = 0;
+}
+
+static void set_nonblock(int fd) {
+    int fl = fcntl(fd, F_GETFL, 0);
+    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+}
 
 // ── binary watcher state ────────────────────────────────────────────
 //
@@ -619,6 +667,12 @@ static int spawn_session_pty(VsSession *s,
 
     int fl = fcntl(master, F_GETFL, 0);
     fcntl(master, F_SETFL, fl | O_NONBLOCK);
+    // VS-17: set FD_CLOEXEC on the PTY master so the next spawn's
+    // forkpty doesn't leak this session's master into the other
+    // shell's address space. Single-process model means we no longer
+    // get automatic fd isolation from a fork boundary.
+    int mfl = fcntl(master, F_GETFD);
+    if (mfl >= 0) fcntl(master, F_SETFD, mfl | FD_CLOEXEC);
     s->pty_fd = master;
     s->shell_pid = pid;
     s->rows = rows;
@@ -639,6 +693,28 @@ static int spawn_session_pty(VsSession *s,
     // from the space-fill grid instead of returning the zero-init values.
     for (int sec = 0; sec < VS_N_SECTIONS; sec++)
         s->section_dirty[sec] = 1;
+    return 0;
+}
+
+// ── VS-06: reanimate tombstone ──────────────────────────────────────
+//
+// Re-spawn a shell for a checkpoint-restored (tombstone) session so it
+// becomes a live session again. Preserves the existing grid+cursor so
+// the client can see the last frame immediately; the new shell repaints
+// over it on its first prompt.
+static int reanimate_session(VsSession *s) {
+    if (!s || !s->used) return -1;
+    if (s->pty_fd >= 0) return 0; // already alive
+    if (spawn_session_pty(s, s->cwd, s->cmd_launched,
+                          s->rows > 0 ? s->rows : 24,
+                          s->cols > 0 ? s->cols : 80) != 0)
+        return -1;
+    s->is_checkpoint_restored = 0;
+    // Don't clear the grid — keep the last checkpoint frame so the
+    // ATTACH response includes readable content until the new shell
+    // paints its first prompt. The section hashes are already marked
+    // dirty from scan_and_restore_checkpoints, so the next ATTACH
+    // will compute fresh hashes.
     return 0;
 }
 
@@ -679,6 +755,56 @@ static void checkpoint_session(const VsSession *s) {
     write(fd, &h, sizeof(h));
     write(fd, s->grid, sizeof(s->grid));
     close(fd);
+}
+
+// VS-03 fix: keep the newest `max_keep` checkpoint files, unlink the rest.
+// Called from main() before scan_and_restore_checkpoints() so the restored
+// session table never overflows g_sessions[VS_MAX_SESSIONS].
+static void prune_old_checkpoints(int max_keep) {
+    DIR *d = opendir(VS_CKPT_DIR);
+    if (!d) return;
+    typedef struct { char name[256]; time_t mtime; } CkptEnt;
+    CkptEnt *ents = NULL;
+    int n = 0, cap = 0;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", VS_CKPT_DIR, ent->d_name);
+        struct stat st;
+        if (stat(path, &st) != 0) continue;
+        if (n == cap) {
+            cap = cap ? cap * 2 : 32;
+            CkptEnt *ne = (CkptEnt *)realloc(ents, cap * sizeof(CkptEnt));
+            if (!ne) { free(ents); closedir(d); return; }
+            ents = ne;
+        }
+        snprintf(ents[n].name, sizeof(ents[n].name), "%s", ent->d_name);
+        ents[n].mtime = st.st_mtime;
+        n++;
+    }
+    closedir(d);
+    if (n <= max_keep) { free(ents); return; }
+    // Simple insertion sort by mtime descending (newest first)
+    for (int i = 1; i < n; i++) {
+        CkptEnt k = ents[i];
+        int j = i - 1;
+        while (j >= 0 && ents[j].mtime < k.mtime) {
+            ents[j + 1] = ents[j];
+            j--;
+        }
+        ents[j + 1] = k;
+    }
+    int pruned = 0;
+    for (int i = max_keep; i < n; i++) {
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", VS_CKPT_DIR, ents[i].name);
+        if (unlink(path) == 0) pruned++;
+    }
+    free(ents);
+    if (pruned > 0)
+        fprintf(stderr, "void_server: pruned %d old checkpoint(s), kept %d\n",
+                pruned, max_keep);
 }
 
 static void scan_and_restore_checkpoints(void) {
@@ -937,18 +1063,23 @@ static int handle_attach(int client_fd, const char *body, uint32_t len) {
     update_session_hashes(s);
 
     if (s->is_checkpoint_restored || s->pty_fd < 0) {
-        // Tombstone — no live shell. Still use the new wire format so
-        // clients don't have to handle two response shapes; status=3
-        // signals "no PTY fd" and the grid is delivered the same way.
-        size_t body_len = 0;
-        char *resp = build_attach_body(s, client_hashes, n_client, &body_len);
-        if (!resp) {
-            send_response(client_fd, 2, NULL, 0, -1);
+        // VS-06: try to reanimate the tombstone — spawn a fresh shell
+        // with the original cwd/cmd, keeping the saved grid for the
+        // attach response. If reanimate succeeds, fall through to the
+        // normal live-attach path below.
+        if (reanimate_session(s) != 0) {
+            // Reanimate failed — return the frozen grid with status=3
+            // so the client can at least see the last frame.
+            size_t body_len = 0;
+            char *resp = build_attach_body(s, client_hashes, n_client, &body_len);
+            if (!resp) {
+                send_response(client_fd, 2, NULL, 0, -1);
+                return 0;
+            }
+            send_response(client_fd, 3, resp, body_len, -1);
+            free(resp);
             return 0;
         }
-        send_response(client_fd, 3, resp, body_len, -1);
-        free(resp);
-        return 0;
     }
 
     s->attached_client_fd = client_fd;
@@ -1053,58 +1184,125 @@ static int handle_ping(int client_fd, const char *body, uint32_t len) {
     return 0;
 }
 
-// ── client dispatch ─────────────────────────────────────────────────
+// ── client dispatch (VS-17 non-blocking single process) ────────────
+//
+// Each accepted client is non-blocking. Bytes arrive in any chunks; we
+// buffer into g_clients[idx].recv_buf and try to parse complete request
+// frames (hdr[3] + body[hdr[2]]) off the front. Each complete frame is
+// dispatched to the existing command handlers, which already use
+// blocking sendmsg on the client fd; that's fine in practice because
+// the kernel's socket send buffer is orders of magnitude larger than
+// any response (the biggest, an ATTACH full-grid reply, is ~400 KB and
+// SO_SNDBUF for AF_UNIX is at least 1 MB on macOS). send_response
+// returning -1 just means the peer died; we drop the client on the
+// next loop tick.
 
-static void handle_client(int client_fd) {
-    while (!g_shutdown) {
+// Try to parse as many complete frames off the head of the client's
+// recv_buf as possible and dispatch each one. Returns 0 to keep the
+// client alive, -1 to drop it (bad magic, oversized frame, or a
+// handler that explicitly requested disconnection).
+static int client_try_dispatch(int idx) {
+    VsClient *cl = &g_clients[idx];
+    for (;;) {
+        if (cl->recv_have < sizeof(uint32_t) * 3) return 0; // need header
         uint32_t hdr[3];
-        if (read_exact(client_fd, hdr, sizeof(hdr)) < 0) break;
-        if (hdr[0] != VS_MAGIC) break;
-        uint32_t cmd = hdr[1];
+        memcpy(hdr, cl->recv_buf, sizeof(hdr));
+        if (hdr[0] != VS_MAGIC) return -1;
+        uint32_t cmd  = hdr[1];
         uint32_t blen = hdr[2];
-        char *body = NULL;
-        if (blen > 0) {
-            if (blen > 1 << 20) break; // sanity
-            body = (char *)malloc(blen);
-            if (read_exact(client_fd, body, blen) < 0) { free(body); break; }
-        }
-        int rc = -1;
+        if (blen > VS_CLIENT_RECV_BUF_SIZE - sizeof(hdr)) return -1; // sanity
+        size_t total = sizeof(hdr) + blen;
+        if (cl->recv_have < total) return 0; // body still arriving
+
+        const char *body = (const char *)(cl->recv_buf + sizeof(hdr));
+        int rc = 0;
+        int fd = cl->fd;
         switch (cmd) {
-            case VS_SPAWN:  rc = handle_spawn (client_fd, body, blen); break;
-            case VS_ATTACH: rc = handle_attach(client_fd, body, blen); break;
-            case VS_DETACH: rc = handle_detach(client_fd, body, blen); break;
-            case VS_LIST:   rc = handle_list  (client_fd, body, blen); break;
-            case VS_KILL:   rc = handle_kill  (client_fd, body, blen); break;
-            case VS_PING:   rc = handle_ping  (client_fd, body, blen); break;
-            default: send_response(client_fd, 99, NULL, 0, -1); break;
+            case VS_SPAWN:  rc = handle_spawn (fd, body, blen); break;
+            case VS_ATTACH: rc = handle_attach(fd, body, blen); break;
+            case VS_DETACH: rc = handle_detach(fd, body, blen); break;
+            case VS_LIST:   rc = handle_list  (fd, body, blen); break;
+            case VS_KILL:   rc = handle_kill  (fd, body, blen); break;
+            case VS_PING:   rc = handle_ping  (fd, body, blen); break;
+            default: send_response(fd, 99, NULL, 0, -1); break;
         }
-        free(body);
-        if (rc < 0) break;
+
+        // Consume this frame from the buffer
+        size_t remain = cl->recv_have - total;
+        if (remain > 0) {
+            memmove(cl->recv_buf, cl->recv_buf + total, remain);
+        }
+        cl->recv_have = remain;
+
+        if (rc < 0) return -1;
     }
-    // Mark any session this client owned as detached (but keep alive)
+}
+
+// Drain readable bytes from the client socket into its recv buffer and
+// dispatch any complete frames. Returns 0 if the client is still alive,
+// -1 if we should drop it (EOF, fatal error, or bad frame).
+static int client_on_readable(int idx) {
+    VsClient *cl = &g_clients[idx];
+    for (;;) {
+        size_t cap = VS_CLIENT_RECV_BUF_SIZE - cl->recv_have;
+        if (cap == 0) {
+            // Buffer full without a complete frame — something is very
+            // wrong. Drop the client.
+            return -1;
+        }
+        ssize_t r = read(cl->fd, cl->recv_buf + cl->recv_have, cap);
+        if (r > 0) {
+            cl->recv_have += (size_t)r;
+            continue;
+        }
+        if (r == 0) return -1; // EOF
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            return -1;
+        }
+    }
+    return client_try_dispatch(idx);
+}
+
+// Close the client, mark any sessions it owned as detached but alive,
+// checkpoint them so crash-resurrection has something to find. The
+// PTY master fds are kept open by the listener, so the spawned
+// processes keep running — this is the whole point of VS-17.
+static void client_on_disconnect(int idx) {
+    if (idx < 0 || idx >= VS_MAX_CLIENTS) return;
+    VsClient *cl = &g_clients[idx];
+    if (!cl->used) return;
+    int fd = cl->fd;
     for (int i = 0; i < VS_MAX_SESSIONS; i++) {
-        if (g_sessions[i].used && g_sessions[i].attached_client_fd == client_fd) {
+        if (g_sessions[i].used && g_sessions[i].attached_client_fd == fd) {
             g_sessions[i].attached_client_fd = -1;
             checkpoint_session(&g_sessions[i]);
         }
     }
-    close(client_fd);
+    if (fd >= 0) close(fd);
+    free_client_slot(idx);
 }
 
-// ── background pumping ──────────────────────────────────────────────
+// ── PTY pumping (VS-17 per-session, event-driven) ──────────────────
+//
+// Drain one session's PTY master into its grid as best-effort plain
+// text. Called from the main select loop whenever the PTY master fd
+// reports readable. The bytes go into s->grid for LIST/checkpoint
+// preview; the attached client sees them directly via the PTY master
+// fd we passed it via SCM_RIGHTS. If read returns 0 the shell has
+// exited — we close the master, checkpoint, and leave the session as
+// a tombstone in g_sessions so LIST still reports it.
+static void pump_one_session(int session_idx) {
+    VsSession *s = &g_sessions[session_idx];
+    if (!s->used || s->pty_fd < 0) return;
 
-// Drain every session's PTY output so shells don't block on full kernel
-// buffers. Feeds into the session's grid as best-effort plain text. The
-// active client gets the bytes via the PTY fd it already holds, so the
-// server's grid is really for checkpoint / LIST preview purposes.
-static void pump_sessions(void) {
-    for (int i = 0; i < VS_MAX_SESSIONS; i++) {
-        VsSession *s = &g_sessions[i];
-        if (!s->used || s->pty_fd < 0) continue;
-        int wrote_any = 0;
-        char buf[VS_READ_BUF_SIZE];
-        ssize_t n;
-        while ((n = read(s->pty_fd, buf, sizeof(buf))) > 0) {
+    int wrote_any = 0;
+    int shell_gone = 0;
+    char buf[VS_READ_BUF_SIZE];
+    for (;;) {
+        ssize_t n = read(s->pty_fd, buf, sizeof(buf));
+        if (n > 0) {
             wrote_any = 1;
             s->last_activity_ns = now_ns();
             // Naive plain-text grid update for background preview only —
@@ -1150,26 +1348,41 @@ static void pump_sessions(void) {
                     s->cur_row++;
                 }
             }
-            // Mark all sections dirty — Merkle rehash happens just below
-            // (after the drain loop) so back-to-back reads only pay the
-            // hash cost once per pump tick.
             for (int sec = 0; sec < VS_N_SECTIONS; sec++)
                 s->section_dirty[sec] = 1;
+            continue;
         }
-        // Rehash dirty sections now that the full drain is done. ATTACH
-        // replies read s->section_hash directly, and calling this here
-        // keeps the hash table in sync with the live grid without paying
-        // for it on the ATTACH critical path.
-        if (wrote_any) update_session_hashes(s);
-        // Reap if child died
-        int status;
-        if (s->shell_pid > 0 && waitpid(s->shell_pid, &status, WNOHANG) == s->shell_pid) {
-            // Shell exited — keep session as tombstone for now, remove fd
-            close(s->pty_fd);
-            s->pty_fd = -1;
+        if (n == 0) {
+            // EOF — the shell closed the slave, which typically means
+            // it exited. Mark for teardown below.
+            shell_gone = 1;
+            break;
+        }
+        // n < 0
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+        // Any other read error — treat as shell gone.
+        shell_gone = 1;
+        break;
+    }
+    // Rehash dirty sections once per pump tick rather than per read.
+    if (wrote_any) update_session_hashes(s);
+
+    // Reap if child died (best-effort). Either the waitpid or the EOF
+    // indicates the shell has exited.
+    int status;
+    if (!shell_gone && s->shell_pid > 0 &&
+        waitpid(s->shell_pid, &status, WNOHANG) == s->shell_pid) {
+        shell_gone = 1;
+    }
+    if (shell_gone) {
+        if (s->pty_fd >= 0) close(s->pty_fd);
+        s->pty_fd = -1;
+        if (s->shell_pid > 0) {
+            waitpid(s->shell_pid, NULL, WNOHANG);
             s->shell_pid = 0;
-            checkpoint_session(s);
         }
+        checkpoint_session(s);
     }
 }
 
@@ -1238,40 +1451,164 @@ int main(int argc, char **argv) {
         g_sessions[i].pty_fd = -1;
         g_sessions[i].attached_client_fd = -1;
     }
+    for (int i = 0; i < VS_MAX_CLIENTS; i++) {
+        g_clients[i].used = 0;
+        g_clients[i].fd = -1;
+    }
+    // VS-03 fix: prune stale checkpoints before restoring, so the session
+    // table cannot overflow from accumulated .bin files.
+    prune_old_checkpoints(32);
     scan_and_restore_checkpoints();
     g_sock_listen = bind_listener();
+    // Non-blocking accept so the select loop never stalls on a half-open
+    // connection. VS-17 single-process architecture.
+    set_nonblock(g_sock_listen);
+    // VS-17 additional CLOEXEC: in the old fork-per-client model the
+    // handler explicitly close()'d g_sock_listen after forking. Now
+    // there is no fork boundary, so forkpty() inside spawn_session_pty
+    // would leak the listen socket into every spawned shell. Set
+    // FD_CLOEXEC so the listen socket disappears from the shell's fd
+    // table automatically on execve().
+    {
+        int lfl = fcntl(g_sock_listen, F_GETFD);
+        if (lfl >= 0) fcntl(g_sock_listen, F_SETFD, lfl | FD_CLOEXEC);
+    }
     binwatch_init();
+    // Same reasoning for the binwatch fds — they must never appear
+    // in a spawned shell.
+    if (g_binwatch_fd >= 0) {
+        int bf = fcntl(g_binwatch_fd, F_GETFD);
+        if (bf >= 0) fcntl(g_binwatch_fd, F_SETFD, bf | FD_CLOEXEC);
+    }
+    if (g_binwatch_kq >= 0) {
+        int bk = fcntl(g_binwatch_kq, F_GETFD);
+        if (bk >= 0) fcntl(g_binwatch_kq, F_SETFD, bk | FD_CLOEXEC);
+    }
 
-    // Main loop: select() on listen socket + all client fds, with short
-    // timeout so we can pump PTYs between events.
+    // Unified select loop (VS-17):
+    //   - Listener parent owns every PTY master. No fork-per-client.
+    //   - Watches listen_sock + all client fds + all session PTY masters.
+    //   - When a client dies, its slot is freed but the session's PTY
+    //     stays open — the shell survives, which is the entire point.
     while (!g_shutdown) {
         fd_set rfds;
         FD_ZERO(&rfds);
         FD_SET(g_sock_listen, &rfds);
         int maxfd = g_sock_listen;
-        // Pump before waiting
-        pump_sessions();
+
+        for (int i = 0; i < VS_MAX_CLIENTS; i++) {
+            if (!g_clients[i].used) continue;
+            int fd = g_clients[i].fd;
+            if (fd < 0) continue;
+            FD_SET(fd, &rfds);
+            if (fd > maxfd) maxfd = fd;
+        }
+        for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+            if (!g_sessions[i].used) continue;
+            int fd = g_sessions[i].pty_fd;
+            if (fd < 0) continue;
+            FD_SET(fd, &rfds);
+            if (fd > maxfd) maxfd = fd;
+        }
+
+        // Reap any zombie shells that free_session couldn't catch
+        // because the child hadn't fully exited yet. Without this we
+        // accumulate <defunct> entries on every KILL. We're in a
+        // single-process model now so there's nothing else to reap
+        // them for us.
+        for (;;) {
+            int wst;
+            pid_t p = waitpid(-1, &wst, WNOHANG);
+            if (p <= 0) break;
+        }
+
+        // Short timeout so binwatch_pump runs periodically even without
+        // socket activity and so any slow-path housekeeping we add later
+        // still ticks.
         struct timeval tv = { 0, 50000 }; // 50 ms
         int r = select(maxfd + 1, &rfds, NULL, NULL, &tv);
-        // kqueue pump regardless of select outcome — we want binary
-        // events processed on every tick, not just on client activity.
+        // kqueue pump regardless of select outcome — binary watcher
+        // fires whenever the bundle binary gets replaced.
         binwatch_pump();
         if (r < 0) { if (errno == EINTR) continue; break; }
+
+        // Accept new connections. Non-blocking accept() — drain the
+        // backlog in one go so multiple pending clients can come in
+        // between ticks.
         if (FD_ISSET(g_sock_listen, &rfds)) {
-            int c = accept(g_sock_listen, NULL, NULL);
-            if (c >= 0) {
-                // Spawn a child PROCESS to handle the client — that keeps
-                // the main loop responsive for pumping. A thread would do
-                // here too but fork is simpler and POSIX.
-                pid_t kid = fork();
-                if (kid == 0) {
-                    close(g_sock_listen);
-                    handle_client(c);
-                    _exit(0);
+            for (;;) {
+                int c = accept(g_sock_listen, NULL, NULL);
+                if (c < 0) {
+                    if (errno == EINTR) continue;
+                    break; // EAGAIN/EWOULDBLOCK or accept limit
                 }
-                close(c);
+                // VS-02 fix: close-on-exec so spawned shells never inherit
+                // the accepted client socket (prevents fd leak into zsh).
+                int cfl = fcntl(c, F_GETFD);
+                if (cfl >= 0) fcntl(c, F_SETFD, cfl | FD_CLOEXEC);
+                set_nonblock(c);
+                int idx = alloc_client_slot(c);
+                if (idx < 0) {
+                    // No free slot — politely refuse with status=99.
+                    send_response(c, 99, NULL, 0, -1);
+                    close(c);
+                }
             }
         }
+
+        // Drain client reads and dispatch complete frames. We mark
+        // disconnections in a separate pass so we don't mutate the
+        // array while iterating.
+        int drop[VS_MAX_CLIENTS];
+        int ndrop = 0;
+        for (int i = 0; i < VS_MAX_CLIENTS; i++) {
+            if (!g_clients[i].used) continue;
+            int fd = g_clients[i].fd;
+            if (fd < 0) { drop[ndrop++] = i; continue; }
+            if (!FD_ISSET(fd, &rfds)) continue;
+            if (client_on_readable(i) < 0) drop[ndrop++] = i;
+        }
+        for (int k = 0; k < ndrop; k++) client_on_disconnect(drop[k]);
+
+        // Drain PTY masters. Each session's pty_fd may have been closed
+        // by pump_one_session (shell exited); the next iteration won't
+        // re-select it because used/pty_fd gating catches it above.
+        for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+            if (!g_sessions[i].used) continue;
+            int fd = g_sessions[i].pty_fd;
+            if (fd < 0) continue;
+            if (!FD_ISSET(fd, &rfds)) continue;
+            pump_one_session(i);
+        }
+
+        // VS-07: periodic checkpoint — every 5s, write all live sessions
+        // to disk so crash-resurrection has a recent snapshot if the
+        // server itself dies (kill -9, OOM, power loss).
+        long tnow = now_ns();
+        if (tnow - g_last_ckpt_ns >= VS_CKPT_INTERVAL_NS) {
+            g_last_ckpt_ns = tnow;
+            for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+                if (!g_sessions[i].used) continue;
+                if (g_sessions[i].pty_fd < 0) continue; // skip tombstones
+                checkpoint_session(&g_sessions[i]);
+            }
+        }
+    }
+
+    // VS-08: graceful shutdown — flush checkpoints for ALL sessions
+    // (live and tombstone) so crash-resurrection on next startup has
+    // the freshest possible state.
+    for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+        if (!g_sessions[i].used) continue;
+        checkpoint_session(&g_sessions[i]);
+    }
+    // SIGTERM the shells so they get a clean exit rather than lingering
+    // as orphans with a dead master fd.
+    for (int i = 0; i < VS_MAX_SESSIONS; i++) {
+        if (!g_sessions[i].used) continue;
+        if (g_sessions[i].pty_fd >= 0) close(g_sessions[i].pty_fd);
+        if (g_sessions[i].shell_pid > 0)
+            kill(-g_sessions[i].shell_pid, SIGTERM);
     }
     unlink(VS_SOCK_PATH);
     return 0;
