@@ -4,3 +4,6 @@
 
 # Claude Code memory (account-shared, local only)
 .claude-memory/
+
+# macOS
+.DS_Store

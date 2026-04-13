@@ -2,7 +2,7 @@
 
 commands: shared/config/commands.json — autonomous 블록으로 Claude Code가 작업 중 smash/free/todo/go/keep 자율 판단·실행
 rules: shared/rules/common.json (R0~R27) + rules.json (VD1~VD5)
-L0 Guard: `hexa ~/Dev/nexus/shared/lockdown/l0_guard.hexa <verify|sync|merge|status>`
+L0 Guard: `hexa ~/Dev/nexus/shared/harness/l0_guard.hexa <verify|sync|merge|status>`
 SSoT: state.json. 참조 기준: macOS Terminal.app (iTerm2/kitty/Warp/Ghostty/Alacritty 제외 VD1)
 
 state files:
