@@ -19,6 +19,7 @@ extern fn malloc(size: int) -> *Void
 extern fn free(ptr: *Void)
 extern fn memset(s: *Void, c: int, n: int) -> *Void
 extern fn dlopen(path: *Byte, flags: int) -> *Void
+extern fn getenv(name: *Byte) -> *Byte
 
 // ── Extern: void_bridge.dylib ──
 
@@ -37,7 +38,11 @@ extern fn void_app_get_cols() -> int
 // RTLD_LAZY=1 | RTLD_GLOBAL=8 = 9 — symbols must be global for hexa extern FFI
 let bridge = dlopen(cstring("lib/libvoid_bridge.dylib"), 9)
 if ptr_addr(bridge) == 0 {
-  let bridge2 = dlopen(cstring("/Users/ghost/Dev/void/lib/libvoid_bridge.dylib"), 9)
+  // Fallback: $HOME/Dev/void/lib/libvoid_bridge.dylib
+  let home_ptr = getenv(cstring("HOME"))
+  let home = if ptr_addr(home_ptr) > 0 { from_cstring(home_ptr) } else { "" }
+  let fallback = home + "/Dev/void/lib/libvoid_bridge.dylib"
+  let bridge2 = dlopen(cstring(fallback), 9)
   if ptr_addr(bridge2) == 0 {
     println("VOID: failed to load libvoid_bridge.dylib")
     exit(1)

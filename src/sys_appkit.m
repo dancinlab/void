@@ -592,7 +592,7 @@ static void capture_argv0_once(void) {
         // buffer too small — unlikely, but fall back to a sensible default
         snprintf(g_argv0, sizeof(g_argv0),
                  "%s/Dev/void/void_term",
-                 getenv("HOME") ?: "/Users/ghost");
+                 getenv("HOME") ?: ".");
     }
 }
 

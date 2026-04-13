@@ -473,8 +473,8 @@ static void update_session_hashes(VsSession *s) {
 // ── semantic labeling ────────────────────────────────────────────────
 
 // Derive a readable label from cwd + dominant child process.
-//   "/Users/ghost/Dev/nexus" + "claude" → "nexus-claude"
-//   "/Users/ghost/Dev/void"  + "zsh"    → "void"
+//   "$HOME/Dev/nexus" + "claude" → "nexus-claude"
+//   "$HOME/Dev/void"  + "zsh"    → "void"
 // No embeddings in v1 — this is heuristic only.
 static void derive_label(const char *cwd, const char *cmd,
                          pid_t shell_pid, char out[64]) {
