@@ -25,6 +25,37 @@ PATCHED="$ROOT/build/artifacts/void_term_new.patched.c"
 
 mkdir -p "$ROOT/build/artifacts"
 
+# ── B3: Transpile hash cache ────────────────────────────────────────
+# Content-addressed cache at ~/.cache/void/transpile/<sha>.c.
+# Hash = sha256(sorted(sha256 of each src/*.hexa) || sha256 of $HEXA).
+# Env:
+#   CACHE_DISABLE=1    → skip both read and write (CI / debugging).
+#   FORCE_TRANSPILE=1  → skip read only (always overwrite cache).
+# The hash includes the HEXA compiler binary so a hexa-lang upgrade
+# invalidates every cached entry automatically.
+VOID_CACHE_DIR="${VOID_CACHE_DIR:-$HOME/.cache/void/transpile}"
+mkdir -p "$VOID_CACHE_DIR"
+
+_void_hasher() {
+  if command -v shasum       >/dev/null 2>&1; then shasum -a 256
+  elif command -v sha256sum  >/dev/null 2>&1; then sha256sum
+  else cat >/dev/null; echo "FAIL"; fi
+}
+
+compute_src_hash() {
+  {
+    for src in "$ROOT"/src/*.hexa; do
+      [[ -f "$src" ]] && _void_hasher <"$src" | awk -v n="$(basename "$src")" '{print $1, n}'
+    done | LC_ALL=C sort
+    [[ -x "$HEXA" ]] && _void_hasher <"$HEXA" | awk '{print $1, "HEXA"}'
+  } | _void_hasher | awk '{print $1}'
+}
+
+SRC_HASH=""
+if [[ "${CACHE_DISABLE:-0}" != "1" ]]; then
+  SRC_HASH="$(compute_src_hash 2>/dev/null || true)"
+fi
+
 # ── Transpile gate: skip hexa build if .c is newer than sources ────
 # VB1: native `hexa build` is a 45-min worst case. Only re-transpile
 # when any .hexa source is newer than the cached .c artifact.
@@ -46,6 +77,21 @@ else
     for src in "$ROOT"/src/*.hexa; do
       [[ -f "$src" && "$src" -nt "$ARTIFACT" ]] && { need_transpile=1; break; }
     done
+  fi
+fi
+
+# ── B3: cache hit check (pre-transpile) ────────────────────────────
+# If mtime gate wants a re-transpile but content is unchanged (e.g.
+# whitespace-only edit, git checkout between matching branches, undo/
+# redo to prior state), copy cached .c and skip the 45-min transpile.
+if [[ $need_transpile -eq 1 && -n "$SRC_HASH" && "${FORCE_TRANSPILE:-0}" != "1" ]]; then
+  CACHED_C="$VOID_CACHE_DIR/$SRC_HASH.c"
+  if [[ -s "$CACHED_C" ]]; then
+    echo "[build] transpile: cache hit (${SRC_HASH:0:12}) — copy cached .c → $ARTIFACT"
+    cp "$CACHED_C" "$ARTIFACT"
+    # touch so subsequent mtime-gate runs in this session treat it fresh.
+    touch "$ARTIFACT"
+    need_transpile=0
   fi
 fi
 
@@ -73,6 +119,11 @@ if [[ $need_transpile -eq 1 ]]; then
       exit 1
     fi
   done
+  # ── B3: populate cache with fresh .c ────────────────────────────
+  if [[ -n "$SRC_HASH" && -s "$ARTIFACT" && "${CACHE_DISABLE:-0}" != "1" ]]; then
+    cp "$ARTIFACT" "$VOID_CACHE_DIR/$SRC_HASH.c" 2>/dev/null \
+      && echo "[build] transpile: cached .c → ${VOID_CACHE_DIR}/${SRC_HASH:0:12}.c"
+  fi
 elif [[ $skip_transpile_forced -eq 1 ]]; then
   echo "[build] transpile: forced skip via SKIP_TRANSPILE=1 (artifact: $ARTIFACT)"
 else
