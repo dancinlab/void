@@ -149,15 +149,17 @@ hexa-lang이 `.c` 대신 LLVM IR 직접 emit → 셀프호스팅 병목 해소. 
 
 ## 종합 표
 
-| Phase | 목표 | edit→binary | 소요 | 종속성 |
-|-------|------|-------------|------|--------|
-| **B0** | **hexa_exec O(N²) fix** | **hang 해소 (전제)** | **0.5일** | **hexa-lang** |
-| B1 | ObjC fast path | 5초 (ObjC) | 0.5일 | 없음 |
-| **B2** | **Hot-data FFI** | **5초 (너비·이모지)** | **1~2일** | **없음 (최고 ROI)** |
-| B3 | Hash cache | 5초 (no-op) | 2~3일 | 없음 |
-| B4 | 모듈 분할 | 5~10분 (임의) | 1주 | hexa-lang |
-| B5 | C 이식 | <10분 | 2~3주 | 없음 |
-| B6 | LLVM backend | <1분 | ∞ | hexa-lang |
+| Phase | 목표 | edit→binary | 소요 | 종속성 | 상태 (2026-04-15) |
+|-------|------|-------------|------|--------|--------------------|
+| **B0** | **hexa_exec O(N²) fix** | **hang 해소 (전제)** | **0.5일** | **hexa-lang** | ✅ `hexa-lang 536462e` |
+| B1 | ObjC fast path (SKIP_TRANSPILE) | 5초 (ObjC) | 0.5일 | 없음 | ✅ `void 90d2b04` |
+| **B2** | **Hot-data FFI — widths.c 추출** | **5초 (너비·이모지)** | **1~2일** | **없음 (최고 ROI)** | 🟡 `void e6c3d0c` (draft) · wire-in 보류¹ |
+| B3 | Hash cache | 5초 (no-op) | 2~3일 | 없음 | ✅ `void d511505` |
+| B4 | 모듈 분할 | 5~10분 (임의) | 1주 | hexa-lang | ⏳ 미착수 |
+| B5 | C 이식 | <10분 | 2~3주 | 없음 | ⏳ 미착수 |
+| B6 | LLVM backend | <1분 | ∞ | hexa-lang | ⏳ 미착수 |
+
+¹ B2 draft — `src/widths.{c,h}` + `tests/bench_width.c` 완료 (bench: random 290M/s, clustered 890M/s, 18/18 self-check). `hx_is_wide_cjk` extern fn wire-in은 `hexa build` 가 환경 메모리 압박(다중 anima-engines 동시 실행)으로 `hexa_v2` SIGKILL — 한적한 환경에서 재시도 필요. 변경 자체는 parse-clean 검증 완료.
 
 ---
 
