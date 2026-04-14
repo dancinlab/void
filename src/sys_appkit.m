@@ -1712,6 +1712,35 @@ static inline int ime_has_marked(void) {
         }
 
         // ── Glyph rendering: per-cell with dirty check.
+        // ── RENDER-P0 glyph batch ──
+        // Accumulate consecutive fallback cells (non-atlas: wide/underline/
+        // non-ASCII/256-color fg) sharing the same (fg, bold, underline) into
+        // a single NSAttributedString + drawAtPoint. Typical CJK-heavy line
+        // drops from 80+ drawAtPoint calls to 1-5. Monospace cell layout
+        // guarantees `c * g_term_cw` spacing is exactly the advance width
+        // across ASCII fallbacks; wide cells break the run and flush alone.
+        NSMutableString *runBuf = [NSMutableString stringWithCapacity:g_term_cols];
+        __block int run_start_c = -1;
+        __block int run_fg      = 0;
+        __block int run_bold    = 0;
+        __block int run_under   = 0;
+        // Flush lambda (plain block for readability; cheap stack frame).
+        void (^flush_run)(void) = ^{
+            if (run_start_c < 0 || runBuf.length == 0) { run_start_c = -1; return; }
+            CTFontRef df = run_bold ? g_term_font_bold : g_term_font;
+            [attrBuf removeAllObjects];
+            attrBuf[NSFontAttributeName] = (__bridge id)df;
+            attrBuf[NSForegroundColorAttributeName] = term_color(run_fg);
+            if (run_under) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
+            NSAttributedString *as = [[NSAttributedString alloc]
+                                         initWithString:runBuf attributes:attrBuf];
+            float rx = ox + run_start_c * g_term_cw;
+            [as drawAtPoint:NSMakePoint(rx, y + 2)];
+            [as release];
+            [runBuf setString:@""];
+            run_start_c = -1;
+        };
+
         for (int c = 0; c < g_term_cols; c++) {
             float x = ox + c * g_term_cw;
             TermCell *cell = &cell_row[c];
@@ -1723,8 +1752,14 @@ static inline int ime_has_marked(void) {
             if (use_prev) {
                 TermCell *prev = &prev_row[c];
                 if (cell->ch == prev->ch && cell->fg == prev->fg &&
-                    cell->bg == prev->bg && cell->flags == prev->flags)
+                    cell->bg == prev->bg && cell->flags == prev->flags) {
+                    // A cached (skipped) cell sits in the grid — the glyph
+                    // at that column was painted by an earlier frame. The
+                    // current batch run would overpaint it if we continued
+                    // past, so flush.
+                    flush_run();
                     continue;
+                }
                 // Cell changed: erase its rect before redrawing so the
                 // old content doesn't show through.
                 int wide = (cell->flags & 0x10000) != 0;
@@ -1733,12 +1768,11 @@ static inline int ime_has_marked(void) {
                 NSRectFill(NSMakeRect(x, y, cell_w, g_term_ch));
             }
 
-            if (cell->ch <= ' ') continue;
+            if (cell->ch <= ' ') { flush_run(); continue; }
             int fg = cell->fg;
             if (cell->flags & 8) fg = cell->bg; // reverse video
             // Use cached fonts and cached colors — no per-cell CFCreate.
             int bold = (cell->flags & 1);
-            CTFontRef df = bold ? g_term_font_bold : g_term_font;
             // ── PERF-P0-1 fast path: printable ASCII (0x21..0x7E) and no
             // underline → blit pre-rendered CGLayer tinted to fg color.
             // Avoids NSAttributedString / NSString / NSDictionary allocs
@@ -1751,6 +1785,7 @@ static inline int ime_has_marked(void) {
                 fg >= 0 && fg < 16 /* atlas tint = ANSI 16 only */) {
                 CGLayerRef layer = g_glyph_cache[bold ? 1 : 0][cell->ch - GLYPH_ATLAS_FIRST];
                 if (layer) {
+                    flush_run();  // atlas blit breaks any pending fallback run
                     CGFloat rgba[4];
                     term_color_rgba(fg, rgba);
                     CGFloat ch_h = g_glyph_cache_cell.height;
@@ -1771,16 +1806,41 @@ static inline int ime_has_marked(void) {
                 }
             }
             // Fallback: wide CJK, underline, non-ASCII, or atlas miss.
-            [attrBuf removeAllObjects];
-            attrBuf[NSFontAttributeName] = (__bridge id)df;
-            attrBuf[NSForegroundColorAttributeName] = term_color(fg);
-            if (cell->flags & 4) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
+            int under = (cell->flags & 4) ? 1 : 0;
+            int wide  = (cell->flags & 0x10000) != 0;
+            // Wide cells flush any accumulated narrow run, render solo, and
+            // don't participate in batching (advance width mismatch).
+            if (wide) {
+                flush_run();
+                [attrBuf removeAllObjects];
+                attrBuf[NSFontAttributeName] = (__bridge id)(bold ? g_term_font_bold : g_term_font);
+                attrBuf[NSForegroundColorAttributeName] = term_color(fg);
+                if (under) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
+                unichar uch = cell->ch;
+                NSString *s = [NSString stringWithCharacters:&uch length:1];
+                NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
+                [as drawAtPoint:NSMakePoint(x, y + 2)];
+                [as release];
+                continue;
+            }
+            // Narrow fallback: start or extend a run. Break on attr change
+            // or non-contiguous column.
+            if (run_start_c >= 0 &&
+                (run_fg != fg || run_bold != bold || run_under != under ||
+                 (run_start_c + (int)runBuf.length) != c)) {
+                flush_run();
+            }
+            if (run_start_c < 0) {
+                run_start_c = c;
+                run_fg      = fg;
+                run_bold    = bold;
+                run_under   = under;
+            }
             unichar uch = cell->ch;
-            NSString *s = [NSString stringWithCharacters:&uch length:1];
-            NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
-            [as drawAtPoint:NSMakePoint(x, y + 2)];
-            [as release];
+            [runBuf appendString:[NSString stringWithCharacters:&uch length:1]];
         }
+        // End of row: flush any trailing run.
+        flush_run();
     }
 
     // ── Snapshot current frame into prev_grid ──

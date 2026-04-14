@@ -193,12 +193,7 @@ fn build_cmd_from_argv(argv) -> any {
 // both the happy path and early-return-with-partial-result flow share
 // the same shape (redir_kind defaults to "", error defaults to "").
 fn build_result(cmds, redir_kind, redir_target, err) -> any {
-    return #{
-        "cmds": cmds,
-        "redir_kind": redir_kind,
-        "redir_target": redir_target,
-        "error": err
-    }
+    return #{"cmds": cmds, "redir_kind": redir_kind, "redir_target": redir_target, "error": err}
 }
 
 // ── cmd_parse: the public entry point ────────────────────────────
