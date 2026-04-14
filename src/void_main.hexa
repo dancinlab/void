@@ -8,6 +8,10 @@
 // Inlined via `use "prompt_parser"` below — no extra build_c.hexa arg
 // needed (the C/.m files are passed to clang downstream, not to build_c).
 //
+// History ring split into src/history_ring.hexa (REPL-P0-2, 2026-04-14).
+// Pulled in transitively via prompt_parser.hexa's `use "history_ring"`,
+// so void_main only needs the prompt_parser `use` line below.
+//
 // ┌─────────────────────────────────────────────────────────────┐
 // │ ARCHITECTURE: CORE / APP 분리                               │
 // │                                                             │
@@ -19,6 +23,7 @@
 // │ APP (L1260–EOF): 테스트 · 메인루프 · 탭 · UI 글루          │
 // │   self-test, main(), load_from_bridge, keys_to_pty          │
 // │   prompt_parser.hexa (use'd) — forward_keys + drain_pty     │
+// │   history_ring.hexa  (use'd via prompt_parser) — ↑/↓ ring   │
 // │   CORE에 의존하지만 CORE는 APP에 의존하지 않음.             │
 // └─────────────────────────────────────────────────────────────┘
 
@@ -2319,8 +2324,8 @@ fn main() {
             if drained > 0 {
                 let _ = sync_to_bridge()
                 // REPL-P0-3: snapshot cursor after each real PTY drain.
-                // touch_cursor is a cheap no-op when the cursor hasn't
-                // moved, so this is per-frame safe.
+                // touch_cursor is a cheap memcmp-style no-op when the
+                // cursor hasn't moved, so this is per-frame safe.
                 let _ = state_touch_cursor(scr_cur_y, scr_cur_x)
             }
 
