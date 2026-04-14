@@ -11,3 +11,4 @@
 # Transpile artifacts
 /tmp/*.c
 src/void_gen.c
+build/

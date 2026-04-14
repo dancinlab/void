@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# One-shot builder for /tmp/void_term — patches known u_main gap in
+# hexa-generated C, then links with clang + Cocoa/CoreText.
+#
+# HARNESS ENFORCEMENT:
+#   - Links to a STAGING path (/tmp/void_term.stage).
+#   - Runs VOID_TEST=1 against the staging binary via test_void.sh.
+#   - Only promotes to /tmp/void_term if all 25 tests pass.
+#   - On failure: deletes the staging binary AND removes any existing
+#     /tmp/void_term so downstream callers can never run an untested
+#     binary. The only way to produce /tmp/void_term is to pass tests.
+#
+# Background-safe, idempotent. Exits non-zero on any build/test failure.
+# Set SKIP_TESTS=1 to bypass (e.g. CI bootstrap) — print a warning.
+
+set -euo pipefail
+ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+HEXA="${HEXA:-$HOME/Dev/hexa-lang/hexa}"
+HEXA_SELF="${HEXA_SELF:-$HOME/Dev/hexa-lang/self}"
+FINAL="${OUT:-/tmp/void_term}"
+STAGE="${FINAL}.stage"
+OUT="$STAGE"
+ARTIFACT="$ROOT/build/artifacts/void_term_new.c"
+PATCHED="$ROOT/build/artifacts/void_term_new.patched.c"
+
+mkdir -p "$ROOT/build/artifacts"
+
+# ── Transpile gate: skip hexa build if .c is newer than sources ────
+# VB1: native `hexa build` is a 45-min worst case. Only re-transpile
+# when any .hexa source is newer than the cached .c artifact.
+need_transpile=0
+if [[ "${FORCE_TRANSPILE:-0}" == "1" ]]; then need_transpile=1; fi
+if [[ ! -s "$ARTIFACT" ]]; then need_transpile=1; fi
+if [[ $need_transpile -eq 0 ]]; then
+  for src in "$ROOT"/src/*.hexa; do
+    [[ -f "$src" && "$src" -nt "$ARTIFACT" ]] && { need_transpile=1; break; }
+  done
+fi
+
+if [[ $need_transpile -eq 1 ]]; then
+  echo "[build] transpile: hexa build $ROOT/src/void_main.hexa (may take minutes)"
+  (cd "$ROOT" && "$HEXA" build src/void_main.hexa -o "$OUT.stage1" 2>/tmp/void_build_stage1.log) || {
+    if [[ ! -s "$ARTIFACT" ]]; then
+      echo "[build] FAIL: transpile did not produce $ARTIFACT"
+      tail -30 /tmp/void_build_stage1.log
+      exit 1
+    fi
+    echo "[build] stage1 linker failure ignored (we relink ourselves)"
+  }
+else
+  echo "[build] transpile: skip (artifact up-to-date: $ARTIFACT)"
+fi
+
+# Duplicate symbol patches: any symbol defined as `T` (global text) in
+# sys_pty.o or sys_appkit.o AND defined as an FFI proxy in the hexa-
+# generated .c must be prefixed `static` in the .c so both defs can
+# coexist (the .c version is only used by hexa-internal call sites; the
+# real impl lives in sys_pty.c / sys_appkit.m).
+cp "$ARTIFACT" "$PATCHED"
+
+TMPOBJ=/tmp/void_build_dupes
+mkdir -p "$TMPOBJ"
+clang -O0 -c -I "$HEXA_SELF" "$ROOT/src/sys_pty.c"    -o "$TMPOBJ/sys_pty.o"    2>/dev/null
+clang -O0 -c -I "$HEXA_SELF" -ObjC "$ROOT/src/sys_appkit.m" -o "$TMPOBJ/sys_appkit.o" 2>/dev/null
+# Collect global-text symbols from both .o files, strip leading underscore.
+nm "$TMPOBJ/sys_pty.o" "$TMPOBJ/sys_appkit.o" 2>/dev/null \
+  | awk '$2=="T" {sub(/^_/,"",$3); print $3}' \
+  | sort -u > "$TMPOBJ/dupes.txt"
+dupe_count=$(wc -l < "$TMPOBJ/dupes.txt" | tr -d ' ')
+echo "[build] duplicate-candidate symbols from sys_pty/sys_appkit: $dupe_count"
+
+/usr/bin/python3 - "$PATCHED" "$TMPOBJ/dupes.txt" <<'PY'
+import sys, re
+path, dupes_path = sys.argv[1], sys.argv[2]
+with open(dupes_path) as f:
+    dupes = {ln.strip() for ln in f if ln.strip()}
+with open(path) as f:
+    lines = f.readlines()
+# Forward-decl line:  "HexaVal sym(...);"  or  "long sym(void);"
+# Definition line:    "HexaVal sym(...) {" or  "long sym(...) {"
+pat = re.compile(r'^((?:HexaVal|long|int|void)\s+)(\w+)(\s*\()')
+patched = 0
+for i, ln in enumerate(lines):
+    m = pat.match(ln)
+    if m and m.group(2) in dupes and not ln.lstrip().startswith('static '):
+        lines[i] = 'static ' + ln
+        patched += 1
+with open(path, 'w') as f:
+    f.writelines(lines)
+print(f'[build]   lines prefixed `static`: {patched}')
+PY
+
+# Inject u_main() call at end of main() if missing.
+if ! grep -q 'u_main()' "$PATCHED" 2>/dev/null || [[ $(grep -c 'u_main()' "$PATCHED") -lt 2 ]]; then
+  # The last "    return 0;\n}" in the file belongs to main().
+  # Replace it with u_main() call.
+  /usr/bin/python3 - "$PATCHED" <<'PY'
+import sys, re
+p = sys.argv[1]
+with open(p) as f:
+    txt = f.read()
+# Find last "    return 0;\n}" (main's closing) and splice.
+marker = "    return 0;\n}\n"
+idx = txt.rfind(marker)
+if idx < 0:
+    sys.exit("could not find main's return 0 marker")
+replacement = (
+    "    HexaVal __r_main = u_main();\n"
+    "    return (__r_main.tag == TAG_INT) ? (int)__r_main.i : 0;\n"
+    "}\n"
+)
+txt = txt[:idx] + replacement + txt[idx+len(marker):]
+with open(p, 'w') as f:
+    f.write(txt)
+PY
+  echo "[build] injected u_main() call into main()"
+fi
+
+echo "[build] clang link → $STAGE (staging)"
+clang -O2 -Wno-trigraphs -fbracket-depth=512 \
+  -I "$HEXA_SELF" \
+  "$PATCHED" \
+  "$ROOT/src/sys_pty.c" \
+  "$ROOT/src/sys_appkit.m" \
+  "$ROOT/src/paste_util.c" \
+  -framework Cocoa -framework CoreText \
+  -o "$STAGE" 2>&1
+
+echo "[build] stage OK: $(ls -la "$STAGE" | awk '{print $5,$9}')"
+
+# ── C-level test gate: paste_test (bracketed-paste helpers) ────────
+# Runs before the hexa self_test so a broken paste helper fails fast.
+PASTE_TEST=/tmp/void_paste_test
+echo "[build] compile + run paste_test …"
+clang -O2 -I "$HEXA_SELF" \
+  "$ROOT/src/paste_util.c" "$ROOT/tests/paste_test.c" \
+  -o "$PASTE_TEST" 2>&1
+if ! "$PASTE_TEST"; then
+  echo "[build] ✗ paste_test rejected — removing staging"
+  rm -f "$STAGE"
+  exit 6
+fi
+
+# ── HARNESS ENFORCEMENT ────────────────────────────────────────────
+# Nothing downstream may use /tmp/void_term without passing tests.
+# We delete $FINAL up-front so a stale binary can't masquerade as
+# "tested" on test failure. Then: test → promote, or abort.
+rm -f "$FINAL"
+
+if [[ "${SKIP_TESTS:-0}" == "1" ]]; then
+  echo "[build] ⚠️  SKIP_TESTS=1 — promoting $STAGE → $FINAL WITHOUT tests"
+  mv "$STAGE" "$FINAL"
+  exit 0
+fi
+
+echo "[build] harness: running self-test against staging binary …"
+BIN="$STAGE" LOG=/tmp/void_test_stage.log EXPECTED_MIN=25 \
+  "$ROOT/scripts/test_void.sh" --no-rebuild
+test_rc=$?
+if [[ $test_rc -ne 0 ]]; then
+  echo "[build] ✗ HARNESS REJECTED staging binary (exit=$test_rc)"
+  echo "[build]   staging removed — no /tmp/void_term produced"
+  rm -f "$STAGE"
+  exit $test_rc
+fi
+
+mv "$STAGE" "$FINAL"
+echo "[build] ✓ harness-approved: $(ls -la "$FINAL" | awk '{print $5,$9}')"

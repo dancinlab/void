@@ -1199,6 +1199,16 @@ fn scr_feed_byte(b) {
             let _ = vt_csi_flush()
             return 0
         }
+        // `:` (0x3A) subparameter separator — ECMA-48/ECMA-35 extended
+        // SGR uses `4:0` / `4:3` / `58:2:::r:g:b` etc. We treat it the
+        // same as `;` to avoid eating subparams into the parent digit
+        // (e.g. `4:0m` being parsed as `40m` which sets bg=black and
+        // leaves underline sticky forever — the symptom Claude Code CLI
+        // triggers by emitting `4:0m` to turn off underline styling).
+        if b == 58 {
+            let _ = vt_csi_flush()
+            return 0
+        }
         if b >= 64 {
             if b <= 126 {
                 let _ = csi_dispatch(b)

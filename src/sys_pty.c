@@ -371,9 +371,31 @@ static int g_pty_read_len = 0;
 #define TUI_CLEAR "\x1b[2J\x1b[1H"
 #define TUI_CLEAR_LEN 8
 
+// 대용량 붙여넣기 백지 회귀 방지: Claude Code 등 일부 Ink/React TUI 는
+// paste 처리 후 raw-mode 재초기화 과정에서 ?1004h 를 재전송한다. 매번
+// TUI_CLEAR 를 주입하면 Claude 의 다음 full-redraw 가 도착하기 전 프레임이
+// 통째로 백지로 보인다. 세션당 최초 1 회만 clear 하고, TUI 종료 시그널인
+// ?1004l 를 보면 리셋해 다음 TUI 진입에 대비한다.
+static int g_tui_cleared_once = 0;
+
 static int alt_screen_rewrite(char *buf, int *plen, int cap) {
     int len = *plen;
     int subs = 0;
+    // 먼저 ?1004l 스캔 — TUI 가 종료하면서 focus-event 를 끄면 다음 진입에서
+    // 다시 1 회 clear 할 수 있도록 플래그를 리셋. (clear 주입은 하지 않음.)
+    for (int i = 0; i + 8 <= len; i++) {
+        if (buf[i]     == '\x1b' &&
+            buf[i + 1] == '['    &&
+            buf[i + 2] == '?'    &&
+            buf[i + 3] == '1'    &&
+            buf[i + 4] == '0'    &&
+            buf[i + 5] == '0'    &&
+            buf[i + 6] == '4'    &&
+            buf[i + 7] == 'l') {
+            g_tui_cleared_once = 0;
+            break;
+        }
+    }
     for (int i = len - 8; i >= 0; i--) {
         if (buf[i]     == '\x1b' &&
             buf[i + 1] == '['    &&
@@ -383,11 +405,13 @@ static int alt_screen_rewrite(char *buf, int *plen, int cap) {
             buf[i + 5] == '0'    &&
             buf[i + 6] == '4'    &&
             buf[i + 7] == 'h') {
+            if (g_tui_cleared_once) continue;
             if (len + TUI_CLEAR_LEN >= cap) break;
             memmove(&buf[i + TUI_CLEAR_LEN], &buf[i], len - i);
             memcpy(&buf[i], TUI_CLEAR, TUI_CLEAR_LEN);
             len += TUI_CLEAR_LEN;
             subs++;
+            g_tui_cleared_once = 1;
         }
     }
     *plen = len;
@@ -496,6 +520,13 @@ long hexa_pty_alt_screen_rewrite_test(long ptr, long plen, long cap) {
     int len = (int)plen;
     int subs = alt_screen_rewrite((char *)(uintptr_t)ptr, &len, (int)cap);
     return ((long)subs << 32) | (long)len;
+}
+
+// Test helper: reset the "TUI cleared once" session flag so each test
+// case starts from a known fresh state. Only used by the harness — the
+// production path relies on ?1004l auto-reset.
+void hexa_pty_alt_screen_rewrite_test_reset(void) {
+    g_tui_cleared_once = 0;
 }
 
 long hexa_pty_read_byte(long idx) {

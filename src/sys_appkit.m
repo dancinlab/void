@@ -236,6 +236,8 @@ static void tabs_move(int from, int to);
 // hexa_appkit_term_flush).
 static void copy_selection_to_clipboard(void);
 static void paste_from_clipboard(void);
+// Forward decl — bracketed-paste inject, used by drag-drop handler.
+void pty_inject_bracketed_paste(int fd, const char *buf, size_t n);
 // Forward decls for the undo-close path used by performKeyEquivalent +
 // hexa_appkit_term_poll Cmd intercept. Definitions live further down.
 struct VoidProfile_; // forward decl of the struct tag
@@ -2550,6 +2552,60 @@ static inline int ime_has_marked(void) {
     [self setNeedsDisplay:YES];
 }
 - (void)flagsChanged:(NSEvent *)e {}
+
+// ── Drag-drop: file URL → @<abs-path> bracketed-paste ────────────────
+// Accepts any file URL dragged onto the terminal view. Multiple files
+// are space-joined as `@/a/b @/c/d ` so Claude Code / @-aware REPLs
+// pick up each one as a separate reference.
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+    NSPasteboard *pb = [sender draggingPasteboard];
+    if ([[pb types] containsObject:NSPasteboardTypeFileURL]) return NSDragOperationCopy;
+    return NSDragOperationNone;
+}
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender { return YES; }
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+    @autoreleasepool {
+        if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return NO;
+        VoidTab *tab = &g_tabs[g_active_tab];
+        if (!tab->used || tab->pty_fd < 0) return NO;
+
+        NSPasteboard *pb = [sender draggingPasteboard];
+        NSArray *urls = [pb readObjectsForClasses:@[[NSURL class]] options:nil];
+        if (!urls || [urls count] == 0) return NO;
+
+        NSMutableString *out = [NSMutableString string];
+        for (NSURL *u in urls) {
+            if (![u isFileURL]) continue;
+            NSString *p = [u path];
+            if (!p || [p length] == 0) continue;
+            // Shell-safe quoting: wrap in single quotes and escape any
+            // embedded single quote as '\''. Applied only when the path
+            // contains whitespace or shell metachars; otherwise emit raw.
+            BOOL needs_quote = NO;
+            const char *cp = [p UTF8String];
+            for (const char *q = cp; q && *q; q++) {
+                if (*q == ' ' || *q == '\t' || *q == '"' || *q == '\'' ||
+                    *q == '$' || *q == '`' || *q == '\\' || *q == '(' ||
+                    *q == ')' || *q == '&' || *q == ';' || *q == '|') {
+                    needs_quote = YES; break;
+                }
+            }
+            if (needs_quote) {
+                NSString *esc = [p stringByReplacingOccurrencesOfString:@"'"
+                                                             withString:@"'\\''"];
+                [out appendFormat:@"@'%@' ", esc];
+            } else {
+                [out appendFormat:@"@%@ ", p];
+            }
+        }
+        const char *utf8 = [out UTF8String];
+        if (!utf8) return NO;
+        size_t n = strlen(utf8);
+        if (n == 0) return NO;
+        pty_inject_bracketed_paste(tab->pty_fd, utf8, n);
+        return YES;
+    }
+}
 @end
 
 // ── Forward decls for the delegate hidden-sessions handlers ──
@@ -3865,6 +3921,11 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         [g_window setContentView:tv];
         [g_window makeFirstResponder:tv];
 
+        // Fast-attach: accept file URLs dragged onto the terminal. The
+        // drop handler builds `@<abs-path> ` and injects via bracketed
+        // paste so Claude Code CLI / REPLs pick it up as a single token.
+        [tv registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
+
         // ── Auto-attach on startup ───────────────────────────────────
         //
         // When void-server is enabled and the shadow-restore path did
@@ -4626,8 +4687,13 @@ close_bookkeeping:
         // event machinery and the window may linger. Posting a proper
         // terminate ensures applicationWillTerminate fires and the
         // window closes cleanly.
-        @autoreleasepool {
-            [[NSApplication sharedApplication] terminate:nil];
+        // VOID_TEST: skip terminate so self_test() can clean up tabs
+        // mid-run and keep executing subsequent tests. The process will
+        // exit normally after self_test returns.
+        if (!getenv("VOID_TEST")) {
+            @autoreleasepool {
+                [[NSApplication sharedApplication] terminate:nil];
+            }
         }
         return -1;
     }
@@ -4927,6 +4993,10 @@ static void copy_selection_to_clipboard(void) {
     }
 }
 
+// paste_write_chunked + pty_inject_bracketed_paste live in paste_util.c
+// so the C-level test harness (tests/paste_test.c) can link them
+// without pulling in Cocoa. Forward decls here for C++-style linkage.
+
 static void paste_from_clipboard(void) {
     @autoreleasepool {
         if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
@@ -4948,16 +5018,7 @@ static void paste_from_clipboard(void) {
         // that haven't enabled the mode will print the ESC sequences
         // literally — acceptable tradeoff since DEC escape query is
         // far more intrusive than a one-line oddity on legacy shells.
-        static const char START[] = "\x1b[200~";
-        static const char END[]   = "\x1b[201~";
-        (void)write(tab->pty_fd, START, sizeof(START) - 1);
-        size_t off = 0;
-        while (off < n) {
-            ssize_t w = write(tab->pty_fd, utf8 + off, n - off);
-            if (w <= 0) break;
-            off += (size_t)w;
-        }
-        (void)write(tab->pty_fd, END, sizeof(END) - 1);
+        pty_inject_bracketed_paste(tab->pty_fd, utf8, n);
     }
 }
 
