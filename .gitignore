@@ -7,3 +7,7 @@
 
 # macOS
 .DS_Store
+
+# Transpile artifacts
+/tmp/*.c
+src/void_gen.c

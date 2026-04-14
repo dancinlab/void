@@ -1,7 +1,8 @@
 // void_main.hexa — VOID terminal (hexa-only logic + sys_ C/ObjC helpers)
 // Build:
 //   ~/Dev/hexa-lang/hexa ~/Dev/hexa-lang/self/build_c.hexa \
-//     src/void_main.hexa src/void_gen.c src/sys_pty.c src/sys_appkit.m \
+//     src/void_main.hexa src/prompt_parser.hexa src/history_ring.hexa \
+//       src/state_ssot.hexa src/builtin_cmds.hexa src/sys_pty.c src/sys_appkit.m \
 //     -framework Cocoa
 //
 // Prompt helpers split into src/prompt_parser.hexa (REPL-P0-1, 2026-04-14).
