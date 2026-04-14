@@ -1,0 +1,14 @@
+#
+# void-256color — hexa-only AI-native terminal (macOS)
+# Base: xterm-256color. Future void-specific capabilities
+# (true color, OSC 7, adaptive frame budget, etc.) will be
+# layered on top of this use= chain.
+#
+# Install:
+#   tic -x -o ~/.terminfo extras/terminfo/void-256color.terminfo
+#
+# Verify:
+#   infocmp void-256color | head -5
+#
+void-256color|void terminal with 256 colors,
+	use=xterm-256color,

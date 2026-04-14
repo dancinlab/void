@@ -706,7 +706,7 @@ static CGGlyph g_ascii_glyphs[128];       // pre-cached regular glyphs for ASCII
 static CGGlyph g_ascii_glyphs_bold[128];  // pre-cached bold glyphs for ASCII 0..127
 static CGFloat g_font_ascent = 0;         // cached CTFontGetAscent(g_term_font)
 static CGFloat g_font_ascent_bold = 0;    // cached CTFontGetAscent(g_term_font_bold)
-static NSColor *g_term_color_cache[16] = {0}; // retained ANSI palette
+static NSColor *g_term_color_cache[256] = {0}; // retained 256-color palette (ANSI 16 + 6x6x6 cube + 24 grays)
 
 // ── PERF-P0-1 Glyph Atlas RGBA cache ──
 // Pre-unpacked sRGB tuples for ANSI 0..15. Avoids per-cell NSColor →
@@ -1266,29 +1266,34 @@ static NSColor *term_color(int idx) {
         0x0000FF, 0xE500E5, 0x00E5E5, 0xE5E5E5
     };
     if (idx < 0) idx = 7;
-    if (idx < 16) {
-        // Cache hot path: 16 ANSI colors are retained at first access,
-        // never released. Avoids ~3840 NSColor allocs per drawRect.
+    // ── RENDER-P0 256-color cache ──
+    // The full 256-entry palette is retained on first access, never released.
+    // SGR 38;5;N / 48;5;N (xterm 256) previously allocated a fresh NSColor
+    // on every hit (heavy tmux/nvim/CJK logs spam thousands per frame). The
+    // array is flat: 0..15 ANSI, 16..231 6×6×6 RGB cube, 232..255 grays.
+    // Truecolor (idx >= 256) stays uncached — unbounded key space.
+    if (idx < 256) {
         if (!g_term_color_cache[idx]) {
-            uint32_t c = a16[idx];
-            g_term_color_cache[idx] =
-                [[NSColor colorWithSRGBRed:((c>>16)&0xFF)/255.0
-                                     green:((c>>8)&0xFF)/255.0
-                                      blue:(c&0xFF)/255.0
-                                     alpha:1.0] retain];
+            NSColor *nc = nil;
+            if (idx < 16) {
+                uint32_t c = a16[idx];
+                nc = [NSColor colorWithSRGBRed:((c>>16)&0xFF)/255.0
+                                         green:((c>>8)&0xFF)/255.0
+                                          blue:(c&0xFF)/255.0
+                                         alpha:1.0];
+            } else if (idx < 232) {
+                int v = idx - 16;
+                int r = v/36, g = (v%36)/6, b = v%6;
+                nc = [NSColor colorWithSRGBRed:r?(r*40+55)/255.0:0
+                                         green:g?(g*40+55)/255.0:0
+                                          blue:b?(b*40+55)/255.0:0 alpha:1.0];
+            } else {
+                int g = (idx-232)*10+8;
+                nc = [NSColor colorWithSRGBRed:g/255.0 green:g/255.0 blue:g/255.0 alpha:1.0];
+            }
+            g_term_color_cache[idx] = [nc retain];
         }
         return g_term_color_cache[idx];
-    }
-    if (idx < 232) {
-        int v = idx - 16;
-        int r = v/36, g = (v%36)/6, b = v%6;
-        return [NSColor colorWithSRGBRed:r?(r*40+55)/255.0:0
-                                   green:g?(g*40+55)/255.0:0
-                                    blue:b?(b*40+55)/255.0:0 alpha:1.0];
-    }
-    if (idx < 256) {
-        int g = (idx-232)*10+8;
-        return [NSColor colorWithSRGBRed:g/255.0 green:g/255.0 blue:g/255.0 alpha:1.0];
     }
     int rgb = idx - 256;
     return [NSColor colorWithSRGBRed:(rgb/65536)/255.0

@@ -332,7 +332,7 @@ long hexa_pty_spawn_login_shell(void) {
     pid_t pid = forkpty(&master, NULL, NULL, NULL);
     if (pid < 0) return -1;
     if (pid == 0) {
-        setenv("TERM", "xterm-256color", 1);
+        setenv("TERM", "void-256color", 1);
         char *shell = getenv("SHELL");
         if (!shell) shell = "/bin/sh";
         execl(shell, shell, "-l", (char*)NULL);
