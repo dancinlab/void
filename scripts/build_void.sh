@@ -28,13 +28,25 @@ mkdir -p "$ROOT/build/artifacts"
 # ── Transpile gate: skip hexa build if .c is newer than sources ────
 # VB1: native `hexa build` is a 45-min worst case. Only re-transpile
 # when any .hexa source is newer than the cached .c artifact.
+#   FORCE_TRANSPILE=1  → always re-transpile (bypass mtime gate).
+#   SKIP_TRANSPILE=1   → always skip re-transpile (ObjC/C-only edits).
+#                        Requires a pre-existing $ARTIFACT; aborts otherwise.
 need_transpile=0
-if [[ "${FORCE_TRANSPILE:-0}" == "1" ]]; then need_transpile=1; fi
-if [[ ! -s "$ARTIFACT" ]]; then need_transpile=1; fi
-if [[ $need_transpile -eq 0 ]]; then
-  for src in "$ROOT"/src/*.hexa; do
-    [[ -f "$src" && "$src" -nt "$ARTIFACT" ]] && { need_transpile=1; break; }
-  done
+skip_transpile_forced=0
+if [[ "${SKIP_TRANSPILE:-0}" == "1" ]]; then
+  if [[ ! -s "$ARTIFACT" ]]; then
+    echo "[build] FAIL: SKIP_TRANSPILE=1 but no cached $ARTIFACT exists"
+    exit 1
+  fi
+  skip_transpile_forced=1
+else
+  if [[ "${FORCE_TRANSPILE:-0}" == "1" ]]; then need_transpile=1; fi
+  if [[ ! -s "$ARTIFACT" ]]; then need_transpile=1; fi
+  if [[ $need_transpile -eq 0 ]]; then
+    for src in "$ROOT"/src/*.hexa; do
+      [[ -f "$src" && "$src" -nt "$ARTIFACT" ]] && { need_transpile=1; break; }
+    done
+  fi
 fi
 
 if [[ $need_transpile -eq 1 ]]; then
@@ -61,6 +73,8 @@ if [[ $need_transpile -eq 1 ]]; then
       exit 1
     fi
   done
+elif [[ $skip_transpile_forced -eq 1 ]]; then
+  echo "[build] transpile: forced skip via SKIP_TRANSPILE=1 (artifact: $ARTIFACT)"
 else
   echo "[build] transpile: skip (artifact up-to-date: $ARTIFACT)"
 fi
