@@ -22,6 +22,7 @@
 //
 // Sub-modules (use'd below):
 //   history_ring.hexa  — REPL-P0-2, 1024-slot command history ring
+//   cmd_parser.hexa    — FEATURE-P0-2, pipe/redirect tokenizer
 //   builtin_cmds.hexa  — FEATURE-P0-1, cd/pwd/clear/history/help + line_buf_*
 //
 // Public API:
@@ -35,6 +36,9 @@
 
 // REPL-P0-2: pull in history ring (struct + push/prev/next/reset)
 use "history_ring"
+// FEATURE-P0-2: shell-line tokenizer. MUST appear before builtin_cmds
+// because try_builtin calls cmd_has_shell_meta().
+use "cmd_parser"
 // FEATURE-P0-1: builtin dispatcher + line_buf accumulator.
 // MUST appear before any line_buf_* / try_builtin call below.
 use "builtin_cmds"
@@ -123,12 +127,17 @@ fn prompt_forward_keys(master_fd) {
             let _ = hexa_void_putc(master_fd, b)
             forwarded = forwarded + 1
         } else if b == KEY_CR {
+            // Capture the typed line BEFORE history reset so try_builtin
+            // can feed it to FEATURE-P0-2 cmd_has_shell_meta() without
+            // re-assembling it from line_buf's int-bytes (chr(i) in
+            // hexa today returns to_string(i), not a 1-byte string).
+            let snap_cr = prompt_line_acc
             if len(prompt_line_acc) > 0 {
                 let _ = history_push(prompt_line_acc)
             }
             prompt_line_acc = ""
             let _ = history_reset_cursor()
-            let handled = try_builtin(master_fd)
+            let handled = try_builtin(master_fd, snap_cr)
             if handled == 1 {
                 let _ = hexa_void_putc(master_fd, 13)
                 let _ = hexa_void_putc(master_fd, 10)
@@ -144,12 +153,13 @@ fn prompt_forward_keys(master_fd) {
             }
             line_buf_clear()
         } else if b == KEY_LF {
+            let snap_lf = prompt_line_acc
             if len(prompt_line_acc) > 0 {
                 let _ = history_push(prompt_line_acc)
             }
             prompt_line_acc = ""
             let _ = history_reset_cursor()
-            let handled = try_builtin(master_fd)
+            let handled = try_builtin(master_fd, snap_lf)
             if handled == 1 {
                 let _ = hexa_void_putc(master_fd, 13)
                 let _ = hexa_void_putc(master_fd, 10)

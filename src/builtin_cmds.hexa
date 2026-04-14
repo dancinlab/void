@@ -10,6 +10,14 @@
 // bridges (hexa_void_*) resolve in the same compilation unit after
 // inlining; sys_pty.c declares them.
 //
+// FEATURE-P0-2 hook: cmd_parser.hexa (same translation unit via `use`)
+// supplies cmd_has_shell_meta(line)/cmd_parse(line). try_builtin now
+// short-circuits when the input contains un-quoted `|` / `>` / `>>` so
+// we never mis-handle e.g. `pwd > out.txt` as a pure builtin. Actual
+// pipe/redirect execution (fork/exec) lands in FEATURE-P0-2b — for now
+// we return 0 (forward to the active PTY shell, which already does
+// POSIX pipe/redirect correctly).
+//
 // EXTERN deps (declared below; bodies in src/sys_pty.c):
 //   hexa_void_path_reset()           — clear staged path buffer
 //   hexa_void_path_push(b)           — append one byte to staged path
@@ -22,8 +30,16 @@
 //   line_buf_push(b)               — append byte to current line
 //   line_buf_clear()               — reset after Enter
 //   line_buf_len()                 — current length
-//   try_builtin(fd) -> int         — 0=non-builtin (forward to PTY),
-//                                    1=handled (suppress PTY forward)
+//   try_builtin(fd, line_str) -> int — 0=non-builtin (forward to PTY),
+//                                      1=handled (suppress PTY forward)
+//                                      line_str is the typed line as a
+//                                      String (captured by caller
+//                                      before prompt_line_acc reset).
+//
+// FEATURE-P0-2 companion module (pulled in by the same `use` chain in
+// void_main.hexa, so its symbols are visible here after C inlining):
+//   cmd_has_shell_meta(line) -> int  — 1 if un-escaped | / > present
+//   cmd_parse(line) -> Dict          — full tokenizer (used by P0-2b)
 //
 // cwd asymmetry note: cd here changes ONLY the REPL process cwd. The
 // spawned shell child keeps its own cwd — that's why running `pwd` in
@@ -247,19 +263,37 @@ fn cmd_help(fd: int) {
 // Called by prompt_parser.hexa when an Enter (\r or \n) byte is seen
 // in the keybuf. line_buf holds the bytes typed since the previous
 // Enter. fd is the active PTY master (where builtin output goes so
-// the VT parser sees it).
+// the VT parser sees it). line_str mirrors line_buf as a String —
+// caller owns it (captured before history reset) and it's used only
+// to feed cmd_has_shell_meta(), which needs a real string to walk
+// chars() on. Passing it explicitly avoids an internal chr()-based
+// accumulator (chr(i) in hexa 2026-04-14 returns to_string(i), not a
+// 1-byte string — verified the hard way).
 //
 // Returns:
 //   1 — line matched a builtin and was executed; caller MUST NOT
 //       forward those bytes (or the trailing Enter) to the PTY.
-//   0 — no match; caller forwards to PTY normally.
+//   0 — no match (or contains un-quoted pipe/redirect → defer to the
+//       child shell via the existing PTY path for now); caller
+//       forwards line_buf + the Enter to the PTY normally.
 //
-// Match policy: skip leading whitespace, then exact keyword match
-// followed by word boundary (space / tab / EOL). Case-sensitive
-// (matches POSIX shell convention).
-fn try_builtin(fd: int) -> int {
+// FEATURE-P0-2: if line_str contains a top-level | or >, skip all
+// builtin matching and return 0 — even `cd` becomes meaningless when
+// piped, and `pwd > file` must go through real shell redirection
+// (which the spawned shell already implements correctly). The real
+// fork/exec path arrives in FEATURE-P0-2b.
+//
+// Match policy (when no shell meta): skip leading whitespace, then
+// exact keyword match followed by word boundary (space / tab / EOL).
+// Case-sensitive (matches POSIX shell convention).
+fn try_builtin(fd: int, line_str) -> int {
     let bl = len(line_buf)
     if bl == 0 {
+        return 0
+    }
+    // FEATURE-P0-2: pipe/redirect detection — defer to shell (P0-2b
+    // will intercept and run fork/exec inside the REPL process).
+    if cmd_has_shell_meta(line_str) == 1 {
         return 0
     }
     let start = skip_ws(0)
