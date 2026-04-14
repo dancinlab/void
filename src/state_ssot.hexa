@@ -1,0 +1,356 @@
+// state_ssot.hexa — VOID session state SSoT (REPL-P0-3, 2026-04-14)
+//
+// Scope: APP-layer wrapper that persists per-session terminal state to
+// a JSON file under ~/.void/, so on restart the user's last cursor
+// position, working directory, and shell exit code are recoverable.
+// Lives outside the render hot path; called only at startup (load)
+// and shutdown / event boundaries (save).
+//
+// File path: ~/.void/session.json (NOT $VOID/state.json — that filename
+// is already the project-level SSoT for layers/blockers/next-steps,
+// see hexa.toml [state] ssot = "state.json"). The session-state file
+// follows the established ~/.void/profiles.json convention so user-
+// scoped runtime state stays out of the repo working tree entirely.
+//
+// Atomic write: write_file(tmp) → exec("mv -f tmp final"). POSIX
+// rename(2) is atomic on the same filesystem, so partial writes from
+// a power cut never leave a corrupted session.json behind.
+//
+// Hexa import contract: textual `use "state_ssot"` inlining via
+// ~/Dev/hexa-lang/self/build_c.hexa preprocessor. Built-in helpers
+// (read_file/write_file/exec/env_var/time/file_exists/len/.substring)
+// are emitted as hexa_* C runtime calls by build_c.hexa.
+//
+// Public API (call from void_main.hexa main()):
+//   state_load()                       -> int    1=loaded, 0=defaulted
+//   state_save()                       -> int    1=ok, 0=fail/no-op
+//   state_touch_cursor(row, col)       -> int    update + mark dirty
+//   state_touch_cwd(cwd)               -> int    cd-event hook
+//   state_touch_exit(code)             -> int    PTY-end hook
+//
+// JSON schema (version 1):
+//   { "version": 1,
+//     "cursor": { "row": <int>, "col": <int> },
+//     "cwd": "<str>",
+//     "last_exit": <int>,
+//     "updated_at": <unix_seconds> }
+//
+// CORE-isolation: this module touches NO CORE globals (scr_*, alt_*,
+// vt_*, sgr_*) — it owns its own state_* globals only. void_main.hexa
+// passes already-extracted cursor/cwd values in via the touch_* API.
+
+// ── Module-private globals (state_* prefix to avoid collision) ──
+let mut state_cursor_row = 0
+let mut state_cursor_col = 0
+let mut state_cwd = ""
+let mut state_last_exit = 0
+let mut state_updated_at = 0
+let mut state_dirty = 0   // 1 when in-memory differs from on-disk
+let mut state_loaded = 0  // 1 once load attempted (idempotent)
+
+// Resolve ~/.void/session.json. We expand $HOME via env_var() because
+// fopen() does not understand ~. Returns "" only when HOME is unset
+// (caller treats as "skip persistence", i.e. defaults).
+fn state_path() {
+    let home = env_var("HOME")
+    if home == "" {
+        return ""
+    }
+    return home + "/.void/session.json"
+}
+
+// Ensure ~/.void/ exists. Idempotent. mkdir -p via shell since we
+// already use exec() for atomic rename and stage1 hexa lacks mkdir.
+fn state_ensure_dir() {
+    let home = env_var("HOME")
+    if home == "" {
+        return 0
+    }
+    let _ = exec("mkdir -p '" + home + "/.void' 2>/dev/null")
+    return 1
+}
+
+// ── JSON micro-parser — schema is fixed, no full parser needed ──
+// Implementation uses only string-level methods (`.index_of`,
+// `.substring`, `.len()`) — NOT byte-level `s[i]` indexing. The
+// stage1.5 native compiler (`hexa build`) emits `hexa_index_get`
+// for `s[i]` which only handles arrays, panicking on TAG_STR. The
+// build_c.hexa transpiler emits proper byte-cast indexing, but since
+// we want to be portable across both backends, we stay at the method
+// layer the runtime fully supports.
+
+// Find the offset just past `"key"` (= position of the following
+// colon), or -1 if not present.
+fn state_find_key(src, key) {
+    let needle = "\"" + key + "\""
+    let pos = src.index_of(needle)
+    if pos < 0 {
+        return -1
+    }
+    return pos + len(needle)
+}
+
+// Slice helpers — mirror char-class checks without byte indexing.
+fn state_is_digit_str(s) {
+    if len(s) == 0 {
+        return 0
+    }
+    if s == "0" {
+        return 1
+    }
+    if s == "1" {
+        return 1
+    }
+    if s == "2" {
+        return 1
+    }
+    if s == "3" {
+        return 1
+    }
+    if s == "4" {
+        return 1
+    }
+    if s == "5" {
+        return 1
+    }
+    if s == "6" {
+        return 1
+    }
+    if s == "7" {
+        return 1
+    }
+    if s == "8" {
+        return 1
+    }
+    if s == "9" {
+        return 1
+    }
+    return 0
+}
+
+fn state_digit_value(s) {
+    if s == "0" { return 0 }
+    if s == "1" { return 1 }
+    if s == "2" { return 2 }
+    if s == "3" { return 3 }
+    if s == "4" { return 4 }
+    if s == "5" { return 5 }
+    if s == "6" { return 6 }
+    if s == "7" { return 7 }
+    if s == "8" { return 8 }
+    if s == "9" { return 9 }
+    return -1
+}
+
+// Extract the integer value following `"key":`. Skips colon + ASCII
+// whitespace, then parses optional sign + digits. Returns `dflt` on
+// any failure (key missing, no digits, etc.). Uses `.substring(i,i+1)`
+// to read one char at a time so the same code works under both the
+// stage1.5 native compiler and the build_c.hexa transpiler.
+fn state_extract_int(src, key, dflt) {
+    let start = state_find_key(src, key)
+    if start < 0 {
+        return dflt
+    }
+    let slen = len(src)
+    let mut k = start
+    // Skip ":" + ASCII whitespace.
+    let mut skipping = 1
+    while skipping == 1 {
+        if k >= slen {
+            skipping = 0
+        } else {
+            let c = src.substring(k, k + 1)
+            if c == ":" {
+                k = k + 1
+            } else {
+                if c == " " {
+                    k = k + 1
+                } else {
+                    if c == "\t" {
+                        k = k + 1
+                    } else {
+                        skipping = 0
+                    }
+                }
+            }
+        }
+    }
+    // Optional leading "-" sign.
+    let mut sign = 1
+    if k < slen {
+        let s0 = src.substring(k, k + 1)
+        if s0 == "-" {
+            sign = -1
+            k = k + 1
+        }
+    }
+    // Digit run.
+    let mut val = 0
+    let mut any = 0
+    let mut parsing = 1
+    while parsing == 1 {
+        if k >= slen {
+            parsing = 0
+        } else {
+            let c = src.substring(k, k + 1)
+            if state_is_digit_str(c) == 1 {
+                val = val * 10 + state_digit_value(c)
+                any = 1
+                k = k + 1
+            } else {
+                parsing = 0
+            }
+        }
+    }
+    if any == 0 {
+        return dflt
+    }
+    return val * sign
+}
+
+// Extract the string value following `"key":"..."`. No escape handling
+// (cwd paths from getcwd never contain quotes; if a malicious file
+// holds embedded quotes the value simply truncates at the first one —
+// never used in any unquoted shell context, so no injection risk).
+fn state_extract_str(src, key, dflt) {
+    let start = state_find_key(src, key)
+    if start < 0 {
+        return dflt
+    }
+    let slen = len(src)
+    // Scan forward for the opening `"` of the value.
+    let mut k = start
+    while k < slen {
+        if src.substring(k, k + 1) == "\"" {
+            let begin = k + 1
+            // Walk until the closing `"` (or EOF as a safety bail-out).
+            let mut e = begin
+            while e < slen {
+                if src.substring(e, e + 1) == "\"" {
+                    return src.substring(begin, e)
+                }
+                e = e + 1
+            }
+            return dflt
+        }
+        k = k + 1
+    }
+    return dflt
+}
+
+// Load ~/.void/session.json into module globals. Missing file or HOME
+// unset → keep defaults (0/0/""/0). Returns 1 if a real file was read.
+fn state_load() {
+    state_loaded = 1
+    let path = state_path()
+    if path == "" {
+        return 0
+    }
+    if file_exists(path) == 0 {
+        return 0
+    }
+    let src = read_file(path)
+    if len(src) == 0 {
+        return 0
+    }
+    state_cursor_row = state_extract_int(src, "row", 0)
+    state_cursor_col = state_extract_int(src, "col", 0)
+    state_cwd        = state_extract_str(src, "cwd", "")
+    state_last_exit  = state_extract_int(src, "last_exit", 0)
+    state_updated_at = state_extract_int(src, "updated_at", 0)
+    state_dirty = 0
+    return 1
+}
+
+// Atomic save: write to .session.json.tmp, then `mv -f tmp final`.
+// Returns 1 on success or no-op (already clean), 0 on failure
+// (HOME unset, write failed). Idempotent across no-change calls
+// (skips when state_dirty == 0); cheap fast-path for per-frame callers.
+fn state_save() {
+    if state_dirty == 0 {
+        return 1
+    }
+    let path = state_path()
+    if path == "" {
+        return 0
+    }
+    let _ = state_ensure_dir()
+    // timestamp() (not time()): native runtime exposes a wrapped builtin
+    // `timestamp` of type HexaVal; raw `time` would collide with libc
+    // <time.h> time() under hexa_v2 native codegen.
+    state_updated_at = timestamp()
+    let mut json = "{\n"
+    json = json + "  \"version\": 1,\n"
+    json = json + "  \"cursor\": { \"row\": " + str(state_cursor_row) + ", \"col\": " + str(state_cursor_col) + " },\n"
+    json = json + "  \"cwd\": \"" + state_cwd + "\",\n"
+    json = json + "  \"last_exit\": " + str(state_last_exit) + ",\n"
+    json = json + "  \"updated_at\": " + str(state_updated_at) + "\n"
+    json = json + "}\n"
+    let tmp = path + ".tmp"
+    let written = write_file(tmp, json)
+    if written <= 0 {
+        return 0
+    }
+    // POSIX rename(2) via mv — atomic on the same filesystem.
+    let _ = exec("mv -f '" + tmp + "' '" + path + "'")
+    state_dirty = 0
+    return 1
+}
+
+// Update cursor coords. Marks dirty only when values actually change,
+// so a per-frame caller can spam this without churning the disk.
+fn state_touch_cursor(row, col) {
+    if state_cursor_row == row {
+        if state_cursor_col == col {
+            return 0
+        }
+    }
+    state_cursor_row = row
+    state_cursor_col = col
+    state_dirty = 1
+    return 1
+}
+
+// Update working directory (cd / OSC 7 hook). Uses string equality
+// directly — both stage1.5 native (`hexa build`) and build_c.hexa
+// emit hexa_str_eq for `==`, so this is portable across backends.
+fn state_touch_cwd(cwd) {
+    if state_cwd == cwd {
+        return 0
+    }
+    state_cwd = cwd
+    state_dirty = 1
+    return 1
+}
+
+// Update last shell exit code (PTY end hook).
+fn state_touch_exit(code) {
+    if state_last_exit == code {
+        return 0
+    }
+    state_last_exit = code
+    state_dirty = 1
+    return 1
+}
+
+// ── Read-only accessors (for callers that act on restored values) ──
+fn state_get_cursor_row() {
+    return state_cursor_row
+}
+
+fn state_get_cursor_col() {
+    return state_cursor_col
+}
+
+fn state_get_cwd() {
+    return state_cwd
+}
+
+fn state_get_last_exit() {
+    return state_last_exit
+}
+
+fn state_is_loaded() {
+    return state_loaded
+}
