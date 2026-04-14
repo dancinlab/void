@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>VOID</string>
+	<key>CFBundleDisplayName</key>
+	<string>VOID</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.need-singularity.void</string>
+	<key>CFBundleVersion</key>
+	<string>1.0.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleExecutable</key>
+	<string>void_term</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.14</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>LSUIElement</key>
+	<false/>
+
+	<!-- TCC usage descriptions: prompt ONCE per permission, with a
+	     user-facing rationale. Required for macOS 10.14+ to honor the
+	     "Always Allow" choice across relaunches/updates. Missing keys
+	     cause the prompt to re-fire on every boot regardless of prior
+	     consent. -->
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>void needs Desktop access when you `cd` / `ls` / edit files there from the shell inside void.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>void needs Documents access when you `cd` / `ls` / edit files there from the shell inside void.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>void needs Downloads access when you `cd` / `ls` / edit files there from the shell inside void.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>void needs access to mounted volumes when the shell inside void navigates to them.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>void needs access to network shares when the shell inside void navigates to them.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>void uses Apple Events to integrate with system services.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>void may request elevated access when the shell inside void runs privileged commands.</string>
+
+	<!-- Drag-drop fast-attach: the terminal view accepts file URLs so
+	     dropped paths can be injected as @file tokens for agentic CLIs.
+	     Declaring the document type here makes Finder/Dock treat VOID as
+	     a valid drop target without prompting. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Any File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.item</string>
+				<string>public.content</string>
+				<string>public.directory</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
