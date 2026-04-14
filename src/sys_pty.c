@@ -538,3 +538,74 @@ long clock_us(void) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long)(ts.tv_sec * 1000000L + ts.tv_nsec / 1000L);
 }
+
+// ── FEATURE-P0-1: builtin command dispatcher helpers ──────────
+// Five builtin commands (cd/pwd/clear/history/help) execute in-process
+// instead of being forwarded to the spawned shell. The .hexa side
+// (src/builtin_cmds.hexa) handles parsing + dispatch; this C layer
+// supplies the OS-level primitives that hexa cannot express directly:
+// chdir(), getcwd(), and a per-byte fd write helper used to emit
+// builtin output (pwd/help/clear) to the active PTY master so the VT
+// parser sees it like normal shell output.
+//
+// Path staging buffer: hexa pushes path bytes one at a time, then
+// calls _chdir() which null-terminates and invokes libc chdir().
+// Mirrors the existing OSC-7 cwd_push/apply pattern in sys_appkit.m.
+//
+// CWD readback buffer: hexa calls _refresh() to snapshot the process
+// cwd into a static buffer, then reads it byte-by-byte for echoing
+// pwd output without needing string-typed FFI returns.
+#include <sys/syslimits.h>
+
+static char g_void_path_buf[PATH_MAX];
+static int  g_void_path_len = 0;
+
+void hexa_void_path_reset(void) {
+    g_void_path_len = 0;
+    g_void_path_buf[0] = '\0';
+}
+
+void hexa_void_path_push(long b) {
+    if (g_void_path_len < (int)sizeof(g_void_path_buf) - 1) {
+        g_void_path_buf[g_void_path_len++] = (char)b;
+        g_void_path_buf[g_void_path_len] = '\0';
+    }
+}
+
+// chdir(2) wrapper. Returns 0 on success, -1 on error (errno preserved
+// implicitly — hexa side treats non-zero as failure). Affects ONLY this
+// REPL process: the spawned shell child has its own cwd that we cannot
+// reach into. cmd_help() documents this asymmetry.
+long hexa_void_chdir(void) {
+    if (g_void_path_len == 0) return -1;
+    return (long)chdir(g_void_path_buf);
+}
+
+static char g_void_cwd_buf[PATH_MAX];
+static int  g_void_cwd_len = 0;
+
+// Snapshot getcwd() into the readback buffer. Returns length, or -1 on
+// failure (e.g. cwd was deleted). Hexa calls this once before reading
+// bytes via hexa_void_cwd_byte().
+long hexa_void_cwd_refresh(void) {
+    if (getcwd(g_void_cwd_buf, sizeof(g_void_cwd_buf)) == NULL) {
+        g_void_cwd_len = 0;
+        g_void_cwd_buf[0] = '\0';
+        return -1;
+    }
+    g_void_cwd_len = (int)strlen(g_void_cwd_buf);
+    return (long)g_void_cwd_len;
+}
+
+long hexa_void_cwd_byte(long idx) {
+    if (idx < 0 || idx >= g_void_cwd_len) return -1;
+    return (long)(unsigned char)g_void_cwd_buf[idx];
+}
+
+// Single-byte write to fd (PTY master, stdout, etc.). Used by builtin
+// output emitters in builtin_cmds.hexa. Slow per-byte path — fine for
+// ≤200-byte outputs (pwd / help). Returns 1 on success, -1 on error.
+long hexa_void_putc(long fd, long b) {
+    char c = (char)b;
+    return (long)write((int)fd, &c, 1);
+}
