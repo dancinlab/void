@@ -4,6 +4,10 @@
 //     src/void_main.hexa src/void_gen.c src/sys_pty.c src/sys_appkit.m \
 //     -framework Cocoa
 //
+// Prompt helpers split into src/prompt_parser.hexa (REPL-P0-1, 2026-04-14).
+// Inlined via `use "prompt_parser"` below — no extra build_c.hexa arg
+// needed (the C/.m files are passed to clang downstream, not to build_c).
+//
 // ┌─────────────────────────────────────────────────────────────┐
 // │ ARCHITECTURE: CORE / APP 분리                               │
 // │                                                             │
@@ -14,6 +18,7 @@
 // │                                                             │
 // │ APP (L1260–EOF): 테스트 · 메인루프 · 탭 · UI 글루          │
 // │   self-test, main(), load_from_bridge, keys_to_pty          │
+// │   prompt_parser.hexa (use'd) — forward_keys + drain_pty     │
 // │   CORE에 의존하지만 CORE는 APP에 의존하지 않음.             │
 // └─────────────────────────────────────────────────────────────┘
 
@@ -1319,6 +1324,13 @@ fn sync_to_bridge() {
 // ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
 
 // ═══════════════════════════════════════════════════════════════
+// APP: PROMPT PARSER — REPL key→PTY→VT helpers (extracted module)
+// Inlined via build_c.hexa `use` preprocessor (textual include).
+// Resolves to src/prompt_parser.hexa relative to this file.
+// ═══════════════════════════════════════════════════════════════
+use "prompt_parser"
+
+// ═══════════════════════════════════════════════════════════════
 // APP: SELF-TEST — headless VT + PTY pipeline verification
 // ═══════════════════════════════════════════════════════════════
 fn scr_find_probe(probe, probe_len) {
@@ -2270,38 +2282,11 @@ fn main() {
         if m < 0 {
             let _ = hexa_sleep_us(10000)
         } else {
-            // 4. Forward keys to active PTY
-            let _ = hexa_keys_to_pty(m)
-
-            // 5. Drain-then-render: read all available PTY data,
-            //    feed VT parser, render only once at the end.
-            //    Cap at 65536 bytes per frame to keep UI responsive.
-            let mut drained = 0
-            let drain_cap = 65536
-            let mut drain_tmo = 5
-            let mut drain_more = 1
-            while drain_more == 1 {
-                let nread = hexa_pty_poll_read(m, drain_tmo)
-                // After first poll, switch to non-blocking (0ms)
-                drain_tmo = 0
-                if nread > 0 {
-                    let mut i = 0
-                    while i < nread {
-                        let b = hexa_pty_read_byte(i)
-                        if b >= 0 {
-                            let _ = scr_feed_byte(b)
-                        }
-                        i = i + 1
-                    }
-                    drained = drained + nread
-                    // Stop draining if we hit the per-frame byte cap
-                    if drained >= drain_cap {
-                        drain_more = 0
-                    }
-                } else {
-                    drain_more = 0
-                }
-            }
+            // 4+5. Prompt step: forward queued keys, drain PTY → VT.
+            //      Logic lives in src/prompt_parser.hexa (REPL-P0-1).
+            //      drain_cap=65536: per-frame byte cap protects UI
+            //      responsiveness on busy PTY (cat large file etc.).
+            let drained = prompt_step(m, 65536)
             if drained > 0 {
                 let _ = sync_to_bridge()
             }

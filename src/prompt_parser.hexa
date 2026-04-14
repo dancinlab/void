@@ -1,0 +1,79 @@
+// prompt_parser.hexa — VOID REPL prompt-side helpers
+//
+// Scope: APP-layer wrappers around the keyboard→PTY→VT input pipeline.
+// Extracted from src/void_main.hexa main() loop (REPL-P0-1, 2026-04-14)
+// so the prompt path can grow (history ring, intent prediction, multi-
+// line composition) without bloating void_main.hexa.
+//
+// Hexa import contract: textual `use "prompt_parser"` inlining via
+// ~/Dev/hexa-lang/self/build_c.hexa preprocessor. Cross-references to
+// CORE-layer symbols (scr_feed_byte) and EXTERN bridges (hexa_*) resolve
+// inside the same compilation unit after inlining (forward prototypes
+// are emitted by build_c.hexa).
+//
+// CORE deps (defined in void_main.hexa, MUST NOT be moved here):
+//   scr_feed_byte(b) — VT/screen state machine entry
+// EXTERN deps (declared in void_main.hexa):
+//   hexa_keys_to_pty(master_fd)
+//   hexa_pty_poll_read(fd, timeout_ms)
+//   hexa_pty_read_byte(idx)
+//
+// Public API:
+//   prompt_forward_keys(master_fd)        -> int   bytes forwarded
+//   prompt_drain_pty(master_fd, cap_bytes)-> int   bytes drained+fed
+//   prompt_step(master_fd, drain_cap)     -> int   bytes drained
+//
+// Hot-path note: prompt_drain_pty is on the hot input path. Avoid
+// allocations or dict mutations inside the inner while loop (R memory
+// feedback_hot_attr_dict_mutation — @hot aliasing pitfall).
+
+// Forward queued keystrokes from the AppKit keybuf to the active PTY.
+// Thin wrapper today; placeholder for future intent-aware filtering
+// (e.g. command-palette interception, paste bracketing).
+fn prompt_forward_keys(master_fd) {
+    return hexa_keys_to_pty(master_fd)
+}
+
+// Drain currently-available PTY output bytes and feed them through the
+// VT parser (scr_feed_byte) until either the byte cap is hit or the PTY
+// has no more data. Returns total bytes drained this call.
+//
+// Per-frame byte cap protects UI responsiveness on busy PTY (cat large
+// file, tail -f spam, etc.). 65536 is the historical APP-layer choice
+// from void_main.hexa main().
+fn prompt_drain_pty(master_fd, drain_cap) {
+    let mut drained = 0
+    let mut drain_tmo = 5
+    let mut drain_more = 1
+    while drain_more == 1 {
+        let nread = hexa_pty_poll_read(master_fd, drain_tmo)
+        // After first poll, switch to non-blocking (0ms)
+        drain_tmo = 0
+        if nread > 0 {
+            let mut i = 0
+            while i < nread {
+                let b = hexa_pty_read_byte(i)
+                if b >= 0 {
+                    let _ = scr_feed_byte(b)
+                }
+                i = i + 1
+            }
+            drained = drained + nread
+            // Stop draining if we hit the per-frame byte cap
+            if drained >= drain_cap {
+                drain_more = 0
+            }
+        } else {
+            drain_more = 0
+        }
+    }
+    return drained
+}
+
+// One full prompt-side step: forward queued keys, then drain PTY output.
+// Returns drained byte count so caller can decide whether to sync
+// (drained > 0 → sync_to_bridge) or sleep (drained == 0 → idle backoff).
+fn prompt_step(master_fd, drain_cap) {
+    let _ = prompt_forward_keys(master_fd)
+    return prompt_drain_pty(master_fd, drain_cap)
+}
