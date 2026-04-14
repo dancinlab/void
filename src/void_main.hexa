@@ -8,6 +8,10 @@
 // Inlined via `use "prompt_parser"` below — no extra build_c.hexa arg
 // needed (the C/.m files are passed to clang downstream, not to build_c).
 //
+// History ring split into src/history_ring.hexa (REPL-P0-2, 2026-04-14).
+// Pulled in transitively via prompt_parser.hexa's `use "history_ring"`,
+// so void_main only needs the prompt_parser `use` line below.
+//
 // ┌─────────────────────────────────────────────────────────────┐
 // │ ARCHITECTURE: CORE / APP 분리                               │
 // │                                                             │
@@ -19,6 +23,7 @@
 // │ APP (L1260–EOF): 테스트 · 메인루프 · 탭 · UI 글루          │
 // │   self-test, main(), load_from_bridge, keys_to_pty          │
 // │   prompt_parser.hexa (use'd) — forward_keys + drain_pty     │
+// │   history_ring.hexa  (use'd via prompt_parser) — ↑/↓ ring   │
 // │   CORE에 의존하지만 CORE는 APP에 의존하지 않음.             │
 // └─────────────────────────────────────────────────────────────┘
 
@@ -1331,6 +1336,14 @@ fn sync_to_bridge() {
 use "prompt_parser"
 
 // ═══════════════════════════════════════════════════════════════
+// APP: STATE SSoT — session state (cursor / cwd / last_exit)
+// REPL-P0-3, 2026-04-14. Inlined via build_c.hexa `use` preprocessor.
+// File: ~/.void/session.json (atomic write via tmp+mv). NOT
+// $VOID/state.json (that's the project SSoT — layers/blockers).
+// ═══════════════════════════════════════════════════════════════
+use "state_ssot"
+
+// ═══════════════════════════════════════════════════════════════
 // APP: SELF-TEST — headless VT + PTY pipeline verification
 // ═══════════════════════════════════════════════════════════════
 fn scr_find_probe(probe, probe_len) {
@@ -2200,6 +2213,12 @@ fn main() {
 
     let _ = scr_init()
 
+    // REPL-P0-3: load persisted session state BEFORE any drawing.
+    // Restored values (cursor row/col, cwd, last_exit) live in
+    // state_ssot module globals; cursor is re-applied after the
+    // screen buffer is sized, below.
+    let _ = state_load()
+
     // Init AppKit terminal window (single instance, auto-sized)
     let init_r = hexa_appkit_init_term(0, 0, 14)
     if init_r < 0 {
@@ -2211,6 +2230,21 @@ fn main() {
     ROWS = hexa_appkit_term_get_rows()
     TOTAL = ROWS * COLS
     let _ = scr_init()
+
+    // REPL-P0-3: re-apply restored cursor inside new buffer bounds.
+    // Clamp defensively in case window shrank between sessions.
+    let restored_row = state_get_cursor_row()
+    let restored_col = state_get_cursor_col()
+    if restored_row >= 0 {
+        if restored_row < ROWS {
+            if restored_col >= 0 {
+                if restored_col < COLS {
+                    scr_cur_y = restored_row
+                    scr_cur_x = restored_col
+                }
+            }
+        }
+    }
 
     // Create first tab (spawns PTY inside C)
     let t0 = hexa_tab_new()
@@ -2289,6 +2323,10 @@ fn main() {
             let drained = prompt_step(m, 65536)
             if drained > 0 {
                 let _ = sync_to_bridge()
+                // REPL-P0-3: snapshot cursor after each real PTY drain.
+                // touch_cursor is a cheap memcmp-style no-op when the
+                // cursor hasn't moved, so this is per-frame safe.
+                let _ = state_touch_cursor(scr_cur_y, scr_cur_x)
             }
 
             if drained == 0 {
@@ -2296,6 +2334,11 @@ fn main() {
             }
         }
     }
+
+    // REPL-P0-3: persist session state before exit (Cmd+Q, last tab
+    // close, AppKit quit). Atomic write — partial files impossible.
+    let _ = state_touch_cursor(scr_cur_y, scr_cur_x)
+    let _ = state_save()
 
     return 0
 }

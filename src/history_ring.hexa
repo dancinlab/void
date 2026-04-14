@@ -1,0 +1,152 @@
+// history_ring.hexa — VOID REPL command-history ring buffer (1024 slots)
+//
+// Scope: APP-layer state for ↑/↓ history navigation in the prompt path.
+// Created REPL-P0-2 (2026-04-14). Sits between prompt_parser.hexa keybuf
+// scanning and the PTY write — when the user presses Enter we capture
+// the just-typed line into the ring; ↑/↓ navigate `cursor` and surface
+// the previous/next slot for redrawing the input line.
+//
+// Hexa import contract: textual `use "history_ring"` inlining via
+// ~/Dev/hexa-lang/self/build_c.hexa preprocessor. No EXTERN deps —
+// pure hexa state. Ring slots/head/tail/cursor live as module-global
+// `let mut` to dodge the @hot dict-mutation aliasing pitfall (R memory
+// feedback_hot_attr_dict_mutation): functions take no struct ref and
+// mutate the module slot directly so the JIT can never alias a caller
+// variable named `ring`.
+//
+// Public API (prompt_parser.hexa is the sole caller):
+//   history_push(line)         -> int  1=stored, 0=duplicate/empty
+//   history_prev()             -> string  previous entry ("" if none)
+//   history_next()             -> string  next entry ("" at HEAD)
+//   history_reset_cursor()     -> int  resets cursor to head (new input)
+//   history_count()            -> int  current slot count (test helper)
+//
+// Ring layout: classic head/tail circular buffer, capacity 1024.
+//   head = next-write index
+//   tail = oldest index (advances on overwrite when full)
+//   count = (head - tail) mod CAP
+//   cursor = navigation index, 0 = "newest entry" semantically; we
+//            map cursor offsets onto absolute slot positions per-call
+//            so concurrent push doesn't corrupt navigation.
+
+// ── Type marker (documents intended shape; not used as &mut) ──
+// hexa stage1 has no &mut refs; the actual storage is module-global
+// arrays below. The struct stays as a doc anchor + future-proofing so
+// REPL-P0-3 (multi-buffer history) can lift this into a value type.
+struct HistoryRing {
+    slots:  [string; 1024],
+    head:   int,
+    tail:   int,
+    cursor: int,
+}
+
+// ── Module constants ─────────────────────────────────────────────
+let HISTORY_CAP = 1024
+
+// ── Module state (the "ring" — single instance per process) ──────
+// slots is pre-sized to HISTORY_CAP so writes are O(1) index assign,
+// never push/pop (which would re-trigger @hot aliasing on the slot
+// vector). history_init seeds it once at module load via lazy guard.
+let mut hist_slots = []          // [string; 1024]
+let mut hist_head = 0             // next-write index, 0..HISTORY_CAP
+let mut hist_tail = 0             // oldest index, 0..HISTORY_CAP
+let mut hist_count = 0            // live entries 0..HISTORY_CAP
+let mut hist_cursor = 0           // 0 = "no nav yet", 1..hist_count = N-back
+let mut hist_inited = 0
+
+// Lazy-init the slot vector. Called from every public entry point
+// before touching hist_slots so we never depend on init-order vs
+// void_main.hexa main(). Cost: 1 branch on the steady-state path.
+fn history_init() {
+    if hist_inited == 1 { return 0 }
+    let mut i = 0
+    while i < HISTORY_CAP {
+        hist_slots = hist_slots + [""]
+        i = i + 1
+    }
+    hist_inited = 1
+    return 1
+}
+
+// ── Public: push a completed input line into the ring ────────────
+// Called from prompt_parser when Enter (CR/LF) is observed in the
+// keybuf scan. Empty lines and exact-duplicates of the most recent
+// entry are dropped (standard zsh/bash HIST_IGNORE_DUPS behavior) so
+// hammering Enter doesn't blow the cap on repeated `ls`.
+//
+// Returns 1 on store, 0 on skip.
+@hot
+fn history_push(line) {
+    let _ = history_init()
+    // Empty line filter
+    let n = len(line)
+    if n == 0 { return 0 }
+    // Dup-skip vs most-recent slot (head-1 mod CAP)
+    if hist_count > 0 {
+        let mut last_idx = hist_head - 1
+        if last_idx < 0 { last_idx = last_idx + HISTORY_CAP }
+        if hist_slots[last_idx] == line { return 0 }
+    }
+    // Write at head, advance head; on full ring, advance tail too
+    hist_slots[hist_head] = line
+    hist_head = hist_head + 1
+    if hist_head >= HISTORY_CAP { hist_head = 0 }
+    if hist_count < HISTORY_CAP {
+        hist_count = hist_count + 1
+    } else {
+        // Ring full → tail follows head (drop oldest)
+        hist_tail = hist_tail + 1
+        if hist_tail >= HISTORY_CAP { hist_tail = 0 }
+    }
+    // New entry → cursor resets so next ↑ pulls this line first
+    hist_cursor = 0
+    return 1
+}
+
+// ── Public: ↑ key — step back one entry ──────────────────────────
+// cursor semantics: 0 = "showing live input"; 1..count = "showing
+// N-th most recent entry" (1 is newest). Returns the slot string,
+// or "" if the ring is empty / we already hit the oldest entry.
+@hot
+fn history_prev() {
+    let _ = history_init()
+    if hist_count == 0 { return "" }
+    // Bounds: don't walk past the oldest entry
+    if hist_cursor >= hist_count { return hist_slots[hist_tail] }
+    hist_cursor = hist_cursor + 1
+    // Resolve cursor → absolute slot: (head - cursor) mod CAP
+    let mut idx = hist_head - hist_cursor
+    while idx < 0 { idx = idx + HISTORY_CAP }
+    return hist_slots[idx]
+}
+
+// ── Public: ↓ key — step forward one entry ───────────────────────
+// Returns the next-newer entry, or "" once we reach cursor==0
+// ("back to live input") so the prompt can clear the prefilled line.
+@hot
+fn history_next() {
+    let _ = history_init()
+    if hist_count == 0 { return "" }
+    if hist_cursor <= 0 {
+        hist_cursor = 0
+        return ""
+    }
+    hist_cursor = hist_cursor - 1
+    if hist_cursor == 0 { return "" }
+    let mut idx = hist_head - hist_cursor
+    while idx < 0 { idx = idx + HISTORY_CAP }
+    return hist_slots[idx]
+}
+
+// ── Public: reset cursor when user starts a fresh edit ───────────
+// prompt_parser calls this on any non-arrow keystroke after history
+// nav so subsequent ↑ starts from the newest entry again.
+fn history_reset_cursor() {
+    hist_cursor = 0
+    return 0
+}
+
+// ── Public: test helper — current live entry count ───────────────
+fn history_count() {
+    return hist_count
+}
