@@ -708,6 +708,123 @@ static CGFloat g_font_ascent = 0;         // cached CTFontGetAscent(g_term_font)
 static CGFloat g_font_ascent_bold = 0;    // cached CTFontGetAscent(g_term_font_bold)
 static NSColor *g_term_color_cache[16] = {0}; // retained ANSI palette
 
+// ── PERF-P0-1 Glyph Atlas RGBA cache ──
+// Pre-unpacked sRGB tuples for ANSI 0..15. Avoids per-cell NSColor →
+// colorUsingColorSpace → getRed:green:blue:alpha: alloc thrash inside the
+// glyph atlas blit path. Sourced from the same a16[] table as term_color()
+// so the two stay in lockstep (palette change touches both — both are right
+// here in this file).
+static CGFloat g_term_color_rgba[16][4];
+static BOOL    g_term_color_rgba_init = NO;
+static void init_term_color_rgba(void) {
+    if (g_term_color_rgba_init) return;
+    static const uint32_t a16[] = {
+        0x000000, 0x990000, 0x00A600, 0x999900,
+        0x0000B2, 0xB200B2, 0x00A6B2, 0xBFBFBF,
+        0x666666, 0xE50000, 0x00D900, 0xE5E500,
+        0x0000FF, 0xE500E5, 0x00E5E5, 0xE5E5E5
+    };
+    for (int i = 0; i < 16; i++) {
+        uint32_t c = a16[i];
+        g_term_color_rgba[i][0] = ((c >> 16) & 0xFF) / 255.0;
+        g_term_color_rgba[i][1] = ((c >>  8) & 0xFF) / 255.0;
+        g_term_color_rgba[i][2] = ( c        & 0xFF) / 255.0;
+        g_term_color_rgba[i][3] = 1.0;
+    }
+    g_term_color_rgba_init = YES;
+}
+// Lookup the sRGB tuple for a fg/bg index. Falls back to white for
+// 256-color and truecolor indices (the atlas fast path is gated on
+// printable ASCII anyway, and 256-color cells will more often be CJK or
+// styled — falling through to the NSAttributedString path).
+static inline void term_color_rgba(int idx, CGFloat *out) {
+    if (!g_term_color_rgba_init) init_term_color_rgba();
+    if (idx < 0 || idx >= 16) {
+        out[0] = out[1] = out[2] = 1.0; out[3] = 1.0;
+        return;
+    }
+    out[0] = g_term_color_rgba[idx][0];
+    out[1] = g_term_color_rgba[idx][1];
+    out[2] = g_term_color_rgba[idx][2];
+    out[3] = g_term_color_rgba[idx][3];
+}
+
+// ── PERF-P0-1 Glyph Atlas (CGLayer bitmap cache) ──
+// Pre-rendered offscreen bitmaps for printable ASCII (0x21..0x7E = 94 chars)
+// in both regular and bold weight. Each CGLayer holds ONE pre-rasterized
+// glyph in default foreground (white). drawRect tints with CGContextSetFillColor
+// before blit via CGContextDrawLayerAtPoint, so a single atlas serves all
+// 16 ANSI fg colors. Eliminates NSAttributedString alloc + CTFontDrawGlyphs
+// shaping cost on the ASCII fast path (~99% of cells).
+//
+// Layout: glyph_cache[bold ? 1 : 0][ch - 0x21]
+// Lifetime: process-wide. Released on app exit only (no per-frame churn).
+// Invalidation: set_font_size() flips g_glyph_cache_init=NO; the next
+// drawRect rebuilds the 188 layers from the new font.
+// TODO: also invalidate on dynamic font-family swap (out of scope for P0-1).
+#define GLYPH_ATLAS_FIRST 0x21    // '!'
+#define GLYPH_ATLAS_LAST  0x7E    // '~'
+#define GLYPH_ATLAS_COUNT (GLYPH_ATLAS_LAST - GLYPH_ATLAS_FIRST + 1)  // 94
+static CGLayerRef g_glyph_cache[2][GLYPH_ATLAS_COUNT] = {{0}};
+static BOOL       g_glyph_cache_init = NO;
+static CGSize     g_glyph_cache_cell = {0, 0};   // pixel size of each cached cell
+
+// Called once per font (re)size from drawRect, with a real CGContext on hand
+// (CGLayer needs a "compatible" context to allocate a backing surface). Builds
+// 188 = 94 * 2 CGLayers, each containing one pre-rendered ASCII glyph in
+// solid white. drawRect tints them via CGContextSetFillColor before blit.
+static void init_glyph_atlas(CGContextRef baseCtx) {
+    if (!baseCtx) return;
+    if (!g_term_font || !g_term_font_bold) return;
+    // Tear down any previous atlas (font resize path).
+    for (int b = 0; b < 2; b++) {
+        for (int i = 0; i < GLYPH_ATLAS_COUNT; i++) {
+            if (g_glyph_cache[b][i]) {
+                CGLayerRelease(g_glyph_cache[b][i]);
+                g_glyph_cache[b][i] = NULL;
+            }
+        }
+    }
+    // Pad cell width to absorb any glyph that overshoots the cell box
+    // (italic terminus, punctuation kerning, descender curl). The blit
+    // origin remains the cell origin, so extra width hangs harmlessly
+    // to the right of the cell — within the next cell's pre-clear region.
+    CGFloat cell_w = (CGFloat)g_term_cw;
+    CGFloat cell_h = (CGFloat)g_term_ch;
+    if (cell_w < 1) cell_w = 1;
+    if (cell_h < 1) cell_h = 1;
+    g_glyph_cache_cell = CGSizeMake(cell_w, cell_h);
+    for (int b = 0; b < 2; b++) {
+        CTFontRef fnt = b ? g_term_font_bold : g_term_font;
+        CGFloat asc   = b ? g_font_ascent_bold : g_font_ascent;
+        CGGlyph *tbl  = b ? g_ascii_glyphs_bold : g_ascii_glyphs;
+        for (int i = 0; i < GLYPH_ATLAS_COUNT; i++) {
+            int ch = GLYPH_ATLAS_FIRST + i;
+            CGLayerRef layer = CGLayerCreateWithContext(
+                baseCtx, g_glyph_cache_cell, NULL);
+            if (!layer) continue;
+            CGContextRef lc = CGLayerGetContext(layer);
+            if (!lc) { CGLayerRelease(layer); continue; }
+            // Layer authored in standard (NON-flipped) Quartz coords:
+            // origin = bottom-left, y grows up. Glyph rendered upright by
+            // an identity text matrix and a baseline = descent_pad above
+            // the bottom edge. drawRect un-flips the destination CTM
+            // around the blit (see PERF-P0-1 fast path) so the layer
+            // appears the right way up in the AppKit flipped view.
+            CGContextSetTextMatrix(lc, CGAffineTransformIdentity);
+            CGContextSetRGBFillColor(lc, 1.0, 1.0, 1.0, 1.0);
+            CGGlyph gl = tbl[ch];
+            // baseline_y measured from layer bottom: cell_h - asc - top_pad
+            CGFloat baseline_y = cell_h - asc - 2;
+            if (baseline_y < 0) baseline_y = 0;
+            CGPoint pos = CGPointMake(0, baseline_y);
+            CTFontDrawGlyphs(fnt, &gl, &pos, 1, lc);
+            g_glyph_cache[b][i] = layer;
+        }
+    }
+    g_glyph_cache_init = YES;
+}
+
 // Pure sRGB (0,0,0,1) black — NSColor.blackColor is the generic device
 // black which, on P3 wide-gamut displays, renders a hair darker than
 // Terminal.app's sRGB-pinned background. Lazily cached.
@@ -756,6 +873,10 @@ static void set_font_size(int sz) {
                 CTFontGetLeading(g_term_font) + 2;
     g_font_size = sz;
     cache_ascii_glyphs();
+    // Invalidate glyph atlas — drawRect will rebuild on next frame using
+    // the new ascent/cell metrics. Tearing the layers down here would
+    // require a CGContext we don't have on this code path.
+    g_glyph_cache_init = NO;
 }
 
 // ── Grid layout helpers ──
@@ -1230,6 +1351,8 @@ static inline int ime_has_marked(void) {
         // overlap adjacent rows.  Scale(1,-1) un-flips glyph shapes while
         // keeping positions in the flipped coordinate space.
         CGContextSetTextMatrix(drawCtx, CGAffineTransformMakeScale(1.0, -1.0));
+        // ── PERF-P0-1: ensure glyph atlas exists (built once per font size).
+        if (!g_glyph_cache_init) init_glyph_atlas(drawCtx);
 
         for (int t = 0; t < g_num_tabs; t++) {
             if (!g_tabs[t].used) continue;
@@ -1309,9 +1432,36 @@ static inline int ime_has_marked(void) {
                     if (cell->flags & 8) fg = cell->bg; // reverse video
                     int bold = (cell->flags & 1);
                     CTFontRef df = bold ? g_term_font_bold : g_term_font;
-                    if (cell->ch < 128 && !(cell->flags & 4)) {
+                    if (g_glyph_cache_init &&
+                        cell->ch >= GLYPH_ATLAS_FIRST && cell->ch <= GLYPH_ATLAS_LAST &&
+                        !(cell->flags & 4) /* no underline */ &&
+                        !(cell->flags & 0x10000) /* not wide */ &&
+                        fg >= 0 && fg < 16 /* atlas tint = ANSI 16 only */) {
+                        // ── PERF-P0-1 fast path: blit pre-rendered CGLayer
+                        // tinted to fg color. No allocs, no shaping.
+                        CGLayerRef layer = g_glyph_cache[bold ? 1 : 0][cell->ch - GLYPH_ATLAS_FIRST];
+                        if (layer) {
+                            CGFloat rgba[4];
+                            term_color_rgba(fg, rgba);
+                            CGFloat ch_h = g_glyph_cache_cell.height;
+                            CGContextSaveGState(drawCtx);
+                            // Un-flip around the blit (see stacked path).
+                            CGContextTranslateCTM(drawCtx, x, y + ch_h);
+                            CGContextScaleCTM(drawCtx, 1.0, -1.0);
+                            CGContextSetRGBFillColor(drawCtx,
+                                rgba[0], rgba[1], rgba[2], rgba[3]);
+                            CGContextDrawLayerAtPoint(drawCtx, CGPointZero, layer);
+                            CGContextRestoreGState(drawCtx);
+                            // Re-establish text matrix in case CGLayer or
+                            // subsequent CT calls perturb it.
+                            CGContextSetTextMatrix(drawCtx,
+                                CGAffineTransformMakeScale(1.0, -1.0));
+                        }
+                    } else if (cell->ch < 128 && !(cell->flags & 4)) {
                         // Fast path: ASCII glyph from pre-cached table.
                         // Bypasses NSAttributedString + CTFontGetGlyphsForCharacters.
+                        // Used for ch < 0x21 (space, control) where the atlas
+                        // has nothing to blit but a full draw isn't needed.
                         CGGlyph gl = bold ? g_ascii_glyphs_bold[cell->ch]
                                           : g_ascii_glyphs[cell->ch];
                         CGFloat asc = bold ? g_font_ascent_bold : g_font_ascent;
@@ -1496,6 +1646,8 @@ static inline int ime_has_marked(void) {
     NSMutableDictionary *attrBuf = [NSMutableDictionary dictionaryWithCapacity:3];
     NSNumber *underlineNum = @(NSUnderlineStyleSingle);
     CGContextRef drawCtx = [[NSGraphicsContext currentContext] CGContext];
+    // ── PERF-P0-1: ensure glyph atlas exists (built once per font size).
+    if (!g_glyph_cache_init) init_glyph_atlas(drawCtx);
 
     for (int r = 0; r < g_term_rows; r++) {
         float y = TERM_PAD + r * g_term_ch;
@@ -1582,6 +1734,38 @@ static inline int ime_has_marked(void) {
             // Use cached fonts and cached colors — no per-cell CFCreate.
             int bold = (cell->flags & 1);
             CTFontRef df = bold ? g_term_font_bold : g_term_font;
+            // ── PERF-P0-1 fast path: printable ASCII (0x21..0x7E) and no
+            // underline → blit pre-rendered CGLayer tinted to fg color.
+            // Avoids NSAttributedString / NSString / NSDictionary allocs
+            // entirely. CGLayer is a 1-channel alpha mask under fillColor,
+            // so a single layer serves all 16 ANSI fg variants.
+            if (g_glyph_cache_init &&
+                cell->ch >= GLYPH_ATLAS_FIRST && cell->ch <= GLYPH_ATLAS_LAST &&
+                !(cell->flags & 4) /* no underline */ &&
+                !(cell->flags & 0x10000) /* not wide */ &&
+                fg >= 0 && fg < 16 /* atlas tint = ANSI 16 only */) {
+                CGLayerRef layer = g_glyph_cache[bold ? 1 : 0][cell->ch - GLYPH_ATLAS_FIRST];
+                if (layer) {
+                    CGFloat rgba[4];
+                    term_color_rgba(fg, rgba);
+                    CGFloat ch_h = g_glyph_cache_cell.height;
+                    CGContextSaveGState(drawCtx);
+                    // Un-flip CTM around the layer blit. The view is
+                    // isFlipped=YES (y down), but the layer is authored in
+                    // standard Quartz orientation (y up). Translate to the
+                    // cell's TOP-left in flipped space, then Scale(1,-1) so
+                    // the layer's bottom-left maps to the cell's top-left
+                    // visually.  After the blit the saved state restores the
+                    // flipped CTM for the next cell.
+                    CGContextTranslateCTM(drawCtx, x, y + ch_h);
+                    CGContextScaleCTM(drawCtx, 1.0, -1.0);
+                    CGContextSetRGBFillColor(drawCtx, rgba[0], rgba[1], rgba[2], rgba[3]);
+                    CGContextDrawLayerAtPoint(drawCtx, CGPointZero, layer);
+                    CGContextRestoreGState(drawCtx);
+                    continue;
+                }
+            }
+            // Fallback: wide CJK, underline, non-ASCII, or atlas miss.
             [attrBuf removeAllObjects];
             attrBuf[NSFontAttributeName] = (__bridge id)df;
             attrBuf[NSForegroundColorAttributeName] = term_color(fg);
