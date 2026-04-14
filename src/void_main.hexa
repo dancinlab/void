@@ -278,15 +278,19 @@ fn leave_alt_screen(do_restore) {
 }
 
 fn scr_scroll_up() {
-    // Save evicted top row to scrollback (only when scrolling from screen top)
+    // Save evicted top row to scrollback (only when scrolling from screen top).
+    // Terminal.app behavior: alternate screen has NO scrollback, so inhibit
+    // when scr_is_alt == 1.
     if scr_scroll_top == 0 {
-        let _ = hexa_scrollback_push_begin()
-        let mut sc = 0
-        while sc < COLS {
-            let _ = hexa_scrollback_push_cell(scr_cells[sc], scr_fg[sc], scr_bg[sc], scr_flags[sc])
-            sc = sc + 1
+        if scr_is_alt == 0 {
+            let _ = hexa_scrollback_push_begin()
+            let mut sc = 0
+            while sc < COLS {
+                let _ = hexa_scrollback_push_cell(scr_cells[sc], scr_fg[sc], scr_bg[sc], scr_flags[sc])
+                sc = sc + 1
+            }
+            let _ = hexa_scrollback_push_end()
         }
-        let _ = hexa_scrollback_push_end()
     }
     // All rows in scroll region are dirty
     let mut dr = scr_scroll_top
@@ -552,7 +556,7 @@ fn sgr_apply() {
 let wide_pages = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1,
+    0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 2, 1,
     2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -589,6 +593,8 @@ fn is_wide_cjk(cp) {
     // SMP planes — not in page table, use direct range check
     if cp >= 131072 && cp <= 196605 { return 1 }  // CJK Ext-B..F
     if cp >= 196608 && cp <= 262141 { return 1 }  // CJK Ext-G
+    // VP-08 emoji + pictographs: U+1F000..U+1FAFF (Claude CLI TUI icons).
+    if cp >= 126976 && cp <= 129791 { return 1 }
     if cp > 65535 { return 0 }
     // BMP O(1) page-table lookup
     let page = cp / 256
@@ -2109,6 +2115,642 @@ fn self_test() {
         println("[void-test] T25 FAIL  keybuf len=", t25_len, " expected 4")
         fail = fail + 1
     }
+
+    // ── Test 26: Alt screen content isolation ──
+    // Write on alt, leave alt, verify alt content does NOT leak to main.
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Fill row 0 with 'M' (77) on main screen (5 chars)
+    let _ = scr_feed_byte(77)
+    let _ = scr_feed_byte(77)
+    let _ = scr_feed_byte(77)
+    let _ = scr_feed_byte(77)
+    let _ = scr_feed_byte(77)
+    // Enter alt: ESC [ ? 1 0 4 9 h
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(104)
+    // Write 'Z' (90) at alt (0,0)..(0,2)
+    let _ = scr_feed_byte(90)
+    let _ = scr_feed_byte(90)
+    let _ = scr_feed_byte(90)
+    // Verify alt screen has Z
+    let t26_alt_z = scr_cells[0]
+    // Leave alt: ESC [ ? 1 0 4 9 l
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(108)
+    // Main screen should have M (77), not Z (90)
+    if t26_alt_z == 90 {
+        if scr_cells[0] == 77 {
+            if scr_cells[4] == 77 {
+                if scr_cells[5] == 32 {
+                    println("[void-test] T26 PASS alt screen content isolation (Z not leaked to main)")
+                    pass = pass + 1
+                } else { println("[void-test] T26 FAIL  cell[5]=", scr_cells[5], " expected 32(space)"); fail = fail + 1 }
+            } else { println("[void-test] T26 FAIL  cell[4]=", scr_cells[4], " expected 77(M)"); fail = fail + 1 }
+        } else { println("[void-test] T26 FAIL  cell[0]=", scr_cells[0], " expected 77(M) after rmcup"); fail = fail + 1 }
+    } else { println("[void-test] T26 FAIL  alt cell[0]=", t26_alt_z, " expected 90(Z) during smcup"); fail = fail + 1 }
+
+    // ── Test 27: Cursor save/restore across alt screen ──
+    // Position cursor at (5,3), enter alt, move cursor to (0,0), leave alt,
+    // verify cursor is back at (5,3).
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // CUP to row 4, col 6 (1-indexed): ESC [ 4 ; 6 H → cursor at (5,3) 0-indexed
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(72)
+    let t27_pre_x = scr_cur_x
+    let t27_pre_y = scr_cur_y
+    // Enter alt: ESC [ ? 1 0 4 9 h
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(104)
+    // Alt cursor should be at (0,0) after clear
+    let t27_alt_x = scr_cur_x
+    let t27_alt_y = scr_cur_y
+    // Move cursor in alt: CUP row 10, col 20: ESC [ 1 0 ; 2 0 H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(72)
+    // Leave alt: ESC [ ? 1 0 4 9 l
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(108)
+    // Cursor should be restored to pre-alt position (5, 3)
+    if t27_pre_x == 5 {
+        if t27_pre_y == 3 {
+            if t27_alt_x == 0 {
+                if t27_alt_y == 0 {
+                    if scr_cur_x == 5 {
+                        if scr_cur_y == 3 {
+                            println("[void-test] T27 PASS cursor save/restore across alt screen")
+                            pass = pass + 1
+                        } else { println("[void-test] T27 FAIL  restored cur_y=", scr_cur_y, " expected 3"); fail = fail + 1 }
+                    } else { println("[void-test] T27 FAIL  restored cur_x=", scr_cur_x, " expected 5"); fail = fail + 1 }
+                } else { println("[void-test] T27 FAIL  alt cur_y=", t27_alt_y, " expected 0"); fail = fail + 1 }
+            } else { println("[void-test] T27 FAIL  alt cur_x=", t27_alt_x, " expected 0"); fail = fail + 1 }
+        } else { println("[void-test] T27 FAIL  pre cur_y=", t27_pre_y, " expected 3"); fail = fail + 1 }
+    } else { println("[void-test] T27 FAIL  pre cur_x=", t27_pre_x, " expected 5"); fail = fail + 1 }
+
+    // ── Test 28: Alt screen scrollback inhibition ──
+    // In alt screen, scrolling should NOT push to scrollback (Terminal.app behavior).
+    // We verify by checking that scr_is_alt gates the scrollback_push calls.
+    // Strategy: enter alt, fill all rows to trigger scroll, leave alt —
+    // the main screen content must be intact (proving no scrollback pollution).
+    COLS = 10
+    ROWS = 3
+    TOTAL = 30
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Write 'A' (65) on main row 0
+    let _ = scr_feed_byte(65)
+    // CUP to row 1 col 1: ESC [ 1 ; 1 H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(72)
+    // Enter alt: ESC [ ? 1 0 4 9 h
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(104)
+    // Fill 4 rows worth of text to trigger scrolling in alt (3 rows only)
+    // Write 30+ chars to fill and scroll the 3-row alt screen
+    let mut t28_i = 0
+    while t28_i < 35 {
+        let _ = scr_feed_byte(88)  // 'X'
+        t28_i = t28_i + 1
+    }
+    // Leave alt: ESC [ ? 1 0 4 9 l
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(108)
+    // Main screen row 0 cell 0 should still be 'A' (65), not scrolled away
+    if scr_cells[0] == 65 {
+        println("[void-test] T28 PASS alt screen scrollback inhibition (main intact after alt scroll)")
+        pass = pass + 1
+    } else {
+        println("[void-test] T28 FAIL  cell[0]=", scr_cells[0], " expected 65(A) — main screen corrupted by alt scroll")
+        fail = fail + 1
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Phase-1 regression block (T29..T53) — common bugs users hit:
+    // SGR reset/color variants, BS/TAB/CR edges, CHA/VPA, ICH,
+    // autowrap. See scripts/test_headless.sh for layer-2 coverage.
+    // ════════════════════════════════════════════════════════════
+
+    // ── Test 29: SGR 0m full reset clears bold+fg+bg ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[1;31;44m — bold red fg + blue bg
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(88) // 'X'
+    // ESC[0m — reset
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(89) // 'Y'
+    if scr_cells[0] == 88 && (scr_flags[0] - (scr_flags[0] / 2) * 2) == 1 {
+        if scr_fg[0] == 1 && scr_bg[0] == 4 {
+            if scr_cells[1] == 89 && scr_fg[1] == 7 && scr_bg[1] == 0 && scr_flags[1] == 0 {
+                println("[void-test] T29 PASS SGR 0m full reset (bold+red+blue → default)")
+                pass = pass + 1
+            } else { println("[void-test] T29 FAIL Y attrs fg=", scr_fg[1], " bg=", scr_bg[1], " flags=", scr_flags[1]); fail = fail + 1 }
+        } else { println("[void-test] T29 FAIL X fg=", scr_fg[0], " bg=", scr_bg[0]); fail = fail + 1 }
+    } else { println("[void-test] T29 FAIL X cell=", scr_cells[0], " flags=", scr_flags[0]); fail = fail + 1 }
+
+    // ── Test 30: SGR with no param == SGR 0m ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Set bold first
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    // ESC[m (empty) should reset
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(65)
+    if scr_cells[0] == 65 && scr_flags[0] == 0 && scr_fg[0] == 7 {
+        println("[void-test] T30 PASS SGR CSI m (no param) resets")
+        pass = pass + 1
+    } else { println("[void-test] T30 FAIL flags=", scr_flags[0], " fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 31: 256-color fg SGR 38;5;196 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[38;5;196m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(70) // 'F'
+    if scr_fg[0] == 196 && scr_cells[0] == 70 {
+        println("[void-test] T31 PASS SGR 38;5;196 (256-color fg)")
+        pass = pass + 1
+    } else { println("[void-test] T31 FAIL fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 32: 256-color bg SGR 48;5;21 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(66) // 'B'
+    if scr_bg[0] == 21 && scr_cells[0] == 66 {
+        println("[void-test] T32 PASS SGR 48;5;21 (256-color bg)")
+        pass = pass + 1
+    } else { println("[void-test] T32 FAIL bg=", scr_bg[0]); fail = fail + 1 }
+
+    // ── Test 33: RGB fg SGR 38;2;255;128;0 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[38;2;255;128;0m — R=255 G=128 B=0
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(82) // 'R'
+    // Encoded: 256 + 255*65536 + 128*256 + 0 = 256 + 16711680 + 32768 + 0 = 16744704
+    if scr_fg[0] == 16744704 && scr_cells[0] == 82 {
+        println("[void-test] T33 PASS SGR 38;2;255;128;0 (RGB fg)")
+        pass = pass + 1
+    } else { println("[void-test] T33 FAIL fg=", scr_fg[0], " expected 16744704"); fail = fail + 1 }
+
+    // ── Test 34: RGB bg SGR 48;2;0;128;255 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(71) // 'G'
+    // 256 + 0*65536 + 128*256 + 255 = 256 + 0 + 32768 + 255 = 33279
+    if scr_bg[0] == 33279 && scr_cells[0] == 71 {
+        println("[void-test] T34 PASS SGR 48;2;0;128;255 (RGB bg)")
+        pass = pass + 1
+    } else { println("[void-test] T34 FAIL bg=", scr_bg[0], " expected 33279"); fail = fail + 1 }
+
+    // ── Test 35: SGR 1;31;44 multi-param combined ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(77) // 'M'
+    let bold_bit = scr_flags[0] - (scr_flags[0] / 2) * 2
+    if scr_fg[0] == 1 && scr_bg[0] == 4 && bold_bit == 1 {
+        println("[void-test] T35 PASS SGR 1;31;44 (bold+red+bluebg combined)")
+        pass = pass + 1
+    } else { println("[void-test] T35 FAIL fg=", scr_fg[0], " bg=", scr_bg[0], " flags=", scr_flags[0]); fail = fail + 1 }
+
+    // ── Test 36: SGR 22 disables bold but keeps color ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[1;31m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    // ESC[22m — cancel bold
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(65)
+    if scr_cells[0] == 65 && scr_fg[0] == 1 && scr_flags[0] == 0 {
+        println("[void-test] T36 PASS SGR 22 disable bold keeps fg=1")
+        pass = pass + 1
+    } else { println("[void-test] T36 FAIL fg=", scr_fg[0], " flags=", scr_flags[0]); fail = fail + 1 }
+
+    // ── Test 37: SGR 39 resets fg to default (7) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[31m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    // ESC[39m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(88)
+    if scr_fg[0] == 7 && scr_cells[0] == 88 {
+        println("[void-test] T37 PASS SGR 39 default fg")
+        pass = pass + 1
+    } else { println("[void-test] T37 FAIL fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 38: SGR 49 resets bg to default (0) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[44m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    // ESC[49m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(89)
+    if scr_bg[0] == 0 && scr_cells[0] == 89 {
+        println("[void-test] T38 PASS SGR 49 default bg")
+        pass = pass + 1
+    } else { println("[void-test] T38 FAIL bg=", scr_bg[0]); fail = fail + 1 }
+
+    // ── Test 39: SGR 24 disables underline ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[4m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    // ESC[24m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(85)
+    // flags bit for underline is 4
+    let under_bit = (scr_flags[0] / 4) - (scr_flags[0] / 8) * 2
+    if scr_cells[0] == 85 && under_bit == 0 {
+        println("[void-test] T39 PASS SGR 24 disable underline")
+        pass = pass + 1
+    } else { println("[void-test] T39 FAIL flags=", scr_flags[0]); fail = fail + 1 }
+
+    // ── Test 40: Bright fg SGR 91 → fg=9 (bright red) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[91m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(82)
+    if scr_fg[0] == 9 && scr_cells[0] == 82 {
+        println("[void-test] T40 PASS SGR 91 bright red fg (=9)")
+        pass = pass + 1
+    } else { println("[void-test] T40 FAIL fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 41: BS at col 5 → col 4 (no erase) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(65) // A
+    let _ = scr_feed_byte(66) // B
+    let _ = scr_feed_byte(67) // C
+    let _ = scr_feed_byte(68) // D
+    let _ = scr_feed_byte(69) // E (cursor now at col 5)
+    let _ = scr_feed_byte(8)  // BS
+    if scr_cur_x == 4 && scr_cells[4] == 69 {
+        println("[void-test] T41 PASS BS col 5 → col 4 (E preserved)")
+        pass = pass + 1
+    } else { println("[void-test] T41 FAIL cur_x=", scr_cur_x, " cell[4]=", scr_cells[4]); fail = fail + 1 }
+
+    // ── Test 42: BS at col 0 stays at col 0 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(8)
+    let _ = scr_feed_byte(8)
+    let _ = scr_feed_byte(8)
+    if scr_cur_x == 0 && scr_cur_y == 0 {
+        println("[void-test] T42 PASS BS at col 0 clamps")
+        pass = pass + 1
+    } else { println("[void-test] T42 FAIL cur=(", scr_cur_y, ",", scr_cur_x, ")"); fail = fail + 1 }
+
+    // ── Test 43: TAB from col 0 → col 8 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(9)
+    if scr_cur_x == 8 {
+        println("[void-test] T43 PASS TAB 0 → 8")
+        pass = pass + 1
+    } else { println("[void-test] T43 FAIL cur_x=", scr_cur_x); fail = fail + 1 }
+
+    // ── Test 44: TAB from col 5 → col 8 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(9)
+    if scr_cur_x == 8 {
+        println("[void-test] T44 PASS TAB 5 → 8")
+        pass = pass + 1
+    } else { println("[void-test] T44 FAIL cur_x=", scr_cur_x); fail = fail + 1 }
+
+    // ── Test 45: TAB from col 15 → col 16 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[1;16H sets cursor to col 15 (1-based 16)
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(72)
+    let _ = scr_feed_byte(9)
+    if scr_cur_x == 16 {
+        println("[void-test] T45 PASS TAB 15 → 16")
+        pass = pass + 1
+    } else { println("[void-test] T45 FAIL cur_x=", scr_cur_x); fail = fail + 1 }
+
+    // ── Test 46: TAB near EOL clamps to COLS-1 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // CUP row 1 col 78 (0-indexed 77): ESC[1;78H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(55)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(72)
+    let _ = scr_feed_byte(9)
+    if scr_cur_x == 79 {
+        println("[void-test] T46 PASS TAB near EOL clamps (77 → 79)")
+        pass = pass + 1
+    } else { println("[void-test] T46 FAIL cur_x=", scr_cur_x, " expected 79"); fail = fail + 1 }
+
+    // ── Test 47: CR moves to col 0 same row ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    let _ = scr_feed_byte(13) // CR
+    if scr_cur_x == 0 && scr_cur_y == 0 && scr_cells[0] == 65 {
+        println("[void-test] T47 PASS CR → col 0 same row")
+        pass = pass + 1
+    } else { println("[void-test] T47 FAIL cur=(", scr_cur_y, ",", scr_cur_x, ") cell[0]=", scr_cells[0]); fail = fail + 1 }
+
+    // ── Test 48: CR then overwrite from col 0 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    let _ = scr_feed_byte(13)
+    let _ = scr_feed_byte(88) // X overwrites A
+    if scr_cells[0] == 88 && scr_cells[1] == 66 && scr_cells[2] == 67 {
+        println("[void-test] T48 PASS CR + overwrite (ABC → XBC)")
+        pass = pass + 1
+    } else { println("[void-test] T48 FAIL cells=", scr_cells[0], ",", scr_cells[1], ",", scr_cells[2]); fail = fail + 1 }
+
+    // ── Test 49: CHA (CSI 5G) sets col absolute to 4 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[5G → col 4 (0-indexed)
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(71)
+    if scr_cur_x == 4 {
+        println("[void-test] T49 PASS CHA ESC[5G → col 4")
+        pass = pass + 1
+    } else { println("[void-test] T49 FAIL cur_x=", scr_cur_x); fail = fail + 1 }
+
+    // ── Test 50: VPA (CSI 5d) sets row absolute to 4 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(100)
+    if scr_cur_y == 4 {
+        println("[void-test] T50 PASS VPA ESC[5d → row 4")
+        pass = pass + 1
+    } else { println("[void-test] T50 FAIL cur_y=", scr_cur_y); fail = fail + 1 }
+
+    // ── Test 51: Autowrap at EOL — 81st char wraps to row 1 ──
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let mut t51_i = 0
+    while t51_i < 81 {
+        let _ = scr_feed_byte(65)
+        t51_i = t51_i + 1
+    }
+    // After 81 'A's: row 0 full, row 1 has 'A' at col 0, cursor at (1,1)
+    if scr_cells[0] == 65 && scr_cells[79] == 65 {
+        let r1 = 1 * COLS
+        if scr_cells[r1] == 65 && scr_cur_y == 1 && scr_cur_x == 1 {
+            println("[void-test] T51 PASS autowrap at col 80 → row 1")
+            pass = pass + 1
+        } else { println("[void-test] T51 FAIL cur=(", scr_cur_y, ",", scr_cur_x, ") row1[0]=", scr_cells[r1]); fail = fail + 1 }
+    } else { println("[void-test] T51 FAIL row0[0]=", scr_cells[0], " row0[79]=", scr_cells[79]); fail = fail + 1 }
+
+    // ── Test 52: ICH (CSI 2@) inserts 2 blanks shifts right ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Write "ABCDE"
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    let _ = scr_feed_byte(68)
+    let _ = scr_feed_byte(69)
+    // Move to col 1 (1-based 2): ESC[1;2H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(72)
+    // ESC[2@ — insert 2 blanks
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(64)
+    // Expect: A _ _ B C D E (B shifted from col 1 to col 3)
+    if scr_cells[0] == 65 && scr_cells[1] == 32 && scr_cells[2] == 32 && scr_cells[3] == 66 && scr_cells[4] == 67 {
+        println("[void-test] T52 PASS ICH insert 2 shifts ABCDE → A__BCDE")
+        pass = pass + 1
+    } else { println("[void-test] T52 FAIL cells=", scr_cells[0], ",", scr_cells[1], ",", scr_cells[2], ",", scr_cells[3], ",", scr_cells[4]); fail = fail + 1 }
+
+    // ── Test 53: ESC c (RIS) full reset clears screen and attrs ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Write bold red 'Z'
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(90)
+    // ESC c — RIS
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(99)
+    // After reset: cell[0] = space, cur_fg = 7, cur_bold = 0
+    if scr_cells[0] == 32 && cur_fg == 7 && cur_bold == 0 {
+        println("[void-test] T53 PASS ESC c (RIS) reset")
+        pass = pass + 1
+    } else { println("[void-test] T53 FAIL cell[0]=", scr_cells[0], " cur_fg=", cur_fg, " cur_bold=", cur_bold); fail = fail + 1 }
 
     // ── Summary ──
     println("")

@@ -38,8 +38,13 @@ if [[ $need_transpile -eq 0 ]]; then
 fi
 
 if [[ $need_transpile -eq 1 ]]; then
+  # hexa build writes the intermediate .c to build/artifacts/<stem>.c where
+  # stem = basename of -o argument minus .hexa (self/main.hexa:552). So we
+  # pass -o ending in `void_term_new` to get build/artifacts/void_term_new.c
+  # — matching $ARTIFACT. Any prior -o like `.stage.stage1` yielded the
+  # wrong .c path and the script then patched+linked STALE C from yesterday.
   echo "[build] transpile: hexa build $ROOT/src/void_main.hexa (may take minutes)"
-  (cd "$ROOT" && "$HEXA" build src/void_main.hexa -o "$OUT.stage1" 2>/tmp/void_build_stage1.log) || {
+  (cd "$ROOT" && "$HEXA" build src/void_main.hexa -o /tmp/void_term_new 2>/tmp/void_build_stage1.log) || {
     if [[ ! -s "$ARTIFACT" ]]; then
       echo "[build] FAIL: transpile did not produce $ARTIFACT"
       tail -30 /tmp/void_build_stage1.log
@@ -47,6 +52,15 @@ if [[ $need_transpile -eq 1 ]]; then
     fi
     echo "[build] stage1 linker failure ignored (we relink ourselves)"
   }
+  # Sanity: confirm the fresh .c was produced AND is newer than sources.
+  for src in "$ROOT"/src/*.hexa; do
+    if [[ -f "$src" && "$src" -nt "$ARTIFACT" ]]; then
+      echo "[build] FAIL: transpile did not refresh $ARTIFACT (still older than $src)"
+      echo "        hexa-lang stem mismatch? expected build/artifacts/void_term_new.c"
+      ls -la "$ARTIFACT" "$src"
+      exit 1
+    fi
+  done
 else
   echo "[build] transpile: skip (artifact up-to-date: $ARTIFACT)"
 fi
@@ -154,7 +168,7 @@ if [[ "${SKIP_TESTS:-0}" == "1" ]]; then
 fi
 
 echo "[build] harness: running self-test against staging binary …"
-BIN="$STAGE" LOG=/tmp/void_test_stage.log EXPECTED_MIN=25 \
+BIN="$STAGE" LOG=/tmp/void_test_stage.log EXPECTED_MIN=28 \
   "$ROOT/scripts/test_void.sh" --no-rebuild
 test_rc=$?
 if [[ $test_rc -ne 0 ]]; then
@@ -162,6 +176,22 @@ if [[ $test_rc -ne 0 ]]; then
   echo "[build]   staging removed — no /tmp/void_term produced"
   rm -f "$STAGE"
   exit $test_rc
+fi
+
+# Headless renderer regressions — run the staging binary through every
+# tests/headless/*.in scenario. Each compares the post-feed grid dump
+# to a committed *.grid golden. Skipped when SKIP_HEADLESS=1 (e.g.
+# during a scenario update: run test_headless.sh manually with
+# UPDATE_GOLDEN=1 and commit).
+if [[ "${SKIP_HEADLESS:-0}" != "1" ]] && [[ -d "$ROOT/tests/headless" ]]; then
+  echo "[build] harness: running headless scenarios …"
+  BIN="$STAGE" "$ROOT/scripts/test_headless.sh"
+  headless_rc=$?
+  if [[ $headless_rc -ne 0 ]]; then
+    echo "[build] ✗ HEADLESS REJECTED staging binary (exit=$headless_rc)"
+    rm -f "$STAGE"
+    exit $headless_rc
+  fi
 fi
 
 mv "$STAGE" "$FINAL"

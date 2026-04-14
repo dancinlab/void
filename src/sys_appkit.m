@@ -203,9 +203,24 @@ long hexa_appkit_set_title(void) {
 #define SB_TOTAL_LINES   (SB_SECTION_LINES * SB_MAX_SECTIONS)
 
 typedef struct {
-    unichar ch;
+    uint32_t ch;  // full codepoint (SMP emoji >0xFFFF must survive — VP-08)
     int fg, bg, flags;
 } TermCell;
+
+// SMP-safe NSString from a single codepoint. Caller owns the return (autoreleased).
+// Splits cp>0xFFFF into a UTF-16 surrogate pair so emoji/pictograph glyphs don't
+// truncate to 16-bit unichar and render as garbage (Claude Code CLI TUI icons).
+static inline NSString *void_nsstring_for_cp(uint32_t cp) {
+    if (cp <= 0xFFFF) {
+        unichar u = (unichar)cp;
+        return [NSString stringWithCharacters:&u length:1];
+    }
+    uint32_t v = cp - 0x10000;
+    unichar pair[2];
+    pair[0] = (unichar)(0xD800 | (v >> 10));
+    pair[1] = (unichar)(0xDC00 | (v & 0x3FF));
+    return [NSString stringWithCharacters:pair length:2];
+}
 
 // ── Compressed scrollback row ──
 // Each row stores only the non-trailing-space prefix (trimmed_len cells).
@@ -448,6 +463,21 @@ static int g_term_cur_col;
 // Tentative def — real definition further down. Referenced by
 // apply_grid_layout above it.
 static int g_full_redraw;
+
+// ── Headless test mode (VOID_HEADLESS=1) ─────────────────────────────
+// Skip NSApp/NSWindow/menu entirely. The hexa VT parser + scr_cells +
+// sync_to_bridge → g_term_grid pipeline still runs, but driven by a
+// regular file (VOID_HEADLESS_FEED) instead of a PTY. On exit we dump
+// g_term_grid to VOID_HEADLESS_DUMP (default /tmp/void_headless.grid)
+// so a harness can diff against a golden file. Runs fully in the
+// background with no windows popping on-screen — exists so Claude
+// Code can regression-test renderer behavior during ./scripts/
+// test_void.sh without hijacking the user's desktop focus.
+static int g_headless = 0;
+static int g_offscreen = 0;
+static int g_headless_tick = 0;
+static int g_headless_max_ticks = 30;
+static void dump_headless_grid(void);
 
 // ── Speculative Hot Swap state ───────────────────────────────────────
 // Self-replace across a rebuild while keeping PTY file descriptors (and
@@ -1481,8 +1511,7 @@ static inline int ime_has_marked(void) {
                         attrBuf[NSFontAttributeName] = (__bridge id)df;
                         attrBuf[NSForegroundColorAttributeName] = term_color(fg);
                         if (cell->flags & 4) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
-                        unichar uch = cell->ch;
-                        NSString *s = [NSString stringWithCharacters:&uch length:1];
+                        NSString *s = void_nsstring_for_cp(cell->ch);
                         NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
                         [as drawAtPoint:NSMakePoint(x, y + 2)];
                         [as release];
@@ -1818,8 +1847,7 @@ static inline int ime_has_marked(void) {
                 attrBuf[NSFontAttributeName] = (__bridge id)(bold ? g_term_font_bold : g_term_font);
                 attrBuf[NSForegroundColorAttributeName] = term_color(fg);
                 if (under) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
-                unichar uch = cell->ch;
-                NSString *s = [NSString stringWithCharacters:&uch length:1];
+                NSString *s = void_nsstring_for_cp(cell->ch);
                 NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
                 [as drawAtPoint:NSMakePoint(x, y + 2)];
                 [as release];
@@ -1838,8 +1866,7 @@ static inline int ime_has_marked(void) {
                 run_bold    = bold;
                 run_under   = under;
             }
-            unichar uch = cell->ch;
-            [runBuf appendString:[NSString stringWithCharacters:&uch length:1]];
+            [runBuf appendString:void_nsstring_for_cp(cell->ch)];
         }
         // End of row: flush any trailing run.
         flush_run();
@@ -3828,6 +3855,35 @@ static int try_single_instance(void) {
 long hexa_appkit_init_term(long rows, long cols, long font_size) {
     capture_argv0_once();
 
+    // ── Headless short-circuit ──
+    // VOID_HEADLESS=1: skip every NSApp/NSWindow/menu/dock step. Only
+    // seed the grid dims hexa needs (via get_rows/get_cols) and flip
+    // g_headless so poll/flush/check_resize/tab_new take their headless
+    // branches. See the comment near g_headless declaration.
+    if (getenv("VOID_HEADLESS")) {
+        g_headless = 1;
+        g_offscreen = getenv("VOID_HEADLESS_OFFSCREEN") ? 1 : 0;
+        const char *rs = getenv("VOID_HEADLESS_ROWS");
+        const char *cs = getenv("VOID_HEADLESS_COLS");
+        int hr = rs ? atoi(rs) : 24, hc = cs ? atoi(cs) : 80;
+        if (hr < 1 || hr > TERM_MAX_ROWS) hr = 24;
+        if (hc < 1 || hc > TERM_MAX_COLS) hc = 80;
+        g_term_rows = hr; g_term_cols = hc;
+        const char *maxt = getenv("VOID_HEADLESS_MAX_TICKS");
+        if (maxt) { int v = atoi(maxt); if (v > 0) g_headless_max_ticks = v; }
+        (void)rows; (void)cols; (void)font_size;
+        if (!g_offscreen) {
+            g_term_cw = 8; g_term_ch = 16;
+            tab_clear_grid(g_term_grid);
+            fprintf(stderr, "[void-headless] init rows=%d cols=%d (no NSApp)\n",
+                    g_term_rows, g_term_cols);
+            return 0;
+        }
+        // Offscreen: fall through to full init, gated by g_offscreen below.
+        fprintf(stderr, "[void-offscreen] init rows=%d cols=%d\n",
+                g_term_rows, g_term_cols);
+    }
+
     // Shadow mode: our parent is about to hand over control. Skip the
     // single-instance lock (parent still holds it, will release on exit),
     // adopt the inherited handoff socket, and read the state file.
@@ -3845,7 +3901,7 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             }
             unlink(handoff_path); // one-shot
         }
-    } else if (!try_single_instance()) {
+    } else if (!g_offscreen && !try_single_instance()) {
         fprintf(stderr, "[void] already running\n");
         return -1;
     }
@@ -3887,6 +3943,15 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             wh = restored_hdr.win_h;
             wx = restored_hdr.win_x;
             wy = restored_hdr.win_y;
+        } else if (g_offscreen) {
+            // Honor VOID_HEADLESS_ROWS/COLS exactly — offscreen is for
+            // deterministic tests, screen auto-size would vary by display.
+            int init_tbw = effective_tab_bar_w();
+            tab_clear_grid(g_term_grid);
+            ww = init_tbw + 2 * TERM_PAD + g_term_cw * g_term_cols;
+            wh = 2 * TERM_PAD + g_term_ch * g_term_rows;
+            wx = -99999;
+            wy = -99999;
         } else {
             ww = screenFrame.size.width * 0.85;
             wh = screenFrame.size.height * 0.85;
@@ -3941,7 +4006,7 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         // hexa_tab_new's first call from main() becomes a no-op and
         // doesn't spawn a redundant blank tab on top of the restored
         // ones.
-        if (!is_shadow && void_server_enabled()) {
+        if (!is_shadow && !g_offscreen && void_server_enabled()) {
             // Fresh launch (not hot-swap): kill ALL prior sessions.
             // The previous instance should have cleaned up via
             // applicationWillTerminate, but that handler is bypassed
@@ -4046,7 +4111,10 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
 
         // Shadow process keeps its window off-screen until the parent
         // hands over (RDY/GO protocol). Everyone else shows it now.
-        if (!is_shadow) {
+        if (g_offscreen) {
+            [g_window setAlphaValue:0.0];
+            [g_window setFrameOrigin:NSMakePoint(-99999, -99999)];
+        } else if (!is_shadow) {
             [g_window makeKeyAndOrderFront:nil];
         }
 
@@ -4409,6 +4477,75 @@ static int tab_become_profile(int idx, VoidProfile *vp) {
 // The user picks a profile via Cmd+Ctrl+N which then converts the blank
 // in place via tab_become_profile, so the app opens with zero clutter.
 long hexa_tab_new(void) {
+    // Headless (no-NSApp) tab path. Skipped for g_offscreen — offscreen
+    // uses the real tab_spawn_pty_profile path below so VOID_HEADLESS_
+    // ACTION=profile1 dispatches through the normal NSApp pipeline.
+    if (g_headless && !g_offscreen) {
+        const char *spawn = getenv("VOID_HEADLESS_SPAWN");
+        const char *feed  = getenv("VOID_HEADLESS_FEED");
+        int fd = -1;
+        if (spawn && spawn[0]) {
+            struct winsize ws;
+            ws.ws_row = (unsigned short)g_term_rows;
+            ws.ws_col = (unsigned short)g_term_cols;
+            ws.ws_xpixel = 0;
+            ws.ws_ypixel = 0;
+            int master = -1;
+            pid_t pid = forkpty(&master, NULL, NULL, &ws);
+            if (pid < 0) {
+                fprintf(stderr, "[void-headless] forkpty failed\n");
+                return -1;
+            }
+            if (pid == 0) {
+                setenv("TERM", "xterm-256color", 1);
+                setenv("LANG", "en_US.UTF-8", 1);
+                setenv("CLICOLOR", "1", 1);
+                // Prepend common PATH dirs so commands like `claude`
+                // resolve even when the harness scrubbed PATH.
+                const char *old_path = getenv("PATH");
+                char new_path[2048];
+                snprintf(new_path, sizeof(new_path),
+                         "%s/.local/bin:%s/bin:/opt/homebrew/bin:/usr/local/bin:%s",
+                         getenv("HOME") ?: "", getenv("HOME") ?: "",
+                         old_path ?: "/usr/bin:/bin");
+                setenv("PATH", new_path, 1);
+                execl("/bin/sh", "sh", "-c", spawn, (char*)NULL);
+                _exit(127);
+            }
+            int fl = fcntl(master, F_GETFL, 0);
+            fcntl(master, F_SETFL, fl | O_NONBLOCK);
+            fd = master;
+            fprintf(stderr, "[void-headless] spawn pid=%d: %s\n", pid, spawn);
+        } else if (feed && feed[0]) {
+            fd = open(feed, O_RDONLY);
+            if (fd < 0) {
+                fprintf(stderr, "[void-headless] open feed '%s' failed\n", feed);
+                return -1;
+            }
+        } else {
+            fd = open("/dev/null", O_RDONLY);
+            if (fd < 0) return -1;
+        }
+        int idx = g_num_tabs;
+        memset(&g_tabs[idx], 0, sizeof(VoidTab));
+        g_tabs[idx].used         = 1;
+        g_tabs[idx].pty_fd       = fd;
+        g_tabs[idx].pid          = 0;
+        g_tabs[idx].is_blank     = 0;
+        g_tabs[idx].title_locked = 1;
+        snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "headless");
+        tab_clear_grid(g_tabs[idx].grid);
+        g_tabs[idx].tile_rows = g_term_rows;
+        g_tabs[idx].tile_cols = g_term_cols;
+        g_num_tabs++;
+        g_active_tab = idx;
+        const char *src = (spawn && spawn[0]) ? "spawn"
+                        : (feed  && feed[0])  ? feed
+                                              : "(none)";
+        fprintf(stderr, "[void-headless] tab 0 fd=%d source=%s\n", fd, src);
+        return (long)idx;
+    }
+
     // Blank-initial rule: the first tab is always a real working shell
     // (so ssh/git/etc. are immediately usable) but flagged is_blank so
     // a profile shortcut can convert it in place — UNTIL the user types
@@ -4800,9 +4937,9 @@ void hexa_appkit_term_set_cell(int row, int col, int ch, int fg, int bg, int fla
     TermCell *cp = &g_term_grid[row][col];
     // Equal-cell early exit: hexa's sync_to_bridge writes the whole grid every
     // frame; this cuts ~90% of writes for typing workloads.
-    if (cp->ch == (unichar)ch && cp->fg == fg &&
+    if (cp->ch == (uint32_t)ch && cp->fg == fg &&
         cp->bg == bg && cp->flags == flags) return;
-    cp->ch = (unichar)ch;
+    cp->ch = (uint32_t)ch;
     cp->fg = fg;
     cp->bg = bg;
     cp->flags = flags;
@@ -5022,7 +5159,133 @@ static void paste_from_clipboard(void) {
     }
 }
 
+// Write g_term_grid + cursor state to VOID_HEADLESS_DUMP (or
+// /tmp/void_headless.grid). Called once right before the headless poll
+// returns quit=1 so the caller can diff against a golden file.
+// Format (readable by `diff`, greppable by test harness):
+//   # void headless grid dump — rows=R cols=C cursor=(r,c)
+//   <row 0 as UTF-8 text; ch<0x20 → '.'>
+//   <row 1>
+//   …
+//   # flags — one char per cell:
+//   #   '.' normal   'W' wide-head (cell uses 2 columns)
+//   #   'c' continuation (right half of a wide char)
+//   <row 0 flags, only printed when VOID_HEADLESS_DUMP_FLAGS=1 or
+//    any row has non-'.' flags — catches CJK wide-char layout bugs
+//    that the text row alone can mask.>
+//   …
+//   # cursor_row=r cursor_col=c cursor_vis=v
+static void dump_headless_grid(void) {
+    const char *dump = getenv("VOID_HEADLESS_DUMP");
+    if (!dump || !dump[0]) dump = "/tmp/void_headless.grid";
+    FILE *f = fopen(dump, "w");
+    if (!f) {
+        fprintf(stderr, "[void-headless] dump open %s failed\n", dump);
+        return;
+    }
+    fprintf(f, "# void headless grid dump — rows=%d cols=%d cursor=(%d,%d)\n",
+            g_term_rows, g_term_cols, g_term_cur_row, g_term_cur_col);
+
+    // 1) Text rows — UTF-8 encode BMP codepoints so CJK/Emoji renders
+    //    readably in the dump file and survives a text diff.
+    for (int r = 0; r < g_term_rows; r++) {
+        for (int c = 0; c < g_term_cols; c++) {
+            unichar ch = g_term_grid[r][c].ch;
+            if (ch == 0) ch = ' ';
+            if (ch < 0x20) {
+                fputc('.', f);
+            } else if (ch < 0x80) {
+                fputc((char)ch, f);
+            } else if (ch < 0x800) {
+                fputc(0xc0 | (ch >> 6),   f);
+                fputc(0x80 | (ch & 0x3f), f);
+            } else {
+                fputc(0xe0 | (ch >> 12),         f);
+                fputc(0x80 | ((ch >> 6) & 0x3f), f);
+                fputc(0x80 | (ch & 0x3f),        f);
+            }
+        }
+        fputc('\n', f);
+    }
+
+    // 2) Flags block — only emitted when the grid has any wide/continuation
+    //    cells, or when the caller forces it via VOID_HEADLESS_DUMP_FLAGS=1.
+    //    Purpose: CJK/emoji layout regressions (e.g. "가" occupying 1
+    //    column instead of 2, or continuation cells drifting) produce
+    //    identical TEXT rows but different flag maps — text diff alone
+    //    would miss them.
+    int force_flags = 0;
+    const char *ff = getenv("VOID_HEADLESS_DUMP_FLAGS");
+    if (ff && ff[0] == '1') force_flags = 1;
+    int any_wide = 0;
+    if (!force_flags) {
+        for (int r = 0; r < g_term_rows && !any_wide; r++) {
+            for (int c = 0; c < g_term_cols; c++) {
+                int flg = g_term_grid[r][c].flags;
+                if (flg & 0x30000) { any_wide = 1; break; }
+            }
+        }
+    }
+    if (force_flags || any_wide) {
+        fprintf(f, "# flags (. normal, W wide, c continuation)\n");
+        for (int r = 0; r < g_term_rows; r++) {
+            for (int c = 0; c < g_term_cols; c++) {
+                int flg = g_term_grid[r][c].flags;
+                char k = '.';
+                if (flg & 0x10000) k = 'W';        // wide-head
+                else if (flg & 0x20000) k = 'c';   // continuation
+                fputc(k, f);
+            }
+            fputc('\n', f);
+        }
+    }
+
+    fprintf(f, "# cursor_row=%d cursor_col=%d cursor_vis=%d\n",
+            g_term_cur_row, g_term_cur_col, g_term_cur_vis);
+    fclose(f);
+    fprintf(stderr, "[void-headless] grid dumped to %s\n", dump);
+
+    // Offscreen-only: PNG snapshot of the real Core Text render output.
+    // Catches drawRect-level bugs (glyph overlap, font metrics, selection
+    // highlight) that the text-grid dump alone cannot see.
+    const char *snap = getenv("VOID_HEADLESS_SNAPSHOT");
+    if (g_offscreen && snap && snap[0] && g_window) {
+        @autoreleasepool {
+            NSView *v = [g_window contentView];
+            [v display];
+            NSRect b = [v bounds];
+            NSBitmapImageRep *rep = [v bitmapImageRepForCachingDisplayInRect:b];
+            if (rep) {
+                [v cacheDisplayInRect:b toBitmapImageRep:rep];
+                NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG
+                                                properties:@{}];
+                if (png) {
+                    [png writeToFile:[NSString stringWithUTF8String:snap]
+                          atomically:YES];
+                    fprintf(stderr, "[void-offscreen] snapshot %zuB → %s\n",
+                            (size_t)png.length, snap);
+                }
+            }
+        }
+    }
+}
+
 void hexa_appkit_term_flush(void) {
+    if (g_headless && !g_offscreen) return;
+    if (g_offscreen) {
+        @autoreleasepool {
+            NSView *v = [g_window contentView];
+            if (v) {
+                g_prev_grid_valid = 0;
+                g_full_redraw = 0;
+                g_dirty_min = -1; g_dirty_max = -1;
+                [v display];   // Synchronous drawRect — drives Core Text
+                               // render even when the window was never
+                               // ordered-front.
+            }
+        }
+        return;
+    }
     @autoreleasepool {
         NSView *v = [g_window contentView];
         if (!v) return;
@@ -5055,7 +5318,54 @@ void hexa_appkit_term_flush(void) {
 
 static int g_resized = 0;
 
+// Fire pending selector on g_term_delegate once, at offscreen tick 3, so
+// the window has stabilized. VOID_HEADLESS_ACTION=profile1..9|grid|stacked|
+// new_tab|close_tab dispatches to the same menu handler Cmd+Ctrl+N uses.
+static void offscreen_dispatch_action(void) {
+    const char *act = getenv("VOID_HEADLESS_ACTION");
+    if (!act || !act[0] || !g_term_delegate) return;
+    if (strncmp(act, "profile", 7) == 0 && act[7] >= '0' && act[7] <= '9') {
+        VoidProfile *vp = profile_by_key(act[7]);
+        if (vp) {
+            g_pending_profile = vp;
+            g_tab_cmd = 1;
+        }
+    } else if (strcmp(act, "grid") == 0) {
+        [g_term_delegate menuLayoutGrid:nil];
+    } else if (strcmp(act, "stacked") == 0) {
+        [g_term_delegate menuLayoutStacked:nil];
+    } else if (strcmp(act, "new_tab") == 0) {
+        g_tab_cmd = 1;
+    } else if (strcmp(act, "close_tab") == 0) {
+        g_tab_cmd = 2;
+    }
+    fprintf(stderr, "[void-offscreen] action=%s dispatched\n", act);
+}
+
 long hexa_appkit_term_poll(void) {
+    if (g_headless && !g_offscreen) {
+        g_headless_tick++;
+        struct timespec ts = { 0, 2 * 1000 * 1000 };
+        nanosleep(&ts, NULL);
+        if (g_headless_tick >= g_headless_max_ticks) {
+            fprintf(stderr, "[void-headless] tick budget hit (%d)\n",
+                    g_headless_max_ticks);
+            dump_headless_grid();
+            return 1;
+        }
+        return 0;
+    }
+    if (g_offscreen) {
+        g_headless_tick++;
+        if (g_headless_tick == 3) offscreen_dispatch_action();
+        if (g_headless_tick >= g_headless_max_ticks) {
+            fprintf(stderr, "[void-offscreen] tick budget hit (%d)\n",
+                    g_headless_max_ticks);
+            dump_headless_grid();
+            return 1;
+        }
+        // Fall through to AppKit event loop so dispatched shortcuts run.
+    }
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
         while (1) {
@@ -5340,6 +5650,7 @@ long hexa_appkit_term_poll(void) {
 
 // Returns 1 if window was resized since last check, 0 otherwise.
 long hexa_appkit_term_check_resize(void) {
+    if (g_headless) return 0;
     if (g_resized) {
         g_resized = 0;
         FILE *dbg = fopen("/tmp/void_dbg.log", "a");

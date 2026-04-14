@@ -15,7 +15,7 @@ set -u
 ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BIN="${BIN:-/tmp/void_term}"
 LOG="${LOG:-/tmp/void_test.log}"
-EXPECTED_MIN="${EXPECTED_MIN:-25}"    # total T1..T25 in self_test
+EXPECTED_MIN="${EXPECTED_MIN:-28}"    # total T1..T28 in self_test
 TIMEOUT_SEC="${TIMEOUT_SEC:-30}"
 RC=0
 

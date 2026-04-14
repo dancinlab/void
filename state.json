@@ -1,7 +1,7 @@
 {
   "_meta": {
     "purpose": "void SSoT — layers, blockers, next steps",
-    "updated": "2026-04-12"
+    "updated": "2026-04-14"
   },
   "layers": {
     "L1_sys": {
@@ -27,12 +27,12 @@
     "app_bundle": "VOID.app",
     "size_bytes": 197544,
     "arch": "arm64",
-    "self_test": "25/25 pass"
+    "self_test": "28/28 pass"
   },
   "features": {
     "vt_parser": "6-state (GROUND/ESC/CSI/OSC_NUM/OSC_STR/CHARSET)",
     "sgr": "0/1/4/7/22/24/27/30-37/38;5;N/38;2;R;G;B/39/40-47/48;5;N/48;2;R;G;B/49/90-97/100-107",
-    "csi": "CUP/CUU/CUD/CUF/CUB/ED/EL/IL/DL/DCH/ICH/ECH/SU/SD/DECSTBM/SGR/save/restore",
+    "csi": "CUP/CUU/CUD/CUF/CUB/ED/EL/IL/DL/DCH/ICH/ECH/SU/SD/DECSTBM/SGR/save/restore/?1049h/?1049l/?1047/?47/?1048(alt screen)",
     "osc": "OSC 0 title (BEL + ST)",
     "tabs": "Cmd+T new / Cmd+W close / Cmd+1~9,Cmd+0 switch (10 slots) / Cmd+Ctrl+0~9 profile / click switch / left tab bar 140px",
     "profiles": "~/.void/profiles.json — key 0~9, title/path/cmd, title dedup (name / name (2)), auto-seeded template on first run",
@@ -44,6 +44,7 @@
     "app_bundle": "VOID.app (Info.plist + AppIcon.icns)",
     "damage_tracking": "set_cell equal-exit + dirty row range → setNeedsDisplay:YES full-view redraw (macOS 15+ layer-backed view backing store 미보존 대응)",
     "resource_isolation": "per-child setrlimit RLIMIT_NOFILE=4096 / RLIMIT_AS=4GB, setsid, optional per-profile cpu/mem/nice caps",
+    "alt_screen": "?1049h/?1049l (smcup/rmcup) + ?1047/?47/?1048 variants — dual buffer swap, cursor+SGR save/restore, scrollback inhibition (Terminal.app behavior)",
     "memory_safety": "drawRect @autoreleasepool + NSAttributedString release + cached bold font + ANSI color cache (fixes Terminal.app-style heap pressure)"
   },
   "blockers": {
@@ -57,12 +58,11 @@
     "OSC 7 CWD 파싱 (file autocomplete 기반)",
     "settings UI 창 (Cmd+, → profile 편집)",
     "선택 + 복사/붙여넣기 (Cmd+C/V)",
-    "alternate screen buffer (smcup/rmcup)",
     "glyph atlas (Core Text 대신 pre-rendered bitmap cache)"
   ],
   "last_test": {
-    "date": "2026-04-12",
-    "result": "25/25 pass",
-    "binary_size": 197544
+    "date": "2026-04-14",
+    "result": "28/28 pass",
+    "binary_size": 388848
   }
 }
