@@ -17,6 +17,11 @@
 //   hexa_keys_to_pty(master_fd)
 //   hexa_pty_poll_read(fd, timeout_ms)
 //   hexa_pty_read_byte(idx)
+//   hexa_keybuf_len() / hexa_keybuf_byte(i) / hexa_keybuf_clear()
+//   hexa_void_putc(fd, b)  — sys_pty.c, single-byte fd write
+// builtin_cmds.hexa deps (use'd above this file in the bundle):
+//   line_buf_push / line_buf_pop / line_buf_clear / line_buf_at /
+//   line_buf_len / try_builtin(fd) -> int
 //
 // Public API:
 //   prompt_forward_keys(master_fd)        -> int   bytes forwarded
@@ -27,11 +32,87 @@
 // allocations or dict mutations inside the inner while loop (R memory
 // feedback_hot_attr_dict_mutation — @hot aliasing pitfall).
 
-// Forward queued keystrokes from the AppKit keybuf to the active PTY.
-// Thin wrapper today; placeholder for future intent-aware filtering
-// (e.g. command-palette interception, paste bracketing).
+// FEATURE-P0-1: import builtin command dispatcher (cd/pwd/clear/
+// history/help). MUST appear before this file's first call to
+// try_builtin / line_buf_*.
+use "builtin_cmds"
+
+// Forward queued keystrokes from the AppKit keybuf to the active PTY,
+// with FEATURE-P0-1 builtin interception layered in.
+//
+// Algorithm:
+//   For each byte in the live keybuf snapshot:
+//     - Enter (\r=13 or \n=10) → consult try_builtin(fd).
+//         1 → builtin handled: emit local CR+LF so the VT parser
+//             advances to a new line, drop the typed bytes (do NOT
+//             forward to shell), reset line_buf.
+//         0 → not a builtin: flush accumulated line_buf bytes +
+//             this Enter to the PTY, reset line_buf.
+//     - Backspace (8) / DEL (127) → pop from line_buf so our mirror
+//         tracks what the shell sees, forward immediately.
+//     - Other bytes → accumulate in line_buf, defer forwarding until
+//         Enter so suppressed builtins never reach the shell.
+//   Drain the C ring once at the end (hexa_keybuf_clear) — we have
+//   either forwarded each byte via hexa_void_putc or absorbed it.
+//
+// Returns the number of bytes actually written to the PTY master,
+// matching the prior hexa_keys_to_pty return semantics.
 fn prompt_forward_keys(master_fd) {
-    return hexa_keys_to_pty(master_fd)
+    let n = hexa_keybuf_len()
+    if n <= 0 {
+        return 0
+    }
+    let mut forwarded = 0
+    let mut i = 0
+    while i < n {
+        let b = hexa_keybuf_byte(i)
+        if b == 13 {
+            let handled = try_builtin(master_fd)
+            if handled == 1 {
+                let _ = hexa_void_putc(master_fd, 13)
+                let _ = hexa_void_putc(master_fd, 10)
+            } else {
+                let bl = line_buf_len()
+                let mut j = 0
+                while j < bl {
+                    let _ = hexa_void_putc(master_fd, line_buf_at(j))
+                    j = j + 1
+                }
+                let _ = hexa_void_putc(master_fd, b)
+                forwarded = forwarded + bl + 1
+            }
+            line_buf_clear()
+        } else if b == 10 {
+            let handled = try_builtin(master_fd)
+            if handled == 1 {
+                let _ = hexa_void_putc(master_fd, 13)
+                let _ = hexa_void_putc(master_fd, 10)
+            } else {
+                let bl = line_buf_len()
+                let mut j = 0
+                while j < bl {
+                    let _ = hexa_void_putc(master_fd, line_buf_at(j))
+                    j = j + 1
+                }
+                let _ = hexa_void_putc(master_fd, b)
+                forwarded = forwarded + bl + 1
+            }
+            line_buf_clear()
+        } else if b == 8 {
+            line_buf_pop()
+            let _ = hexa_void_putc(master_fd, b)
+            forwarded = forwarded + 1
+        } else if b == 127 {
+            line_buf_pop()
+            let _ = hexa_void_putc(master_fd, b)
+            forwarded = forwarded + 1
+        } else {
+            line_buf_push(b)
+        }
+        i = i + 1
+    }
+    let _ = hexa_keybuf_clear()
+    return forwarded
 }
 
 // Drain currently-available PTY output bytes and feed them through the

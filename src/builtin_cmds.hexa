@@ -1,0 +1,307 @@
+// builtin_cmds.hexa — VOID REPL in-process command dispatcher
+//
+// Scope: APP-layer. Five builtin commands execute inside the REPL
+// process without spawning anything: cd / pwd / clear / history / help.
+// Goal (FEATURE-P0-1): <1ms response, zero external binary lookup,
+// zero shell roundtrip for these five.
+//
+// Hexa import contract: textual `use "builtin_cmds"` inlining via
+// ~/Dev/hexa-lang/self/build_c.hexa. Cross-references to EXTERN
+// bridges (hexa_void_*) resolve in the same compilation unit after
+// inlining; sys_pty.c declares them.
+//
+// EXTERN deps (declared below; bodies in src/sys_pty.c):
+//   hexa_void_path_reset()           — clear staged path buffer
+//   hexa_void_path_push(b)           — append one byte to staged path
+//   hexa_void_chdir() -> int         — chdir(2) to staged path
+//   hexa_void_cwd_refresh() -> int   — snapshot getcwd → static buf
+//   hexa_void_cwd_byte(i) -> int     — read one byte of cwd snapshot
+//   hexa_void_putc(fd, b) -> int     — write one byte to fd
+//
+// Public API (called from prompt_parser.hexa):
+//   line_buf_push(b)               — append byte to current line
+//   line_buf_clear()               — reset after Enter
+//   line_buf_len()                 — current length
+//   try_builtin(fd) -> int         — 0=non-builtin (forward to PTY),
+//                                    1=handled (suppress PTY forward)
+//
+// cwd asymmetry note: cd here changes ONLY the REPL process cwd. The
+// spawned shell child keeps its own cwd — that's why running `pwd` in
+// the shell after our `cd` will still show the old directory. Future
+// work: re-spawn shell on cd, or send `cd <path>\n` to PTY too.
+// Documented inside cmd_help().
+
+extern fn hexa_void_path_reset()
+extern fn hexa_void_path_push(b: int)
+extern fn hexa_void_chdir() -> int
+extern fn hexa_void_cwd_refresh() -> int
+extern fn hexa_void_cwd_byte(i: int) -> int
+extern fn hexa_void_putc(fd: int, b: int) -> int
+
+// Per-line accumulator. Mirrors the bytes the user typed since last
+// Enter so try_builtin() can match against builtin keywords without
+// touching the C-side keybuf ring (which is consumed eagerly by
+// hexa_keys_to_pty for normal forwarding).
+//
+// Hot-path note (R memory feedback_hot_attr_dict_mutation): this is a
+// list, not a dict — push() returns a new list, so we always rebind
+// to avoid the @hot dict-mutation aliasing pitfall.
+let mut line_buf = []
+
+fn line_buf_push(b: int) {
+    line_buf = line_buf.push(b)
+}
+
+fn line_buf_clear() {
+    line_buf = []
+}
+
+fn line_buf_len() -> int {
+    return len(line_buf)
+}
+
+fn line_buf_at(i: int) -> int {
+    return line_buf[i]
+}
+
+// Pop one byte (for backspace). No-op when empty so the caller can
+// blindly call it on every BS keystroke without bounds-checking.
+fn line_buf_pop() {
+    let n = len(line_buf)
+    if n <= 0 {
+        return
+    }
+    let mut out = []
+    let mut i = 0
+    while i < n - 1 {
+        out = out.push(line_buf[i])
+        i = i + 1
+    }
+    line_buf = out
+}
+
+// ── Helpers ──────────────────────────────────────────────────────
+
+// Write each char of an ASCII string literal to fd via per-byte putc.
+// Hexa strings expose codepoints via .chars() (int per element); we
+// rely on the builtin sequence being pure ASCII so codepoint == byte.
+// Strings here are short (<200 bytes) — perf is not a concern.
+fn write_str(fd: int, s) {
+    let cs = s.chars()
+    let n = len(cs)
+    let mut i = 0
+    while i < n {
+        let _ = hexa_void_putc(fd, cs[i])
+        i = i + 1
+    }
+}
+
+// Compare line_buf[start..start+len(needle_chars)] == needle (byte-wise).
+// `needle_chars` is the result of needle.chars() (int per element).
+// Returns 1 on match, 0 otherwise. Out-of-bounds → 0.
+fn line_starts_at(start: int, needle_chars) -> int {
+    let nl = len(needle_chars)
+    let bl = len(line_buf)
+    if start + nl > bl {
+        return 0
+    }
+    let mut i = 0
+    while i < nl {
+        if line_buf[start + i] != needle_chars[i] {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+// Return 1 if line_buf at `pos` is a "word boundary": end-of-line, or
+// space/tab. Used to ensure "cd" matches `cd` and `cd /tmp` but NOT
+// `cdrom`.
+fn at_word_boundary(pos: int) -> int {
+    let bl = len(line_buf)
+    if pos >= bl {
+        return 1
+    }
+    let b = line_buf[pos]
+    if b == 32 {        // space
+        return 1
+    }
+    if b == 9 {         // tab
+        return 1
+    }
+    return 0
+}
+
+// Skip leading spaces/tabs starting at `pos`, return new index.
+fn skip_ws(pos: int) -> int {
+    let bl = len(line_buf)
+    let mut i = pos
+    while i < bl {
+        let b = line_buf[i]
+        if b == 32 {
+            i = i + 1
+        } else if b == 9 {
+            i = i + 1
+        } else {
+            return i
+        }
+    }
+    return i
+}
+
+// ── cmd_cd: change directory ─────────────────────────────────────
+// Argument starts at line_buf[arg_start]. Empty arg → chdir to $HOME
+// (matches POSIX `cd` no-arg behavior; getenv("HOME") via the staged
+// path "/$HOME" — we just push HOME bytes one at a time).
+//
+// Returns 0 on success (dispatcher will then refresh local cwd), -1
+// on chdir failure (we emit an error line so the user sees it).
+fn cmd_cd(fd: int, arg_start: int) -> int {
+    let _ = hexa_void_path_reset()
+    let bl = len(line_buf)
+    let mut i = arg_start
+    let mut pushed = 0
+    while i < bl {
+        let b = line_buf[i]
+        // Stop at trailing whitespace / Enter
+        if b == 32 {
+            i = bl
+        } else if b == 9 {
+            i = bl
+        } else if b == 13 {
+            i = bl
+        } else if b == 10 {
+            i = bl
+        } else {
+            let _ = hexa_void_path_push(b)
+            pushed = pushed + 1
+            i = i + 1
+        }
+    }
+    if pushed == 0 {
+        // Default to $HOME — push "/Users/ghost" via env... lacking a
+        // hexa_user_getenv FFI, fall back to "/" so cd never silently
+        // no-ops. Real $HOME lookup is left as follow-up (TODO P1).
+        let _ = hexa_void_path_push(47)  // '/'
+    }
+    let rc = hexa_void_chdir()
+    if rc != 0 {
+        write_str(fd, "void: cd: failed\r\n")
+        return -1
+    }
+    return 0
+}
+
+// ── cmd_pwd: print working directory ─────────────────────────────
+fn cmd_pwd(fd: int) {
+    let n = hexa_void_cwd_refresh()
+    if n < 0 {
+        write_str(fd, "void: pwd: getcwd failed\r\n")
+        return
+    }
+    let mut i = 0
+    while i < n {
+        let b = hexa_void_cwd_byte(i)
+        let _ = hexa_void_putc(fd, b)
+        i = i + 1
+    }
+    let _ = hexa_void_putc(fd, 13)   // \r
+    let _ = hexa_void_putc(fd, 10)   // \n
+}
+
+// ── cmd_clear: ANSI clear screen ─────────────────────────────────
+// CSI 2J  — erase entire display
+// CSI H   — cursor to home (1,1)
+// Writing to the PTY master makes the VT parser see the same bytes a
+// shell `clear` would emit, keeping screen state in lockstep.
+fn cmd_clear(fd: int) {
+    let _ = hexa_void_putc(fd, 27)   // ESC
+    let _ = hexa_void_putc(fd, 91)   // [
+    let _ = hexa_void_putc(fd, 50)   // 2
+    let _ = hexa_void_putc(fd, 74)   // J
+    let _ = hexa_void_putc(fd, 27)   // ESC
+    let _ = hexa_void_putc(fd, 91)   // [
+    let _ = hexa_void_putc(fd, 72)   // H
+}
+
+// ── cmd_history: prior command list (stub) ───────────────────────
+// REPL-P0-2 (history_ring in prompt_parser.hexa) is not yet merged on
+// this branch. Stub now, wire-up in a follow-up PR. Output deliberate-
+// ly explicit so the user knows it's pending, not broken.
+fn cmd_history(fd: int) {
+    write_str(fd, "void: history (REPL-P0-2 history_ring pending merge)\r\n")
+}
+
+// ── cmd_help: list builtins ──────────────────────────────────────
+fn cmd_help(fd: int) {
+    write_str(fd, "void builtins (in-process, no shell roundtrip):\r\n")
+    write_str(fd, "  cd <path>   chdir REPL process (NOTE: child shell cwd unchanged)\r\n")
+    write_str(fd, "  pwd         print REPL process cwd\r\n")
+    write_str(fd, "  clear       ANSI CSI 2J + CSI H\r\n")
+    write_str(fd, "  history     REPL ring (stub — REPL-P0-2 pending)\r\n")
+    write_str(fd, "  help        this listing\r\n")
+}
+
+// ── try_builtin: dispatcher ──────────────────────────────────────
+// Called by prompt_parser.hexa when an Enter (\r or \n) byte is seen
+// in the keybuf. line_buf holds the bytes typed since the previous
+// Enter. fd is the active PTY master (where builtin output goes so
+// the VT parser sees it).
+//
+// Returns:
+//   1 — line matched a builtin and was executed; caller MUST NOT
+//       forward those bytes (or the trailing Enter) to the PTY.
+//   0 — no match; caller forwards to PTY normally.
+//
+// Match policy: skip leading whitespace, then exact keyword match
+// followed by word boundary (space / tab / EOL). Case-sensitive
+// (matches POSIX shell convention).
+fn try_builtin(fd: int) -> int {
+    let bl = len(line_buf)
+    if bl == 0 {
+        return 0
+    }
+    let start = skip_ws(0)
+    if start >= bl {
+        return 0
+    }
+
+    // cd  (2 chars + boundary)
+    if line_starts_at(start, "cd".chars()) == 1 {
+        if at_word_boundary(start + 2) == 1 {
+            let arg = skip_ws(start + 2)
+            let _ = cmd_cd(fd, arg)
+            return 1
+        }
+    }
+    // pwd (3 chars + boundary)
+    if line_starts_at(start, "pwd".chars()) == 1 {
+        if at_word_boundary(start + 3) == 1 {
+            let _ = cmd_pwd(fd)
+            return 1
+        }
+    }
+    // clear (5 chars + boundary)
+    if line_starts_at(start, "clear".chars()) == 1 {
+        if at_word_boundary(start + 5) == 1 {
+            let _ = cmd_clear(fd)
+            return 1
+        }
+    }
+    // history (7 chars + boundary)
+    if line_starts_at(start, "history".chars()) == 1 {
+        if at_word_boundary(start + 7) == 1 {
+            let _ = cmd_history(fd)
+            return 1
+        }
+    }
+    // help (4 chars + boundary)
+    if line_starts_at(start, "help".chars()) == 1 {
+        if at_word_boundary(start + 4) == 1 {
+            let _ = cmd_help(fd)
+            return 1
+        }
+    }
+    return 0
+}
