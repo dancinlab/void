@@ -6,7 +6,7 @@
 // this is parse-only. The fork/exec half lives in FEATURE-P0-2b.
 //
 // Hexa import contract: textual `use "cmd_parser"` inlining via
-// ~/Dev/hexa-lang/self/build_c.hexa. No external deps, no malloc; we
+// $HEXA_LANG/self/build_c.hexa. No external deps, no malloc; we
 // build the result entirely out of Dict (#{}) + Array literals and
 // return a single Dict from cmd_parse(). Every intermediate list is
 // rebuilt via `.push()` (returns a new list) so we avoid the @hot
@@ -54,7 +54,7 @@
 //   '|' 124, '>' 62
 //   '"' 34, '\'' 39, '\\' 92
 // We compare via 1-char strings because String.chars() in hexa returns
-// 1-char strings (verified 2026-04-14 on `/Users/ghost/Dev/hexa-lang/hexa`).
+// 1-char strings (verified 2026-04-14 on `$HEXA_LANG/hexa`).
 
 // ── tiny helpers on char arrays ──────────────────────────────────
 

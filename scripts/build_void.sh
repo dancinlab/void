@@ -15,8 +15,8 @@
 
 set -euo pipefail
 ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-HEXA="${HEXA:-$HOME/Dev/hexa-lang/hexa}"
-HEXA_SELF="${HEXA_SELF:-$HOME/Dev/hexa-lang/self}"
+HEXA="${HEXA:-${HEXA_LANG:-$HOME/Dev/hexa-lang}/hexa}"
+HEXA_SELF="${HEXA_SELF:-${HEXA_LANG:-$HOME/Dev/hexa-lang}/self}"
 FINAL="${OUT:-/tmp/void_term}"
 STAGE="${FINAL}.stage"
 OUT="$STAGE"

@@ -7,7 +7,7 @@
 // the previous/next slot for redrawing the input line.
 //
 // Hexa import contract: textual `use "history_ring"` inlining via
-// ~/Dev/hexa-lang/self/build_c.hexa preprocessor. No EXTERN deps —
+// $HEXA_LANG/self/build_c.hexa preprocessor. No EXTERN deps —
 // pure hexa state. Ring slots/head/tail/cursor live as module-global
 // `let mut` to dodge the @hot dict-mutation aliasing pitfall (R memory
 // feedback_hot_attr_dict_mutation): functions take no struct ref and

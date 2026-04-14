@@ -33,7 +33,7 @@
 ### 빌드 명령:
 ```bash
 # 프로젝트 루트에서:
-hexa $HOME/Dev/hexa-lang/self/build_c.hexa \
+hexa $HEXA_LANG/self/build_c.hexa \
   src/void_main.hexa src/sys_pty.c src/sys_appkit.m \
   -framework Cocoa
 ```

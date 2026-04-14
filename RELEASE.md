@@ -33,7 +33,7 @@ one pass. Per-layer smokes exist for deeper coverage.
 
 ## Prerequisites
 
-- `hexa` runtime built at `$HOME/Dev/hexa-lang/target/release/hexa`
+- `hexa` runtime built at `$HEXA_LANG/target/release/hexa`
   (override with `HEXA_BIN` env var)
 - `bash`, `tar`, `git`
 

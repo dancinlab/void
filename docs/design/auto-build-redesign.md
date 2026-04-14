@@ -11,7 +11,7 @@
 
 `b0f3eb9` (`chore(hooks): auto-build/auto-ship/void-swap 폐기`) 에서 `.claude/hooks/auto-build` + `.claude/hooks/auto-ship` + `.claude/hooks/void-swap` 3종이 전면 삭제되고 `.claude/settings.json` 의 `hooks` 블록이 `{}` 로 비워졌다. 커밋 메시지는 "자동 앱빌드 훅 전면 제거. settings.json hooks={} 로 이미 비활성" 한 줄이 전부이며, 폐기 사유는 본문에 명시되어 있지 않다 (가설: 다중 워크트리 × 병렬 에이전트 환경에서 PostToolUse hook 이 동시에 `hexa build` 를 트리거하여 빌드 경합/zombie 프로세스/로그 스팸이 발생했을 가능성 — 단정 불가, 확인 필요).
 
-결과로 `src/*.hexa` / `src/*.c` / `src/*.m` 편집 후 매번 수동으로 `~/Dev/hexa-lang/hexa build src/void_main.hexa` (또는 `hexa run self/build_c.hexa … -framework Cocoa`) 를 실행해야 하며, 이 빌드 자체가 VB1 (`native build_c 45분 timeout`) 블로커와 맞닿아 있어 수동 실행 비용이 크다. PERF-P0-2 는 이 자동화를 부활시키되 폐기 시 겪었던 문제를 재발하지 않는 구조로 재설계한다.
+결과로 `src/*.hexa` / `src/*.c` / `src/*.m` 편집 후 매번 수동으로 `$HEXA_LANG/hexa build src/void_main.hexa` (또는 `hexa run self/build_c.hexa … -framework Cocoa`) 를 실행해야 하며, 이 빌드 자체가 VB1 (`native build_c 45분 timeout`) 블로커와 맞닿아 있어 수동 실행 비용이 크다. PERF-P0-2 는 이 자동화를 부활시키되 폐기 시 겪었던 문제를 재발하지 않는 구조로 재설계한다.
 
 ---
 
@@ -29,7 +29,7 @@
 
 ### A. fswatch + 백그라운드 daemon
 
-`launchd` user agent 혹은 `nohup fswatch` 로 `~/Dev/void/src/` 를 감시한다. `fswatch -l 0.5` (latency 500ms) 으로 디바운스하고, 이벤트 수신 시 내부 mutex 보호 하에 `hexa build` 를 1회 실행한다. 빌드 중 추가 이벤트는 "dirty" 플래그로 병합해 빌드 종료 후 재실행한다.
+`launchd` user agent 혹은 `nohup fswatch` 로 `$VOID/src/` 를 감시한다. `fswatch -l 0.5` (latency 500ms) 으로 디바운스하고, 이벤트 수신 시 내부 mutex 보호 하에 `hexa build` 를 1회 실행한다. 빌드 중 추가 이벤트는 "dirty" 플래그로 병합해 빌드 종료 후 재실행한다.
 
 - **장점**: Claude / 사람 / 스크립트 편집 모두 커버, hook 메커니즘 전면 폐기 결정과 독립, 워크트리 21개 환경에서도 daemon 1개로 일관됨 (혹은 워크트리별 source path 만 subscribe).
 - **단점**: launchd plist 관리 + 로그 로테이션 필요, macOS 전용 (`fswatch` 는 포터블하지만 agent 기동 방식이 OS 종속), daemon 리크 시 좀비 빌드 프로세스 발생 가능.

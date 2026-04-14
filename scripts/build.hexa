@@ -19,7 +19,7 @@ fn main() {
     if check != "ok" {
         println("ERROR: hexa binary not found at: " + hexa_bin)
         println("  Set HEXA_BIN env var, or build hexa-lang:")
-        println("    cd $HOME/Dev/hexa-lang && cargo build --release")
+        println("    cd $HEXA_LANG && cargo build --release")
         exit(1)
     }
 

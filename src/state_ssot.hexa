@@ -17,7 +17,7 @@
 // a power cut never leave a corrupted session.json behind.
 //
 // Hexa import contract: textual `use "state_ssot"` inlining via
-// ~/Dev/hexa-lang/self/build_c.hexa preprocessor. Built-in helpers
+// $HEXA_LANG/self/build_c.hexa preprocessor. Built-in helpers
 // (read_file/write_file/exec/env_var/time/file_exists/len/.substring)
 // are emitted as hexa_* C runtime calls by build_c.hexa.
 //

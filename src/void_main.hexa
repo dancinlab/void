@@ -1,6 +1,6 @@
 // void_main.hexa — VOID terminal (hexa-only logic + sys_ C/ObjC helpers)
 // Build:
-//   ~/Dev/hexa-lang/hexa ~/Dev/hexa-lang/self/build_c.hexa \
+//   $HEXA_LANG/hexa $HEXA_LANG/self/build_c.hexa \
 //     src/void_main.hexa src/prompt_parser.hexa src/history_ring.hexa \
 //       src/state_ssot.hexa src/builtin_cmds.hexa src/sys_pty.c src/sys_appkit.m \
 //     -framework Cocoa

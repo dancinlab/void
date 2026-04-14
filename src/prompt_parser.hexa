@@ -6,7 +6,7 @@
 // line composition) without bloating void_main.hexa.
 //
 // Hexa import contract: textual `use "prompt_parser"` inlining via
-// ~/Dev/hexa-lang/self/build_c.hexa preprocessor. Cross-references to
+// $HEXA_LANG/self/build_c.hexa preprocessor. Cross-references to
 // CORE-layer symbols (scr_feed_byte) and EXTERN bridges (hexa_*) resolve
 // inside the same compilation unit after inlining (forward prototypes
 // are emitted by build_c.hexa).

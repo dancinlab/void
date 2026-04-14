@@ -6,7 +6,7 @@
 // zero shell roundtrip for these five.
 //
 // Hexa import contract: textual `use "builtin_cmds"` inlining via
-// ~/Dev/hexa-lang/self/build_c.hexa. Cross-references to EXTERN
+// $HEXA_LANG/self/build_c.hexa. Cross-references to EXTERN
 // bridges (hexa_void_*) resolve in the same compilation unit after
 // inlining; sys_pty.c declares them.
 //
