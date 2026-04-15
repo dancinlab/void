@@ -68,7 +68,7 @@ enum { WIDE_BMP_MIXED_N = (int)(sizeof(wide_bmp_mixed) / sizeof(wide_bmp_mixed[0
 // Small n (10) — linear scan beats binary search (branch-predictable,
 // all ranges fit in one cache line). Caller already knows cp is in a
 // "mixed" page, so we skip the initial `cp < first_range` shortcut.
-static int is_wide_cjk_mixed(int cp) {
+static long is_wide_cjk_mixed(long cp) {
     for (int i = 0; i < WIDE_BMP_MIXED_N; i++) {
         if (cp < wide_bmp_mixed[i][0]) return 0;
         if (cp <= wide_bmp_mixed[i][1]) return 1;
@@ -81,16 +81,16 @@ static int is_wide_cjk_mixed(int cp) {
 // then BMP CJK, then SMP/emoji. Reordering away from hexa source is
 // intentional and semantically identical (see anchor tests in
 // tests/bench_width.c).
-int hx_is_wide_cjk(int cp) {
+long hx_is_wide_cjk(long cp) {
     // Fast path: ASCII / Latin / common scripts — vast majority of
     // real terminal input. Matches hexa `if cp < 4352 { return 0 }`.
-    if ((unsigned)cp < 4352u) return 0;
+    if ((unsigned long)cp < 4352ul) return 0;
 
     // BMP O(1) page-table lookup. This is the hot branch for mixed
     // CJK/Latin content — ~30% of realistic terminal streams.
-    if ((unsigned)cp <= 65535u) {
-        uint8_t tag = wide_pages[(unsigned)cp >> 8];
-        if (tag < 2) return (int)tag;   // 0 → narrow, 1 → wide
+    if ((unsigned long)cp <= 65535ul) {
+        uint8_t tag = wide_pages[(unsigned long)cp >> 8];
+        if (tag < 2) return (long)tag;   // 0 → narrow, 1 → wide
         return is_wide_cjk_mixed(cp);
     }
 
@@ -108,27 +108,19 @@ int hx_is_wide_cjk(int cp) {
 
 // ── Emoji helpers (forward-compatible; not yet called from hexa) ────
 
-// Fitzpatrick skin-tone modifiers (U+1F3FB EMOJI MODIFIER FITZPATRICK
-// TYPE-1-2 .. U+1F3FF EMOJI MODIFIER FITZPATRICK TYPE-6).
-int hx_is_emoji_modifier(int cp) {
+long hx_is_emoji_modifier(long cp) {
     return (cp >= 0x1F3FB && cp <= 0x1F3FF) ? 1 : 0;
 }
 
-// ZERO WIDTH JOINER — glues emoji sequences into a single grapheme.
-int hx_is_zwj(int cp) {
+long hx_is_zwj(long cp) {
     return (cp == 0x200D) ? 1 : 0;
 }
 
-// VARIATION SELECTOR-16 — forces emoji presentation on dual-use cp.
-int hx_is_vs16(int cp) {
+long hx_is_vs16(long cp) {
     return (cp == 0xFE0F) ? 1 : 0;
 }
 
-// Supplementary Multilingual Plane CJK (Ext-B..G, as classified in
-// void_main.hexa:594–595). Kept separate from hx_is_wide_cjk so
-// callers can distinguish "wide because SMP CJK" from "wide because
-// emoji". Matches the hexa source's two back-to-back range checks.
-int hx_is_smp_cjk(int cp) {
+long hx_is_smp_cjk(long cp) {
     if (cp >= 131072 && cp <= 196605) return 1;   // Ext-B..F
     if (cp >= 196608 && cp <= 262141) return 1;   // Ext-G
     return 0;

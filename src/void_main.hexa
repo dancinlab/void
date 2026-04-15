@@ -45,6 +45,15 @@ extern fn hexa_sleep_us(us: int) -> int
 extern fn hexa_check_test_mode() -> int
 
 // ═══════════════════════════════════════════════════════════════
+// EXTERN: widths.c (B2 — East-Asian width + emoji classification)
+// ═══════════════════════════════════════════════════════════════
+// Extracted per BUILD_SPEED_PLAN.md B2 so width/emoji table edits
+// rebuild via clang (~5s) instead of full hexa self-host (~45min).
+// C source of truth: src/widths.c. Contract: return 1 → wide (2 cells),
+// return 0 → narrow (1 cell). Mirrors the previous inline hexa logic.
+extern fn hx_is_wide_cjk(cp: int) -> int
+
+// ═══════════════════════════════════════════════════════════════
 // EXTERN: sys_appkit.m
 // ═══════════════════════════════════════════════════════════════
 extern fn hexa_appkit_init_term(rows: int, cols: int, font_size: int) -> int
@@ -546,63 +555,8 @@ fn sgr_apply() {
 // ═══════════════════════════════════════════════════════════════
 // CORE §4: WIDE-CHAR + HANGUL NFC + scr_put
 // ═══════════════════════════════════════════════════════════════
-// East Asian Wide detection — codepoints that should occupy two cells.
-// Covers Hangul, CJK Unified, Hiragana/Katakana, CJK Compat, Fullwidth.
-// Not perfect (no emoji ZWJ / grapheme clusters) but enough to fix the
-// "한글 뒤죽박죽" bug where Korean output from claude overlapped itself.
-// O(1) page-table lookup for BMP (U+0000..U+FFFF).
-// 256 pages of 256 codepoints each.  0=all narrow, 1=all wide, 2=mixed.
-// Only 8 of 256 pages are mixed — the rest resolve without branching.
-let wide_pages = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 2, 1,
-    2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 2, 2
-]
-
-// Fallback range check for the 8 mixed pages only.
-fn is_wide_cjk_mixed(cp) {
-    if cp >= 4352 && cp <= 4447 { return 1 }     // Hangul Jamo (page 17)
-    if cp >= 11904 && cp <= 12031 { return 1 }   // CJK radicals (page 46)
-    if cp >= 12288 && cp <= 12350 { return 1 }   // CJK symbols + ideographic space (page 48)
-    if cp >= 12353 && cp <= 12543 { return 1 }   // Hiragana/Katakana (page 48)
-    if cp >= 19712 && cp <= 19903 { return 1 }   // CJK Ext-A tail (page 77)
-    if cp >= 41984 && cp <= 42191 { return 1 }   // Yi tail (page 164)
-    if cp >= 55040 && cp <= 55203 { return 1 }   // Hangul Syllables tail (page 215)
-    if cp >= 65072 && cp <= 65103 { return 1 }   // CJK Compat Forms (page 254)
-    if cp >= 65280 && cp <= 65376 { return 1 }   // Fullwidth ASCII (page 255)
-    if cp >= 65504 && cp <= 65510 { return 1 }   // Fullwidth symbols (page 255)
-    return 0
-}
-
-fn is_wide_cjk(cp) {
-    // Fast path: ASCII / Latin / common scripts — vast majority of input
-    if cp < 4352 { return 0 }
-    // SMP planes — not in page table, use direct range check
-    if cp >= 131072 && cp <= 196605 { return 1 }  // CJK Ext-B..F
-    if cp >= 196608 && cp <= 262141 { return 1 }  // CJK Ext-G
-    // VP-08 emoji + pictographs: U+1F000..U+1FAFF (Claude CLI TUI icons).
-    if cp >= 126976 && cp <= 129791 { return 1 }
-    if cp > 65535 { return 0 }
-    // BMP O(1) page-table lookup
-    let page = cp / 256
-    let tag = wide_pages[page]
-    if tag == 0 { return 0 }
-    if tag == 1 { return 1 }
-    return is_wide_cjk_mixed(cp)
-}
+// East Asian Wide detection lives in src/widths.c (B2, 2026-04-15).
+// Callers go through `hx_is_wide_cjk(cp)` extern declared above.
 
 // ── Hangul NFD → NFC composition ──────────────────────────────────
 // macOS HFS+/APFS returns filenames as NFD (decomposed jamos), so
@@ -656,7 +610,7 @@ fn scr_put(cp) {
 }
 
 fn scr_put_raw(cp) {
-    let wide = is_wide_cjk(cp)
+    let wide = hx_is_wide_cjk(cp)
     let advance = if wide == 1 { 2 } else { 1 }
     if scr_cur_x + advance > COLS {
         scr_cur_x = 0
@@ -2601,6 +2555,12 @@ fn self_test() {
     } else { println("[void-test] T44 FAIL cur_x=", scr_cur_x); fail = fail + 1 }
 
     // ── Test 45: TAB from col 15 → col 16 ──
+    // Restore default dims — T28 (line 2190) shrank to COLS=10/ROWS=3 for
+    // alt-screen scroll testing and never restored. T45/T46/T50 need the
+    // standard 80×24 to exercise CUP/TAB/VPA out past col 9.
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
     let _ = scr_init()
     let _ = vt_reset_state()
     // ESC[1;16H sets cursor to col 15 (1-based 16)

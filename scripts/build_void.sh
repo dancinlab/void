@@ -169,31 +169,53 @@ with open(path, 'w') as f:
 print(f'[build]   lines prefixed `static`: {patched}')
 PY
 
-# Inject u_main() call at end of main() if missing.
-if ! grep -q 'u_main()' "$PATCHED" 2>/dev/null || [[ $(grep -c 'u_main()' "$PATCHED") -lt 2 ]]; then
-  # The last "    return 0;\n}" in the file belongs to main().
-  # Replace it with u_main() call.
-  /usr/bin/python3 - "$PATCHED" <<'PY'
-import sys, re
+# Ensure main() invokes u_main() exactly once AND propagates its return.
+# Historical context: old hexa-lang never emitted a u_main() call, so
+# we injected one before main's `return 0;`. Post hexa-lang commit
+# 0637c51 (2026-04-15) hexa emits `    u_main();` itself — blindly
+# injecting again results in u_main running TWICE, which clobbers the
+# grid on the second pass (state_load restores cursor near bottom, then
+# scr_init zeroes cells — typed chars vanish from g_term_grid).
+# Idempotent: detect hexa's standalone call and upgrade it in place;
+# otherwise fall back to the legacy injection.
+/usr/bin/python3 - "$PATCHED" <<'PY'
+import sys
 p = sys.argv[1]
 with open(p) as f:
     txt = f.read()
-# Find last "    return 0;\n}" (main's closing) and splice.
-marker = "    return 0;\n}\n"
-idx = txt.rfind(marker)
-if idx < 0:
-    sys.exit("could not find main's return 0 marker")
-replacement = (
+
+captured = (
     "    HexaVal __r_main = u_main();\n"
     "    return (__r_main.tag == TAG_INT) ? (int)__r_main.i : 0;\n"
     "}\n"
 )
-txt = txt[:idx] + replacement + txt[idx+len(marker):]
+# Case A: already upgraded — nothing to do (idempotent re-run).
+if "HexaVal __r_main = u_main();" in txt:
+    print("[build]   u_main() already captured — no change")
+    sys.exit(0)
+
+# Case B: hexa emitted its own standalone `    u_main();\n    return 0;\n}\n`
+# Upgrade the block so u_main runs once AND we return its value.
+hexa_emitted = "    u_main();\n    return 0;\n}\n"
+i = txt.rfind(hexa_emitted)
+if i >= 0:
+    txt = txt[:i] + captured + txt[i + len(hexa_emitted):]
+    with open(p, 'w') as f:
+        f.write(txt)
+    print("[build]   upgraded hexa's standalone u_main() call")
+    sys.exit(0)
+
+# Case C: legacy path — no u_main call at all. Splice in before main's
+# `    return 0;\n}\n` closer.
+marker = "    return 0;\n}\n"
+i = txt.rfind(marker)
+if i < 0:
+    sys.exit("could not find main's return 0 marker")
+txt = txt[:i] + captured + txt[i + len(marker):]
 with open(p, 'w') as f:
     f.write(txt)
+print("[build]   injected u_main() call into main()")
 PY
-  echo "[build] injected u_main() call into main()"
-fi
 
 echo "[build] clang link → $STAGE (staging)"
 clang -O2 -Wno-trigraphs -fbracket-depth=512 \
@@ -202,6 +224,7 @@ clang -O2 -Wno-trigraphs -fbracket-depth=512 \
   "$ROOT/src/sys_pty.c" \
   "$ROOT/src/sys_appkit.m" \
   "$ROOT/src/paste_util.c" \
+  "$ROOT/src/widths.c" \
   -framework Cocoa -framework CoreText \
   -o "$STAGE" 2>&1
 

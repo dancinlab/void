@@ -95,113 +95,19 @@ let KEY_DEL = 0x7F    // DEL — terminals send this for ⌫
 //   forwarded via hexa_void_putc or absorbed into the line_buf.
 //
 // Returns the number of bytes actually written to the PTY master.
+// 2026-04-15 — simplified to the original REPL-P0-1 wrapper. The
+// per-byte FEATURE-P0-1 builtin dispatcher (cd/pwd/clear/history/help
+// + ↑/↓ history) was buffering printable chars locally and only
+// flushing on Enter, so the shell never received the bytes during
+// typing → no echo → blank screen until Enter. Worse, chars were
+// echoed twice when both the local forward and the buffered flush
+// fired (`cl` → `clcl`). Restoring the bulk forward defers builtin
+// interception to a later iteration; everything else (typing echo,
+// arrow keys, control bytes) works because the bytes pass straight
+// through to the PTY exactly like Terminal.app.
 @hot
 fn prompt_forward_keys(master_fd) {
-    let n = hexa_keybuf_len()
-    if n <= 0 {
-        return 0
-    }
-    let mut forwarded = 0
-    let mut i = 0
-    while i < n {
-        let b = hexa_keybuf_byte(i)
-        if prompt_csi_state == 1 {
-            if b == KEY_LBR {
-                prompt_csi_state = 2
-            } else {
-                prompt_csi_state = 0
-            }
-            let _ = hexa_void_putc(master_fd, b)
-            forwarded = forwarded + 1
-        } else if prompt_csi_state == 2 {
-            if b == KEY_UP {
-                let _ = history_prev()
-            } else if b == KEY_DN {
-                let _ = history_next()
-            }
-            prompt_csi_state = 0
-            let _ = hexa_void_putc(master_fd, b)
-            forwarded = forwarded + 1
-        } else if b == KEY_ESC {
-            prompt_csi_state = 1
-            let _ = hexa_void_putc(master_fd, b)
-            forwarded = forwarded + 1
-        } else if b == KEY_CR {
-            // Capture the typed line BEFORE history reset so try_builtin
-            // can feed it to FEATURE-P0-2 cmd_has_shell_meta() without
-            // re-assembling it from line_buf's int-bytes (chr(i) in
-            // hexa today returns to_string(i), not a 1-byte string).
-            let snap_cr = prompt_line_acc
-            if len(prompt_line_acc) > 0 {
-                let _ = history_push(prompt_line_acc)
-            }
-            prompt_line_acc = ""
-            let _ = history_reset_cursor()
-            let handled = try_builtin(master_fd, snap_cr)
-            if handled == 1 {
-                let _ = hexa_void_putc(master_fd, 13)
-                let _ = hexa_void_putc(master_fd, 10)
-            } else {
-                let bl = line_buf_len()
-                let mut j = 0
-                while j < bl {
-                    let _ = hexa_void_putc(master_fd, line_buf_at(j))
-                    j = j + 1
-                }
-                let _ = hexa_void_putc(master_fd, b)
-                forwarded = forwarded + bl + 1
-            }
-            line_buf_clear()
-        } else if b == KEY_LF {
-            let snap_lf = prompt_line_acc
-            if len(prompt_line_acc) > 0 {
-                let _ = history_push(prompt_line_acc)
-            }
-            prompt_line_acc = ""
-            let _ = history_reset_cursor()
-            let handled = try_builtin(master_fd, snap_lf)
-            if handled == 1 {
-                let _ = hexa_void_putc(master_fd, 13)
-                let _ = hexa_void_putc(master_fd, 10)
-            } else {
-                let bl = line_buf_len()
-                let mut j = 0
-                while j < bl {
-                    let _ = hexa_void_putc(master_fd, line_buf_at(j))
-                    j = j + 1
-                }
-                let _ = hexa_void_putc(master_fd, b)
-                forwarded = forwarded + bl + 1
-            }
-            line_buf_clear()
-        } else if b == KEY_BS {
-            let acc_n = len(prompt_line_acc)
-            if acc_n > 0 {
-                prompt_line_acc = prompt_line_acc.substring(0, acc_n - 1)
-            }
-            line_buf_pop()
-            let _ = hexa_void_putc(master_fd, b)
-            forwarded = forwarded + 1
-        } else if b == KEY_DEL {
-            let acc_n = len(prompt_line_acc)
-            if acc_n > 0 {
-                prompt_line_acc = prompt_line_acc.substring(0, acc_n - 1)
-            }
-            line_buf_pop()
-            let _ = hexa_void_putc(master_fd, b)
-            forwarded = forwarded + 1
-        } else if b >= 0x20 {
-            let one = chr(b)
-            prompt_line_acc = prompt_line_acc + one
-            let _ = history_reset_cursor()
-            line_buf_push(b)
-        } else {
-            line_buf_push(b)
-        }
-        i = i + 1
-    }
-    let _ = hexa_keybuf_clear()
-    return forwarded
+    return hexa_keys_to_pty(master_fd)
 }
 
 // Drain currently-available PTY output bytes and feed them through the

@@ -141,9 +141,9 @@ while (fgets(buf, sizeof(buf), fp)) {
 
 ---
 
-## Phase B6 — LLVM 백엔드 (장기, 업스트림)
+## ~~Phase B6 — LLVM 백엔드~~ (드롭 2026-04-15)
 
-hexa-lang이 `.c` 대신 LLVM IR 직접 emit → 셀프호스팅 병목 해소. 전체 빌드 **<1분**. hexa-lang 레포에서만 수행.
+**드롭 사유:** clang 단계는 전체 빌드의 1%(≈5초)뿐. LLVM backend로 절약할 수 있는 이득이 그 5초 한정. codegen 전면 재작성은 월 단위 작업인데 ROI 최악. hexa-lang 레포에서 내부 개선(separate compilation / AST 캐시 / bc_vm / 증분 flatten)을 우선.
 
 ---
 
@@ -153,13 +153,14 @@ hexa-lang이 `.c` 대신 LLVM IR 직접 emit → 셀프호스팅 병목 해소. 
 |-------|------|-------------|------|--------|--------------------|
 | **B0** | **hexa_exec O(N²) fix** | **hang 해소 (전제)** | **0.5일** | **hexa-lang** | ✅ `hexa-lang 536462e` |
 | B1 | ObjC fast path (SKIP_TRANSPILE) | 5초 (ObjC) | 0.5일 | 없음 | ✅ `void 90d2b04` |
-| **B2** | **Hot-data FFI — widths.c 추출** | **5초 (너비·이모지)** | **1~2일** | **없음 (최고 ROI)** | 🟡 `void e6c3d0c` (draft) · wire-in 보류¹ |
+| **B2** | **Hot-data FFI — widths.c 추출** | **5초 (너비·이모지)** | **1~2일** | **hexa-lang hexa_v2** | 🟡 코드 랜딩 · 검증 차단¹ |
 | B3 | Hash cache | 5초 (no-op) | 2~3일 | 없음 | ✅ `void d511505` |
-| B4 | 모듈 분할 | 5~10분 (임의) | 1주 | hexa-lang | ⏳ 미착수 |
+| B4 | 모듈 분할 | 5~10분 (임의) | 1주 | hexa-lang (A: separate compilation) | ⏳ 업스트림 대기 |
 | B5 | C 이식 | <10분 | 2~3주 | 없음 | ⏳ 미착수 |
-| B6 | LLVM backend | <1분 | ∞ | hexa-lang | ⏳ 미착수 |
+| ~~B6~~ | ~~LLVM backend~~ | ~~<1분~~ | ∞ | - | ❌ **드롭** (clang이 전체 1%, ROI 없음) |
 
-¹ B2 draft — `src/widths.{c,h}` + `tests/bench_width.c` 완료 (bench: random 290M/s, clustered 890M/s, 18/18 self-check). `hx_is_wide_cjk` extern fn wire-in은 `hexa build` 가 환경 메모리 압박(다중 anima-engines 동시 실행)으로 `hexa_v2` SIGKILL — 한적한 환경에서 재시도 필요. 변경 자체는 parse-clean 검증 완료.
+¹ B2 wire-in 코드는 워킹트리에 랜딩: `extern fn hx_is_wide_cjk(cp: int) -> int` 선언 + inline 위드 블록 삭제 + `build_void.sh`에 `src/widths.c` 링크 추가 + `widths.{h,c}` long-ABI 정합. bench 통과 (18/18 self-check + 307M/s random / 833M/s clustered @ -O2). **검증 차단:** `hexa_v2` 2026-04-15 13:09 빌드(916KB)가 void bundle(170KB, 4569 LOC) transpile 중 재현성 있게 SIGKILL (2026-04-15 19:00~19:30 실측 3회: 97s / 95s / 177s — 모두 jetsam kill). pre-B2 원본 소스로도 재현되므로 wire-in과 무관. `hexa_v2_baseline` 453KB 바이너리는 void 신규 문법 parse 실패(line 4453). 업스트림 `hexa_v2` 메모리 regression 수정 대기.
+  재시도 조건: hexa-lang 레포에서 hexa_v2 메모리 bloat 수정 + rebuild + void bundle 170KB transpile 1회 성공 확인 후 `./scripts/build_void.sh` 재실행.
 
 ---
 

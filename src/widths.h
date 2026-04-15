@@ -23,22 +23,26 @@
 extern "C" {
 #endif
 
+// Signatures use `long` to match the hexa FFI calling convention
+// (hexa `int` → C `long`, see sys_pty.c). Don't change to `int` or
+// the arm64 w0/x0 register passing will mismatch on the hexa side.
+
 // Primary classifier — mirrors hexa `is_wide_cjk`.
 // Returns 1 if `cp` occupies two terminal cells, else 0.
-int hx_is_wide_cjk(int cp);
+long hx_is_wide_cjk(long cp);
 
 // Emoji skin-tone modifier (Fitzpatrick): U+1F3FB..U+1F3FF.
-int hx_is_emoji_modifier(int cp);
+long hx_is_emoji_modifier(long cp);
 
 // Zero-Width Joiner: U+200D.
-int hx_is_zwj(int cp);
+long hx_is_zwj(long cp);
 
 // Variation Selector-16 (emoji presentation): U+FE0F.
-int hx_is_vs16(int cp);
+long hx_is_vs16(long cp);
 
 // Supplementary Multilingual Plane CJK blocks (Ext-B..G):
 // U+20000..U+2FFFD / U+30000..U+3FFFD.
-int hx_is_smp_cjk(int cp);
+long hx_is_smp_cjk(long cp);
 
 #ifdef __cplusplus
 }

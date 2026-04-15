@@ -1396,6 +1396,15 @@ static inline int ime_has_marked(void) {
             NSRect tile = compute_tile_rect(t, bounds, g_num_tabs);
             if (tile.size.width <= 0 || tile.size.height <= 0) continue;
 
+            // Clip subsequent draws to the tile rect. drawAtPoint /
+            // CTFontDrawGlyphs ignore our manual break-at-max_x checks
+            // and happily paint past the right edge — without a clip the
+            // last column smears into the neighbouring tile (visible as
+            // the "with flexible layout capabilities…" bleed seen in
+            // 2026-04-15 grid-mode screenshot).
+            CGContextSaveGState(drawCtx);
+            CGContextClipToRect(drawCtx, tile);
+
             // Tile background
             [srgb_black() setFill];
             NSRectFill(tile);
@@ -1564,6 +1573,11 @@ static inline int ime_has_marked(void) {
                                       oy + g_term_cur_row * g_term_ch,
                                       g_term_cw, g_term_ch));
             }
+
+            // Pop the per-tile clip + restore the text matrix that
+            // drawAtPoint may have perturbed.
+            CGContextRestoreGState(drawCtx);
+            CGContextSetTextMatrix(drawCtx, CGAffineTransformMakeScale(1.0, -1.0));
         }
         // Grid path exits through the outer @autoreleasepool as the
         // method returns — pool drains automatically.
@@ -2655,6 +2669,7 @@ extern int g_vs_list_count;
 static int  void_server_enabled(void);
 static int  void_server_kill(const char id[32]);
 static int  void_server_list(void);
+static int  void_server_try_connect(void);
 static int  void_server_attach(const char id[32], int *out_fd,
                                int *out_rows, int *out_cols);
 static void tab_clear_grid(TermCell grid[TERM_MAX_ROWS][TERM_MAX_COLS]);
@@ -2696,7 +2711,24 @@ static void void_tabs_renumber_profiles(void);
     // sessions that the current tab list doesn't know about.
     // Hot-swap exits via _exit(0) which bypasses this handler, so
     // those sessions survive as intended.
+    //
+    // 2026-04-15 — `sample` traced 46% of quit-time CPU to
+    // `void_server_ensure → spawn_daemon → usleep×100` (up to 1s)
+    // when the daemon was NOT running. Cold-start spawning a daemon
+    // inside applicationWillTerminate: just to enumerate zero
+    // sessions and kill them is pointless — if the socket doesn't
+    // exist, there are no sessions to clean up. Short-circuit by
+    // probing the socket directly; only walk the LIST path when the
+    // daemon is actually reachable.
     if (void_server_enabled()) {
+        int probe = void_server_try_connect();
+        if (probe < 0) {
+            // No daemon running — nothing to enumerate. Skip the
+            // spawn-and-wait loop so Cmd+Q returns immediately.
+            goto skip_server_kill;
+        }
+        close(probe);
+
         int ns = void_server_list();
         for (int i = 0; i < ns && i < VS_LIST_MAX; i++) {
             void_server_kill(g_vs_list[i].id);
@@ -2713,6 +2745,8 @@ static void void_tabs_renumber_profiles(void);
                     [fm removeItemAtPath:[dir stringByAppendingPathComponent:f] error:nil];
             }
         }
+    skip_server_kill:
+        ;
     }
     g_term_quit = 1;
 }
@@ -4014,22 +4048,38 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             // or when the app is force-quit. Clean slate on every
             // fresh launch — hot-swap sessions survive because
             // is_shadow is true in that path.
-            {
+            //
+            // 2026-04-15 — short-circuit when no daemon is running.
+            // void_server_list otherwise calls ensure→spawn_daemon→
+            // usleep×100 (up to 1s) before returning an empty list.
+            // First-launch users felt this as "엄청 느림". If the
+            // socket isn't there, there are no live sessions to kill;
+            // the on-disk checkpoint sweep still runs unconditionally.
+            int probe = void_server_try_connect();
+            if (probe >= 0) {
+                close(probe);
                 int nk = void_server_list();
                 for (int k = 0; k < nk && k < VS_LIST_MAX; k++)
                     void_server_kill(g_vs_list[k].id);
-                // Also nuke checkpoint files
-                @autoreleasepool {
-                    NSFileManager *fm = [NSFileManager defaultManager];
-                    NSString *dir = @"/tmp/void_server_ckpt";
-                    NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
-                    for (NSString *f in files) {
-                        if ([f hasSuffix:@".bin"])
-                            [fm removeItemAtPath:[dir stringByAppendingPathComponent:f] error:nil];
-                    }
+            }
+            // Always nuke on-disk checkpoint files — cheap, no daemon needed.
+            @autoreleasepool {
+                NSFileManager *fm = [NSFileManager defaultManager];
+                NSString *dir = @"/tmp/void_server_ckpt";
+                NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
+                for (NSString *f in files) {
+                    if ([f hasSuffix:@".bin"])
+                        [fm removeItemAtPath:[dir stringByAppendingPathComponent:f] error:nil];
                 }
             }
-            int n = void_server_list();
+            // Now (if needed) probe again for the list-and-attach loop
+            // below. If we just killed everything, this returns 0
+            // sessions. If the daemon was never up, we skip both list
+            // and the attach loop entirely.
+            int probe2 = void_server_try_connect();
+            int n;
+            if (probe2 < 0) { n = 0; }
+            else { close(probe2); n = void_server_list(); }
             int attached = 0;
             // Track which labels we've already attached so we don't
             // create duplicate tabs for the same profile (e.g. two
@@ -5304,11 +5354,9 @@ void hexa_appkit_term_flush(void) {
             return;
         }
         if (g_dirty_min < 0) return; // nothing dirty
-        // Force full-view redraw + invalidate delta cache so every cell
-        // is repainted from scratch.  The previous setNeedsDisplayInRect
-        // partial-update path relied on macOS preserving the backing store
-        // for non-dirty regions, which is not guaranteed on layer-backed
-        // views (macOS 15+).
+        // Revert to full-view redraw — VBT-20 baseline. Partial
+        // invalidation on macOS 15+ caused backing-store corruption
+        // (non-dirty rows went garbage). Flicker is the trade-off.
         g_prev_grid_valid = 0;
         [v setNeedsDisplay:YES];
         g_dirty_min = -1;

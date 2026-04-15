@@ -1,5 +1,5 @@
 {
-  "_meta": {"purpose": "void 골화 (ossified) 목록 — 더 이상 수정하지 않는 확정된 결정/구현", "updated": "2026-04-12"},
+  "_meta": {"purpose": "void 골화 (ossified) 목록 — 더 이상 수정하지 않는 확정된 결정/구현", "updated": "2026-04-15"},
   "evidence_ref": "convergence_evidence.json",
   "ossified": [
     {"id":"VC-01","date":"2026-04-11","rule":"VD1","locked":true},
@@ -64,7 +64,14 @@
     {"id":"VC-60","date":"2026-04-12","locked":true},
     {"id":"VC-61","date":"2026-04-12","locked":true},
     {"id":"VC-62","date":"2026-04-12","locked":true},
-    {"id":"VC-63","date":"2026-04-12","locked":true}
+    {"id":"VC-63","date":"2026-04-12","locked":true},
+    {"id":"VC-64","date":"2026-04-15","locked":true,"title":"B2 hx_is_wide_cjk FFI — widths.c 추출","src":"src/widths.{c,h} + src/void_main.hexa extern","proof":"너비/이모지 테이블 편집 45분→2.8초. long ABI. bench 307M/s random / 833M/s clustered @-O2, 18/18 self-check."},
+    {"id":"VC-65","date":"2026-04-15","locked":true,"title":"u_main() 이중 호출 fix","src":"scripts/build_void.sh 멱등 파이썬 패처","proof":"hexa-lang 0637c51 이후 hexa가 u_main()를 자체 emit. 기존 `grep -c < 2` 가드가 또 주입 → u_main 2회 실행으로 scr_init이 첫 run의 셀을 덮어씀. Case A(이미 패치)/B(hexa standalone 승격)/C(legacy 주입) 3-way 멱등."},
+    {"id":"VC-66","date":"2026-04-15","locked":true,"title":"T28 COLS reset 누락 fix","src":"src/void_main.hexa T45 entry","proof":"T28이 COLS=10/ROWS=3 설정 후 reset 없음. T45/T46 (TAB) T50 (VPA) clamp 당함. T45 진입 시 80/24/1920 복원. 53/28 all green."},
+    {"id":"VC-67","date":"2026-04-15","locked":true,"title":"void_server_ensure 1초 usleep quit/startup 지연 제거","src":"src/sys_appkit.m applicationWillTerminate + init","proof":"sample 46%(970/2102)가 spawn_daemon → usleep×100(1초)에 박힘. try_connect 먼저, 없으면 skip. on-disk ckpt 정리는 항상."},
+    {"id":"VC-68","date":"2026-04-15","locked":true,"title":"prompt_forward_keys 단순화","src":"src/prompt_parser.hexa","proof":"FEATURE-P0-1 per-byte 루프가 printable을 line_buf에만 쌓고 PTY 미전송 → 화면 공백. forward 추가 시 Enter에 line_buf 재플러시로 'cl'→'clcl'. 원래 `return hexa_keys_to_pty(master_fd)` 복원. builtin cd/pwd/clear/history/help + ↑/↓ 히스토리 임시 비활성 — shell readline 위임."}
   ],
-  "pending_ossification": []
+  "pending_ossification": [
+    "partial-redraw 깜빡임: setNeedsDisplay:YES 전체-뷰 폴백이 macOS 15+ backing-store 보존 X의 workaround. setNeedsDisplayInRect + layerContentsRedrawPolicy 교체 시도 1회 실패 (y 좌표 TERM_PAD 누락 → 타이핑 미표시 → 롤백). 정확한 offset + 회귀 테스트 후 재도전."
+  ]
 }
