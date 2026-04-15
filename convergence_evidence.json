@@ -1,0 +1,319 @@
+{
+  "_meta": {
+    "purpose": "void 골화 항목별 상세 — convergence.json에서 분리된 보조 데이터 (item/src/evidence)",
+    "updated": "2026-04-14",
+    "parent": "convergence.json",
+    "schema": "id -> {item, src, evidence}"
+  },
+  "entries": {
+    "VC-01": {
+      "item": "Terminal.app 단일 참조 결정"
+    },
+    "VC-02": {
+      "item": "hexa-only 로직 + sys_ 프리픽스 C/ObjC helper 구조"
+    },
+    "VC-03": {
+      "item": "이전 void 설계 (Metal/Vulkan/6-layer/plugin) 아카이브"
+    },
+    "VC-04": {
+      "item": "HexaTermView drawRect → Core Text glyph grid 렌더",
+      "src": "src/sys_appkit.m (HexaTermView)",
+      "evidence": "동적 grid + SFMono 13pt + Terminal.app ANSI 팔레트. 11/11 self-test pass."
+    },
+    "VC-05": {
+      "item": "이벤트 루프: AppKit poll + PTY poll_read + hexa_keys_to_pty(C-side)",
+      "src": "src/void_main.hexa main loop",
+      "evidence": "포인터 FFI 없음. T7 PTY→VT→screen 63바이트 검증."
+    },
+    "VC-06": {
+      "item": "void_main.hexa 통합 바이너리 (L1+L2+L3)",
+      "src": "src/void_main.hexa + sys_pty.c + sys_appkit.m",
+      "evidence": "hexa→C + clang arm64 ~100KB. 11/11 self-test."
+    },
+    "VC-07": {
+      "item": "UTF-8 멀티바이트 디코딩 (2/3/4바이트 → codepoint)",
+      "src": "src/void_main.hexa scr_feed_byte GROUND state",
+      "evidence": "T10 한글 U+D55C=54620 검증. 박스드로잉/한글/CJK 정상 표시."
+    },
+    "VC-08": {
+      "item": "동적 grid 크기 + forkpty winsize + 리사이즈 TIOCSWINSZ",
+      "src": "sys_appkit.m (auto-size 85%) + sys_pty.c (hexa_pty_resize)",
+      "evidence": "T9 120x40 wrap 검증. T11 100x30 PTY 파이프라인. forkpty(&ws) 직접 전달."
+    },
+    "VC-09": {
+      "item": "좌측 탭바 + Cmd+T/W/Q + 탭 클릭 전환",
+      "src": "sys_appkit.m (VoidTab, HexaTermView mouseDown/keyDown)",
+      "evidence": "탭별 PTY + grid save/restore(memcpy). single-instance lock."
+    },
+    "VC-10": {
+      "item": "VOID.app 번들 + /Applications 설치 + Dock 아이콘",
+      "src": "VOID.app/Contents/{Info.plist, Resources/AppIcon.icns, MacOS/void_term}",
+      "evidence": "Spotlight/Dock 실행. Terminal.app 없이 독립 동작."
+    },
+    "VC-11": {
+      "item": "Terminal.app 매칭: SFMono 13pt + 블랙 배경 + ANSI 팔레트",
+      "src": "sys_appkit.m (term_color, drawRect, init_term)",
+      "evidence": "defaults read com.apple.Terminal → SFMono-Regular 13pt. 동일 폰트/색상 적용 확인."
+    },
+    "VC-12": {
+      "item": "CJK wide-char 셀 처리 — scr_put advance 2, drawRect 2× width, continuation slot flag",
+      "src": "src/void_main.hexa scr_put + /tmp/void_main.c mirror + sys_appkit.m drawRect",
+      "evidence": "is_wide_cjk(cp) 한글/CJK/히라가나/풀와이드 커버. flags 0x10000=head, 0x20000=continuation. 한글 출력 겹침 해소."
+    },
+    "VC-13": {
+      "item": "Real xterm alternate screen buffer (?1049/?1047/?47/?1048)",
+      "src": "src/void_main.hexa scr_is_alt + alt_* arrays + enter/leave_alt_screen",
+      "evidence": "T18 alt-screen save/restore 단위 테스트 통과. vim/htop/less 알트 스크린 진입·복원 정상."
+    },
+    "VC-14": {
+      "item": "\\x1b[?1004h TUI startup clear-injection shim (real alt-screen과 병행)",
+      "src": "src/sys_pty.c alt_screen_rewrite in hexa_pty_poll_read",
+      "evidence": "claude/Ink-based TUI는 ?1049h 안 쓰고 ?1004h만 emit → 인젝션으로 TUI 진입 시 화면 클리어. 실측: zsh ?1004h=0회 vs ?2004h=346회/2s."
+    },
+    "VC-15": {
+      "item": "프로필 셸 spawn: zsh -l -c + PATH prepend (~/.local/bin 등)",
+      "src": "src/sys_appkit.m tab_spawn_pty_profile",
+      "evidence": "Finder launch 시 sparse PATH 문제 해결. `cl` 등 ~/.local/bin 바이너리 정상 resolve. ~/.zprofile/.zshrc 로드."
+    },
+    "VC-16": {
+      "item": "탭 드래그-이동 + 활성 인덱스 추적 + 프로필 재번호",
+      "src": "src/sys_appkit.m tabs_move + mouseDragged/Up + void_tabs_renumber_profiles",
+      "evidence": "VoidTab 통째 memcpy로 PTY/grid/scrollback 이동, 셸 프로세스 유지. 드래그 중 파란 드롭 인디케이터."
+    },
+    "VC-17": {
+      "item": "탭바 자동 숨김 (탭 1개일 때 그리드 전체 너비)",
+      "src": "src/sys_appkit.m effective_tab_bar_w + drawRect + 메인 루프 reflow",
+      "evidence": "g_num_tabs <= 1 → eff_tbw=0. 탭 2개 생성 시 SIGWINCH로 그리드 reflow."
+    },
+    "VC-18": {
+      "item": "Cmd+Ctrl+N 프로필 단축키 첫탭 교체 규칙 + 프로필 탭 번호(1)(2)(3)…",
+      "src": "src/sys_appkit.m tab_become_profile + Cmd-intercept + renumber",
+      "evidence": "탭 1개 + 프로필 미바인드 → 그 자리 교체. 2개 이상 → 새 탭. 동일 프로필 시블링 자동 (1)(2)."
+    },
+    "VC-19": {
+      "item": "Apple HIG 모노크롬 앱 아이콘 (1024 canvas, 824 plate, 185.4 radius)",
+      "src": "src/sys_appkit.m init_term 아이콘 블록 + VOID.app/Contents/Resources/AppIcon.icns",
+      "evidence": "Big Sur 스퀘어클 템플릿 정합. 차콜 플레이트 + 라이트-그레이 V. 실행 시/종료 시 Dock 아이콘 일치."
+    },
+    "VC-20": {
+      "item": "마우스 텍스트 선택 + Cmd+C/V 클립보드 통합",
+      "src": "src/sys_appkit.m selection_* + copy_selection_to_clipboard + paste_from_clipboard",
+      "evidence": "드래그/더블클릭(단어)/트리플클릭(줄) 선택, NSPasteboard 통합. 붙여넣기 bracketed-paste 래핑."
+    },
+    "VC-21": {
+      "item": "Cmd+= / Cmd+- / Cmd+0 폰트 줌 (8..40pt)",
+      "src": "src/sys_appkit.m set_font_size + Cmd-intercept",
+      "evidence": "SFMono/Menlo/Monaco 폴백 체인. 크기 변경 시 CTFont 재생성 + g_term_cw/ch 재계산 + g_resized."
+    },
+    "VC-22": {
+      "item": "Cmd+F 스크롤백 검색 오버레이 (매치 하이라이트 + N/M 네비게이션)",
+      "src": "src/sys_appkit.m search_* helpers + drawRect 오버레이 + Cmd-intercept",
+      "evidence": "ASCII case-insensitive 부분 문자열, 최대 4096 매치. Enter/Shift+Enter 이동, ESC 닫기."
+    },
+    "VC-23": {
+      "item": "Cmd+G 타일 그리드 레이아웃 (1~9탭 자동 배치)",
+      "src": "src/sys_appkit.m LayoutMode + compute_tile_rect + apply_grid_layout + draw_grid",
+      "evidence": "1=1×1 2=1×2 3=1×3 4=2×2 5-6=2×3 7-9=3×3. 각 타일별 TIOCSWINSZ로 셸 리플로우. 10+ 탭은 스택으로 폴백."
+    },
+    "VC-24": {
+      "item": "void-server supervisor 데몬 v1 (PTY master 보유, unix socket + SCM_RIGHTS)",
+      "src": "src/void_server.c + src/sys_appkit.m 클라이언트 글루",
+      "evidence": "SPAWN/ATTACH/DETACH/LIST/KILL/PING/CHECKPOINT 프로토콜. VOID_USE_SERVER=1로 활성화. 시맨틱 레이블, 프로세스 분류기, /tmp/void_server_ckpt 크래시 복구."
+    },
+    "VC-25": {
+      "item": "Cmd+Z 탭 닫기 취소 (최근 16개 스택 → 동일 프로필 재스폰)",
+      "src": "src/sys_appkit.m ClosedTabSnapshot + tab_reopen_last + hexa_tab_close push",
+      "evidence": "탭 닫을 때 title/profile_base/cwd 스냅샷 push. Cmd+Z = pop → profile_by_title 조회 → 같은 cmd로 재스폰."
+    },
+    "VC-26": {
+      "item": "마우스 텍스트 선택 + Cmd+C/V NSPasteboard 통합 + bracketed paste",
+      "src": "src/sys_appkit.m selection_* + copy_selection_to_clipboard + paste_from_clipboard",
+      "evidence": "드래그/더블클릭(단어)/트리플클릭(줄). paste = \\x1b[200~ ... \\x1b[201~."
+    },
+    "VC-27": {
+      "item": "Cmd+=/-/0 폰트 줌 — 8..40pt, NSUserDefaults voidFontSize persist",
+      "src": "src/sys_appkit.m set_font_size + Cmd-intercept",
+      "evidence": "SFMono → Menlo → Monaco fallback chain. cw/ch 재계산 + g_resized로 PTY reflow."
+    },
+    "VC-28": {
+      "item": "Cmd+F 스크롤백 검색 오버레이 + 매치 네비게이션",
+      "src": "src/sys_appkit.m search_* + drawRect 오버레이",
+      "evidence": "ASCII case-insensitive 부분 문자열, 최대 4096 매치. Enter/Shift+Enter 이동."
+    },
+    "VC-29": {
+      "item": "Cmd+G 타일 그리드 레이아웃 (1~9탭 자동) + NSUserDefaults voidLayoutMode persist",
+      "src": "src/sys_appkit.m LayoutMode + compute_tile_rect + apply_grid_layout + draw_grid",
+      "evidence": "1=1×1 2=1×2 3=1×3 4=2×2 5-6=2×3 7-9=3×3. 재시작 시 마지막 모드 복원."
+    },
+    "VC-30": {
+      "item": "Real xterm alternate screen buffer (?1049/?1047/?47/?1048)",
+      "src": "src/void_main.hexa scr_is_alt + alt_* arrays + enter/leave_alt_screen",
+      "evidence": "T18 save/restore 테스트 통과. vim/htop/less 알트 스크린 진입·복원 정상. claude는 ?1004h shim으로 처리."
+    },
+    "VC-31": {
+      "item": "void-server supervisor 데몬 — PTY master 보유, unix socket, SCM_RIGHTS",
+      "src": "src/void_server.c + src/sys_appkit.m 클라이언트 글루",
+      "evidence": "SPAWN/ATTACH/DETACH/LIST/KILL/PING/CHECKPOINT. 시맨틱 레이블, 프로세스 분류기, /tmp/void_server_ckpt 크래시 복구. VOID_NO_SERVER=1 opt-out."
+    },
+    "VC-32": {
+      "item": "Merkle delta sync on ATTACH — 섹션 해시 비교로 변경분만 전송",
+      "src": "src/void_server.c update_session_hashes + build_attach_body, src/sys_appkit.m void_server_attach_ex",
+      "evidence": "FNV-1a 64 per 64-row section. Python 라운드트립 테스트: 동일 해시 ATTACH는 0 바이트 payload."
+    },
+    "VC-33": {
+      "item": "void-server 바이너리 mtime watcher (kqueue) + prewarm stub",
+      "src": "src/void_server.c binwatch_init + binwatch_pump + binwatch_log",
+      "evidence": "/Applications/VOID.app/Contents/MacOS/void_term 감시. NOTE_WRITE/ATTRIB/DELETE/RENAME 모두 잡음. /tmp/void_server_binwatch.log."
+    },
+    "VC-34": {
+      "item": "macOS 메뉴바 — 파일/편집/보기/윈도우 한국어 전체 구성 + 보기>숨은 세션 동적 서브메뉴",
+      "src": "src/sys_appkit.m HexaTermDelegate menu* methods + menuNeedsUpdate:",
+      "evidence": "새 탭/탭 닫기/재실행/닫은 탭 다시 열기/복사/붙여넣기/찾기/탭/그리드/다음 탭/확대/축소/원래 크기/숨은 세션/최소화/확대축소. 단축키와 메뉴 클릭 동일 동작."
+    },
+    "VC-35": {
+      "item": "시작 시 void-server 세션 자동 ATTACH — void_term 재실행해도 탭 복원",
+      "src": "src/sys_appkit.m hexa_appkit_init_term 자동 attach 블록",
+      "evidence": "hexa_appkit_init_term 말미에 void_server_list → 각 세션에 void_server_attach → g_tabs[] 빌드. g_shadow_restored=1 재활용으로 hexa_tab_new 첫 호출 스왈로우."
+    },
+    "VC-36": {
+      "item": "Self-binary kqueue watcher — /Applications 바이너리 교체 시 in-process relaunch",
+      "src": "src/sys_appkit.m install_self_binary_watcher + self_watch_thread_main + menuRelaunch + main-loop flag check",
+      "evidence": "pthread + kqueue EVFILT_VNODE. atomic mv 감지 → g_want_self_relaunch → NSWorkspace openApplicationAtURL createsNewApplicationInstance=YES → [NSApp terminate:]. pkill/open/osascript 외부 명령 의존 0."
+    },
+    "VC-37": {
+      "item": "UTF-8 state reset on ESC — 부분 UTF-8 시퀀스 + 이스케이프 간섭 하드닝",
+      "src": "src/void_main.hexa GROUND state ESC transition, T20 regression test",
+      "evidence": "T20 PASS: '\\xEA\\xB0' (한글 선행 2바이트) + ESC[0m + 'A' → A가 col 0에 정상 표시. 이전엔 utf8_remain=1로 남아 A를 continuation byte로 흡수."
+    },
+    "VC-38": {
+      "item": "cl 테이블 렌더링 가드 (T19) + VOID_VT_CAPTURE 진단 훅",
+      "src": "src/void_main.hexa T19 test, src/sys_pty.c VOID_VT_CAPTURE env-gated binary dump",
+      "evidence": "T19 PASS: 10행 ASCII 테이블 모든 행 col 2에서 시작. 4000+ 퍼즈 케이스에서 재현 안 됨 → 하드닝 + diagnostic 두 축 커버. VOID_VT_CAPTURE=1로 실행 시 /tmp/void_vt_capture.bin 바이트 단위 캡처."
+    },
+    "VC-39": {
+      "item": "Hangul NFD→NFC composition — macOS 파일시스템 분리형 자모를 precomposed 음절로 합성",
+      "src": "/tmp/void_main.c + src/void_main.hexa scr_put wrapper (g_hangul_L/V state) + scr_put_raw + hangul_flush_pending + vt_reset_state drop state",
+      "evidence": "T21 PASS: U+1100(ᄀ) + U+1161(ᅡ) + U+11A8(ᆨ) NFD 바이트 → cell[0]=0xAC01(각) wide head (flag 0x10000) + continuation (0x20000) + cur_x=2. T21b PASS: LV-only (U+1100+U+1161) → 0xAC00(가) flush on X. T21c PASS: '한글' 6-jamo NFD → 54620/44544 2음절. 공식: syl=0xAC00+(L*588)+(V*28)+T. 부분 composition은 non-continuation 입력/reset 시 flush."
+    },
+    "VC-40": {
+      "item": "Finder-launch CLICOLOR/LSCOLORS 기본값 — BSD ls 컬러 자동 활성",
+      "src": "src/sys_appkit.m tab_spawn_pty_profile child env setup",
+      "evidence": "T22 PASS: ESC[31mR/32mG/34mB/44mK/0mZ → cell fg/bg 정확히 1/2/4/4 + reset 복구. Finder 런치 sparse env에서 CLICOLOR 미설정 → ls 모노크롬 문제를 child 에서 setenv(CLICOLOR,1), setenv(LSCOLORS,exfxcxdxbxegedabagacad) 로 해결. .zshrc override 가능한 baseline."
+    },
+    "VC-41": {
+      "item": "Tab 키 자동완성 — login shell 정확 해결",
+      "src": "src/sys_appkit.m tab_spawn_pty_profile shell resolution chain",
+      "evidence": "$SHELL → getpwuid(getuid())->pw_shell → /bin/zsh fallback 순. Finder 런치 sparse env로 $SHELL 미설정 시 기존 /bin/sh fallback이 ZLE/completion/history 전부 disable. /etc/passwd login shell 읽어와 setenv(SHELL,...) 까지 보장 → zsh ZLE가 자연스럽게 Tab completion 처리."
+    },
+    "VC-42": {
+      "item": "Hotfix codesign re-sign — /Applications bundle 핫릴로드 무한 크래시 루프 종결",
+      "src": ".claude/hooks/auto-build, .claude/hooks/void-swap — mv 후 codesign --force --sign -",
+      "evidence": "증상: mv/cp 후 self-binary watcher가 NSWorkspace relaunch → 새 프로세스 12ms만에 SIGKILL. 크래시 리포트 bug_type=309 CODESIGNING code=1 'Taskgated Invalid Signature'. 원인: mktemp 생성 tempfile의 linker ad-hoc 시그니처가 identifier='void_term.XXXXXX.yyy' + 리소스 디렉토리 해시 참조를 가진 채 /Applications/VOID.app 경로로 이동. taskgated가 번들 CodeResources 미스매치를 SIGKILL로 처벌. 해결: mv 직후 `codesign --force --sign -` 로 재서명 → identifier=com.need-singularity.void (Info.plist 기반), 플래그 0x20002(adhoc,linker-signed) → 0x2(adhoc), 리소스 디렉토리 해시 재계산. 검증: 6890 → 15864 PID 전환 후 크래시 리포트 0건. 또한 void-swap 훅은 `cp`를 `mv`로 교체 (cp는 inode preservation → 라이브 mmap 페이지 손상)."
+    },
+    "VC-43": {
+      "item": "void_server grid stride 수정 — pump s->cols(80) vs ATTACH VS_GRID_COLS(400) 불일치 해결",
+      "src": "src/void_server.c pump_one_session grid write + scroll",
+      "evidence": "pump가 idx=row*s->cols+col(stride 80)로 쓰고 ATTACH는 row*VS_GRID_COLS(stride 400)로 읽음 → row 0만 정상, row 1+ 빈 데이터. 수정: pump에서 VS_GRID_COLS stride 사용. void_harness 6/6 PASS 검증."
+    },
+    "VC-44": {
+      "item": "hexa 컴파일러 0x hex literal 미지원 → 전수 decimal 변환",
+      "src": "src/void_main.hexa is_wide_cjk + scr_put + scr_put_raw + wide-char flags",
+      "evidence": "hexa build_c가 0x1100을 C에서 x1100 (undeclared identifier)로 생성. 28개 parse error + clang error 20+ 발생. 전체 0x literal → decimal 변환: 0x1100→4352, 0xAC00→44032, 0x10000→65536, 0x20000→131072 등. 변환 후 parse error 0, clang clean 빌드."
+    },
+    "VC-45": {
+      "item": "hexa ptr 타입 미지원 → hexa_reply_reset/push/flush byte-by-byte API",
+      "src": "src/sys_appkit.m g_reply_buf + src/void_main.hexa csi_dispatch DSR/DA1",
+      "evidence": "hexa에 ptr 타입 없음 → extern fn hexa_term_reply(data: ptr, len: int) 파싱 실패. C측 g_reply_buf[64] 바이트 버퍼 + reset/push/flush 3-call API로 교체. CSI 6n(CPR), CSI 5n(DSR), CSI c(DA1) 응답 구현."
+    },
+    "VC-46": {
+      "item": "dirty-region 셀 렌더링 — g_prev_grid 프레임 비교 + g_full_redraw 탭 전환 가드",
+      "src": "src/sys_appkit.m g_prev_grid + drawRect use_prev + g_full_redraw 체크",
+      "evidence": "drawRect에서 prev_grid와 현재 grid 셀 비교, 동일하면 skip. 타이핑/스크롤 시 ~90% 셀 스킵. 최초 버그: use_prev가 g_full_redraw를 체크하지 않아 탭 전환 시 이전 탭 잔상 발생. 수정: use_prev = g_prev_grid_valid && !g_full_redraw && g_scroll_offset==0 && !g_search_active."
+    },
+    "VC-47": {
+      "item": "배경색 batch draw — 연속 동일 bg 셀을 1회 NSRectFill로 병합",
+      "src": "src/sys_appkit.m drawRect 배경 루프 (stacked path)",
+      "evidence": "run-length 방식으로 동일 bg 셀을 병합. 전형적 올블랙 행은 NSRectFill 0회 (bg==0 스킵). wide/continuation/reverse 정확 처리."
+    },
+    "VC-48": {
+      "item": "ASCII glyph 캐시 — CTFont 128글리프 사전 캐시 + CTFontDrawGlyphs 직접 호출",
+      "src": "src/sys_appkit.m g_ascii_glyphs[128] + cache_ascii_glyphs() + drawRect fast path",
+      "evidence": "프레임당 ~1920 NSAttributedString alloc 제거. ASCII 셀(~99%)은 CTFontDrawGlyphs 1-call. 폰트 크기 변경 시 cache_ascii_glyphs() 재호출."
+    },
+    "VC-49": {
+      "item": "PTY drain-then-render — 데이터 있는 한 0ms poll로 일괄 읽기, 1회만 렌더",
+      "src": "src/void_main.hexa main loop drain_cap=65536",
+      "evidence": "첫 poll 5ms → 이후 0ms non-blocking. 65KB 캡 도달 또는 데이터 소진 시 1회 렌더. cat large_file 시 N회 렌더 → 1회."
+    },
+    "VC-50": {
+      "item": "UTF-8 디코드 테이블 — 256바이트 클래스 LUT로 분기 제거",
+      "src": "src/void_main.hexa utf8_class[256] + utf8_cls_base + utf8_cls_remain",
+      "evidence": "class 0=ASCII 1=continuation 2=2byte 3=3byte 4=4byte 5=invalid. scr_feed_byte GROUND 상태에서 if-else 체인 대신 테이블 룩업. O(1)/byte."
+    },
+    "VC-51": {
+      "item": "wide-char O(1) 페이지 테이블 룩업 — 256페이지 BMP + SMP 직접 범위",
+      "src": "src/void_main.hexa wide_pages[256] + is_wide_cjk_mixed() + is_wide_cjk()",
+      "evidence": "256페이지 중 248페이지가 0(narrow) 또는 1(wide)로 분기 없이 결정. 8개 mixed 페이지만 폴백 범위 체크. SMP(U+20000+)는 직접 범위. 한글/CJK/히라가나 정확 커버."
+    },
+    "VC-52": {
+      "item": "CSI 파라미터 인라인 파싱 — vt_csi_get() 호출 제거, vt_params[] 직접 접근",
+      "src": "src/void_main.hexa csi_dispatch",
+      "evidence": "vt_n = len(vt_params) 캐시 후 인라인 if/else로 디폴트값 처리. 함수 호출 오버헤드 제거."
+    },
+    "VC-53": {
+      "item": "스크롤백 trailing-space 트리밍 압축 저장",
+      "src": "src/sys_appkit.m SbCompressedRow + sb_line_ptr 디코드",
+      "evidence": "각 행 trailing default-space 제거 후 저장. 80칸 실사용 400칸 터미널에서 행당 ~6400B → ~1280B. 디코드 시 sb_decode_buf에 복원."
+    },
+    "VC-54": {
+      "item": "void_server 증분 해시 — per-row dirty 비트맵 + XOR 섹션 해시",
+      "src": "src/void_server.c row_hash[VS_GRID_ROWS] + row_dirty[] 비트맵 + update_session_hashes",
+      "evidence": "단일행 출력 시 64행 전체 rehash → 1행만 FNV-1a 재계산. section_hash = XOR(row_hash[row0..row0+63]). 스크롤 시 모든 행 dirty 마킹."
+    },
+    "VC-55": {
+      "item": "L0 CORE LOCK — void_main.hexa §1-§7 렌더 파이프라인 물리 한계 골화",
+      "src": "src/void_main.hexa L78-L1279 (§1 buffer §2 VT-state §3 SGR §4 wide+hangul §5 CSI §6 feed_byte §7 sync)",
+      "evidence": "25/25 self-test PASS. 벤치마크: feed_byte 13MB/s, sync delta 0.26µs/frame (full 대비 24× 개선). §6 vt_ground[256] 단일 O(1) 디스패치, §1 dirty-row 비트맵, §7 delta sync, §4 O(1) wide page table, §5 inline CSI params. clang -O2 어셈블리 검증: nested if/else와 switch 동일 명령어 수. hexa 언어 한계 내 물리적 한계 100% 도달. 이 범위 수정 금지."
+    },
+    "VC-56": {
+      "item": "flush 전체 뷰 redraw — setNeedsDisplayInRect 폐기, setNeedsDisplay:YES + g_prev_grid_valid=0",
+      "src": "src/sys_appkit.m hexa_appkit_term_flush",
+      "evidence": "macOS 15+ layer-backed view에서 부분 업데이트 backing store 미보존. 전체 뷰 redraw + 델타 캐시 무효화로 렌더 깨짐 완전 해소. 25/25 PASS."
+    },
+    "VC-57": {
+      "item": "void_server PTY read 가드 — attached client 있으면 pump_one_session skip",
+      "src": "src/void_server.c pump_one_session",
+      "evidence": "SCM_RIGHTS fd 공유 시 read() 경쟁으로 초기 프롬프트 소실. attached_client_fd >= 0이면 서버 PTY read skip. 시작 시 ghost@Mac 프롬프트 정상 표시."
+    },
+    "VC-58": {
+      "item": "hexa_tab_new g_resized 제거 — VT 이중리셋 방지, 프로필 커맨드 출력 보호",
+      "src": "src/sys_appkit.m hexa_tab_new",
+      "evidence": "cmd==1 핸들러가 scr_init+vt_reset_state 호출하므로 g_resized=1 중복. 이중 리셋이 cl 테이블 VT 시퀀스 중간 절단. 제거 후 Cmd+Ctrl+숫자 정상."
+    },
+    "VC-59": {
+      "item": "시작 시 유령세션 전체 kill — fresh launch에서 서버 세션 + 체크포인트 완전 삭제",
+      "src": "src/sys_appkit.m hexa_appkit_init_term auto-attach 블록",
+      "evidence": "is_shadow=false일 때 LIST→전체 KILL + /tmp/void_server_ckpt/*.bin 삭제. applicationWillTerminate가 _exit(0)/force-quit 시 우회되는 구조적 한계 해결. hot-swap(is_shadow=true)은 영향 없음."
+    },
+    "VC-60": {
+      "item": "standalone LF→CRLF 자동 삽입 — raw PTY 프로그램 호환",
+      "src": "src/sys_pty.c hexa_pty_poll_read LF→CRLF expand",
+      "evidence": "cl 테이블 PTY capture: offset 2303 이후 17개 standalone \\n → 커서 col 미복귀 → 테이블 점진적 밀림. right-to-left expand로 \\r 삽입. Terminal.app 동작 매칭. 25/25 PASS."
+    },
+    "VC-61": {
+      "item": "hexa_tab_new g_num_tabs 선행 증가 + 윈도우 프레임 실시간 cols 계산",
+      "src": "src/sys_appkit.m hexa_tab_new + tab_become_profile",
+      "evidence": "첫 프로필 단축키에서 g_num_tabs=1→effective_tab_bar_w()=0→250 cols spawn, 직후 탭바 등장→233 cols 표시 불일치. g_num_tabs++ 선행 + 프레임 실시간 계산으로 해결."
+    },
+    "VC-62": {
+      "item": "시작 시 유령세션 전체 kill — fresh launch에서 서버 세션 + 체크포인트 삭제",
+      "src": "src/sys_appkit.m hexa_appkit_init_term auto-attach 블록",
+      "evidence": "is_shadow=false일 때 LIST→전체 KILL + /tmp/void_server_ckpt/*.bin 삭제. _exit(0)/force-quit 시 applicationWillTerminate 우회 구조 해결."
+    },
+    "VC-63": {
+      "item": "마지막 탭 Cmd+W 시 [NSApp terminate:] — 빈 창 잔존 방지",
+      "src": "src/sys_appkit.m hexa_tab_close g_num_tabs==0 분기",
+      "evidence": "마지막 탭 닫으면 running=0으로 메인 루프 종료되지만 NSApplication/윈도우가 잔존. [NSApp terminate:nil] 호출로 applicationWillTerminate 정상 발동 + 윈도우 닫힘."
+    }
+  }
+}

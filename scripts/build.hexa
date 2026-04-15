@@ -1,0 +1,74 @@
+// void build script — runs HEXA smokes as syntax/integration check
+// Converted from build.sh to hexa-lang
+
+fn main() {
+    let hexa_bin = env("HEXA_BIN")
+    if hexa_bin == "" {
+        hexa_bin = env("HOME") + "/Dev/hexa-lang/target/release/hexa"
+    }
+
+    let root_result = exec("git rev-parse --show-toplevel 2>/dev/null")
+    let root = root_result
+    if root == "" {
+        println("ERROR: could not determine repo root via git")
+        exit(1)
+    }
+
+    // check hexa binary exists
+    let check = exec("test -x '" + hexa_bin + "' && echo ok || echo no")
+    if check != "ok" {
+        println("ERROR: hexa binary not found at: " + hexa_bin)
+        println("  Set HEXA_BIN env var, or build hexa-lang:")
+        println("    cd $HEXA_LANG && cargo build --release")
+        exit(1)
+    }
+
+    println("[build] HEXA_BIN=" + hexa_bin)
+    println("[build] ROOT=" + root)
+    println("")
+
+    // Smoke files — integration check
+    let smokes = [
+        "src/smoke_tabs.hexa",
+        "src/smoke_6layer.hexa",
+        "src/smoke_dashboard.hexa",
+        "src/smoke_plugin.hexa"
+    ]
+
+    let mut pass = 0
+    let mut fail = 0
+    let mut failed_files = []
+
+    for f in smokes {
+        let path = root + "/" + f
+        let exists = exec("test -f '" + path + "' && echo yes || echo no")
+        if exists != "yes" {
+            println("  SKIP  " + f + " (not found)")
+        } else {
+            let result = exec("'" + hexa_bin + "' '" + path + "' >/dev/null 2>&1 && echo ok || echo fail")
+            if result == "ok" {
+                println("  PASS  " + f)
+                pass = pass + 1
+            } else {
+                println("  FAIL  " + f)
+                fail = fail + 1
+                failed_files = failed_files + [f]
+            }
+        }
+    }
+
+    println("")
+    println("[build] Result: " + str(pass) + " pass, " + str(fail) + " fail")
+
+    if fail > 0 {
+        println("[build] Failed files:")
+        for f in failed_files {
+            println("  - " + f)
+        }
+        exit(1)
+    }
+
+    println("[build] OK")
+}
+
+main()

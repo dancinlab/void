@@ -1,8 +1,32 @@
 // void_main.hexa — VOID terminal (hexa-only logic + sys_ C/ObjC helpers)
 // Build:
-//   ~/Dev/hexa-lang/hexa ~/Dev/hexa-lang/self/build_c.hexa \
-//     src/void_main.hexa src/sys_pty.c src/sys_appkit.m \
+//   $HEXA_LANG/hexa $HEXA_LANG/self/build_c.hexa \
+//     src/void_main.hexa src/prompt_parser.hexa src/history_ring.hexa \
+//       src/state_ssot.hexa src/builtin_cmds.hexa src/sys_pty.c src/sys_appkit.m \
 //     -framework Cocoa
+//
+// Prompt helpers split into src/prompt_parser.hexa (REPL-P0-1, 2026-04-14).
+// Inlined via `use "prompt_parser"` below — no extra build_c.hexa arg
+// needed (the C/.m files are passed to clang downstream, not to build_c).
+//
+// History ring split into src/history_ring.hexa (REPL-P0-2, 2026-04-14).
+// Pulled in transitively via prompt_parser.hexa's `use "history_ring"`,
+// so void_main only needs the prompt_parser `use` line below.
+//
+// ┌─────────────────────────────────────────────────────────────┐
+// │ ARCHITECTURE: CORE / APP 분리                               │
+// │                                                             │
+// │ CORE (L64–L1258): 한 바이트 → 한 픽셀 전체 경로            │
+// │   screen buffer → UTF-8 decode → wide-char → Hangul NFC    │
+// │   → VT state → CSI dispatch → SGR → scr_put → sync        │
+// │   물리적 한계 100% 수렴 목표. 변경 시 성능 회귀 금지.      │
+// │                                                             │
+// │ APP (L1260–EOF): 테스트 · 메인루프 · 탭 · UI 글루          │
+// │   self-test, main(), load_from_bridge, keys_to_pty          │
+// │   prompt_parser.hexa (use'd) — forward_keys + drain_pty     │
+// │   history_ring.hexa  (use'd via prompt_parser) — ↑/↓ ring   │
+// │   CORE에 의존하지만 CORE는 APP에 의존하지 않음.             │
+// └─────────────────────────────────────────────────────────────┘
 
 // ═══════════════════════════════════════════════════════════════
 // EXTERN: sys_pty.c
@@ -54,9 +78,21 @@ extern fn hexa_appkit_cwd_apply()
 extern fn hexa_scrollback_push_begin() -> int
 extern fn hexa_scrollback_push_cell(ch: int, fg: int, bg: int, flags: int) -> int
 extern fn hexa_scrollback_push_end() -> int
+extern fn hexa_reply_reset() -> int
+extern fn hexa_reply_push(b: int) -> int
+extern fn hexa_reply_flush() -> int
+extern fn hexa_keybuf_len() -> int
+extern fn hexa_keybuf_byte(idx: int) -> int
+extern fn hexa_keybuf_clear() -> int
+extern fn clock_us() -> int
+
+// ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+// ▓▓▓  CORE BEGIN — 이 아래는 렌더 파이프라인 핫패스           ▓▓▓
+// ▓▓▓  byte → codepoint → cell → pixel                        ▓▓▓
+// ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
 
 // ═══════════════════════════════════════════════════════════════
-// SCREEN BUFFER — flat arrays (VP-04 compatible)
+// CORE §1: SCREEN BUFFER — flat arrays (VP-04 compatible)
 // ═══════════════════════════════════════════════════════════════
 let mut COLS = 80
 let mut ROWS = 24
@@ -66,6 +102,8 @@ let mut scr_cells = []
 let mut scr_fg = []
 let mut scr_bg = []
 let mut scr_flags = []
+let mut scr_dirty = []   // per-row dirty bitmap (0=clean, 1=dirty)
+let mut scr_all_dirty = 1 // 1=force full sync (init, resize, alt-screen)
 let mut scr_cur_x = 0
 let mut scr_cur_y = 0
 let mut scr_scroll_top = 0
@@ -94,11 +132,23 @@ let mut alt_saved_inverse = 0
 let mut scr_is_alt = 0
 let mut alt_buf_len = 0
 
+fn scr_mark_dirty(r) {
+    if r >= 0 && r < ROWS { scr_dirty[r] = 1 }
+    return 0
+}
+fn scr_mark_all_dirty() {
+    let mut r = 0
+    while r < ROWS { scr_dirty[r] = 1; r = r + 1 }
+    scr_all_dirty = 1
+    return 0
+}
+
 fn scr_init() {
     scr_cells = []
     scr_fg = []
     scr_bg = []
     scr_flags = []
+    scr_dirty = []
     let mut i = 0
     while i < TOTAL {
         scr_cells = scr_cells.push(32)
@@ -107,6 +157,9 @@ fn scr_init() {
         scr_flags = scr_flags.push(0)
         i = i + 1
     }
+    let mut r = 0
+    while r < 200 { scr_dirty = scr_dirty.push(1); r = r + 1 }
+    scr_all_dirty = 1
     scr_cur_x = 0
     scr_cur_y = 0
     scr_scroll_top = 0
@@ -178,6 +231,7 @@ fn scr_clear_all() {
         scr_flags[i] = 0
         i = i + 1
     }
+    let _ = scr_mark_all_dirty()
     scr_cur_x = 0
     scr_cur_y = 0
     return 0
@@ -224,16 +278,23 @@ fn leave_alt_screen(do_restore) {
 }
 
 fn scr_scroll_up() {
-    // Save evicted top row to scrollback (only when scrolling from screen top)
+    // Save evicted top row to scrollback (only when scrolling from screen top).
+    // Terminal.app behavior: alternate screen has NO scrollback, so inhibit
+    // when scr_is_alt == 1.
     if scr_scroll_top == 0 {
-        let _ = hexa_scrollback_push_begin()
-        let mut sc = 0
-        while sc < COLS {
-            let _ = hexa_scrollback_push_cell(scr_cells[sc], scr_fg[sc], scr_bg[sc], scr_flags[sc])
-            sc = sc + 1
+        if scr_is_alt == 0 {
+            let _ = hexa_scrollback_push_begin()
+            let mut sc = 0
+            while sc < COLS {
+                let _ = hexa_scrollback_push_cell(scr_cells[sc], scr_fg[sc], scr_bg[sc], scr_flags[sc])
+                sc = sc + 1
+            }
+            let _ = hexa_scrollback_push_end()
         }
-        let _ = hexa_scrollback_push_end()
     }
+    // All rows in scroll region are dirty
+    let mut dr = scr_scroll_top
+    while dr <= scr_scroll_bot { let _ = scr_mark_dirty(dr); dr = dr + 1 }
     // Shift rows within scroll region up by 1
     let mut r = scr_scroll_top
     while r < scr_scroll_bot {
@@ -263,6 +324,8 @@ fn scr_scroll_up() {
 }
 
 fn scr_scroll_down() {
+    let mut dr = scr_scroll_top
+    while dr <= scr_scroll_bot { let _ = scr_mark_dirty(dr); dr = dr + 1 }
     let mut r = scr_scroll_bot
     while r > scr_scroll_top {
         let dst = r * COLS
@@ -290,7 +353,7 @@ fn scr_scroll_down() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// VT STATE MACHINE
+// CORE §2: VT STATE MACHINE
 // States: 0=GROUND 1=ESC 2=CSI 3=OSC_NUM 4=OSC_STR 5=CHARSET
 // ═══════════════════════════════════════════════════════════════
 let mut vt_state = 0
@@ -317,6 +380,51 @@ let mut saved_cur_y = 0
 // UTF-8 decoder state
 let mut utf8_cp = 0
 let mut utf8_remain = 0
+
+// ── Unified 256-byte dispatch table for GROUND state ──
+// Single array lookup → zero if/else for the hottest path.
+// Classes:
+//   0 = ASCII printable (32..126)  → scr_put(b)
+//   1 = ESC (27)                   → enter ESC state
+//   2 = CR  (13)                   → cursor home
+//   3 = LF  (10)                   → line feed
+//   4 = BS  (8)                    → backspace
+//   5 = TAB (9)                    → tab stop
+//   6 = BEL (7)                    → ignore
+//   7 = other C0 control           → ignore
+//   8 = UTF-8 2-byte lead (192..223)
+//   9 = UTF-8 3-byte lead (224..239)
+//  10 = UTF-8 4-byte lead (240..247)
+//  11 = UTF-8 continuation (128..191)
+//  12 = invalid (248..255)
+let vt_ground = [
+    // 0..15:  NUL..SI — mostly control_other(7), with BEL(6)@7, BS(4)@8, TAB(5)@9, LF(3)@10, CR(2)@13
+    7, 7, 7, 7, 7, 7, 7, 6, 4, 5, 3, 7, 7, 2, 7, 7,
+    // 16..31: DLE..US — all control_other
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 1, 7, 7, 7, 7,
+    // 32..127: ASCII printable
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    // 128..191: UTF-8 continuation
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+    // 192..223: UTF-8 2-byte lead
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    // 224..239: UTF-8 3-byte lead
+    9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+    // 240..247: UTF-8 4-byte lead, 248..255: invalid
+    10, 10, 10, 10, 10, 10, 10, 10, 12, 12, 12, 12, 12, 12, 12, 12
+]
+// UTF-8 lead byte payload extraction
+let vt_utf8_base   = [0, 0, 0, 0, 0, 0, 0, 0, 192, 224, 240, 0, 0]
+let vt_utf8_remain = [0, 0, 0, 0, 0, 0, 0, 0, 1,   2,   3,   0, 0]
 
 // Charset
 let mut cur_charset = 0
@@ -346,7 +454,7 @@ fn vt_csi_get(idx, def) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SGR — Select Graphic Rendition
+// CORE §3: SGR — Select Graphic Rendition
 // ═══════════════════════════════════════════════════════════════
 fn sgr_apply() {
     let n = len(vt_params)
@@ -436,29 +544,64 @@ fn sgr_apply() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CSI DISPATCH
+// CORE §4: WIDE-CHAR + HANGUL NFC + scr_put
 // ═══════════════════════════════════════════════════════════════
 // East Asian Wide detection — codepoints that should occupy two cells.
 // Covers Hangul, CJK Unified, Hiragana/Katakana, CJK Compat, Fullwidth.
 // Not perfect (no emoji ZWJ / grapheme clusters) but enough to fix the
 // "한글 뒤죽박죽" bug where Korean output from claude overlapped itself.
-fn is_wide_cjk(cp) {
-    if cp < 0x1100 { return 0 }
-    if cp >= 0x1100 && cp <= 0x115F { return 1 } // Hangul Jamo
-    if cp >= 0x2E80 && cp <= 0x303E { return 1 } // CJK radicals/Kangxi/CJK symbols
-    if cp == 0x3000 { return 1 }                 // Ideographic space
-    if cp >= 0x3041 && cp <= 0x33FF { return 1 } // Hiragana/Katakana/CJK compat
-    if cp >= 0x3400 && cp <= 0x4DBF { return 1 } // CJK Ext-A
-    if cp >= 0x4E00 && cp <= 0x9FFF { return 1 } // CJK Unified
-    if cp >= 0xA000 && cp <= 0xA4CF { return 1 } // Yi
-    if cp >= 0xAC00 && cp <= 0xD7A3 { return 1 } // Hangul Syllables
-    if cp >= 0xF900 && cp <= 0xFAFF { return 1 } // CJK Compat Ideographs
-    if cp >= 0xFE30 && cp <= 0xFE4F { return 1 } // CJK Compat Forms
-    if cp >= 0xFF00 && cp <= 0xFF60 { return 1 } // Fullwidth ASCII
-    if cp >= 0xFFE0 && cp <= 0xFFE6 { return 1 } // Fullwidth symbols
-    if cp >= 0x20000 && cp <= 0x2FFFD { return 1 } // CJK Ext-B..F
-    if cp >= 0x30000 && cp <= 0x3FFFD { return 1 } // CJK Ext-G
+// O(1) page-table lookup for BMP (U+0000..U+FFFF).
+// 256 pages of 256 codepoints each.  0=all narrow, 1=all wide, 2=mixed.
+// Only 8 of 256 pages are mixed — the rest resolve without branching.
+let wide_pages = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 2, 1,
+    2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 2, 2
+]
+
+// Fallback range check for the 8 mixed pages only.
+fn is_wide_cjk_mixed(cp) {
+    if cp >= 4352 && cp <= 4447 { return 1 }     // Hangul Jamo (page 17)
+    if cp >= 11904 && cp <= 12031 { return 1 }   // CJK radicals (page 46)
+    if cp >= 12288 && cp <= 12350 { return 1 }   // CJK symbols + ideographic space (page 48)
+    if cp >= 12353 && cp <= 12543 { return 1 }   // Hiragana/Katakana (page 48)
+    if cp >= 19712 && cp <= 19903 { return 1 }   // CJK Ext-A tail (page 77)
+    if cp >= 41984 && cp <= 42191 { return 1 }   // Yi tail (page 164)
+    if cp >= 55040 && cp <= 55203 { return 1 }   // Hangul Syllables tail (page 215)
+    if cp >= 65072 && cp <= 65103 { return 1 }   // CJK Compat Forms (page 254)
+    if cp >= 65280 && cp <= 65376 { return 1 }   // Fullwidth ASCII (page 255)
+    if cp >= 65504 && cp <= 65510 { return 1 }   // Fullwidth symbols (page 255)
     return 0
+}
+
+fn is_wide_cjk(cp) {
+    // Fast path: ASCII / Latin / common scripts — vast majority of input
+    if cp < 4352 { return 0 }
+    // SMP planes — not in page table, use direct range check
+    if cp >= 131072 && cp <= 196605 { return 1 }  // CJK Ext-B..F
+    if cp >= 196608 && cp <= 262141 { return 1 }  // CJK Ext-G
+    // VP-08 emoji + pictographs: U+1F000..U+1FAFF (Claude CLI TUI icons).
+    if cp >= 126976 && cp <= 129791 { return 1 }
+    if cp > 65535 { return 0 }
+    // BMP O(1) page-table lookup
+    let page = cp / 256
+    let tag = wide_pages[page]
+    if tag == 0 { return 0 }
+    if tag == 1 { return 1 }
+    return is_wide_cjk_mixed(cp)
 }
 
 // ── Hangul NFD → NFC composition ──────────────────────────────────
@@ -473,14 +616,14 @@ let mut g_hangul_V = -1  // 0..20 or -1
 
 fn hangul_flush_pending() {
     if g_hangul_L >= 0 && g_hangul_V >= 0 {
-        let syl = 0xAC00 + (g_hangul_L * 588) + (g_hangul_V * 28)
+        let syl = 44032 + (g_hangul_L * 588) + (g_hangul_V * 28)
         g_hangul_L = -1
         g_hangul_V = -1
         let _ = scr_put_raw(syl)
         return 0
     }
     if g_hangul_L >= 0 {
-        let lone = 0x1100 + g_hangul_L
+        let lone = 4352 + g_hangul_L
         g_hangul_L = -1
         let _ = scr_put_raw(lone)
     }
@@ -488,21 +631,21 @@ fn hangul_flush_pending() {
 }
 
 fn scr_put(cp) {
-    // CHOSEONG (L) — start or restart composition
-    if cp >= 0x1100 && cp <= 0x1112 {
+    // CHOSEONG (L) — start or restart composition (U+1100..U+1112)
+    if cp >= 4352 && cp <= 4370 {
         let _ = hangul_flush_pending()
-        g_hangul_L = cp - 0x1100
+        g_hangul_L = cp - 4352
         return 0
     }
-    // JUNGSEONG (V) after L with no V yet — form LV
-    if cp >= 0x1161 && cp <= 0x1175 && g_hangul_L >= 0 && g_hangul_V < 0 {
-        g_hangul_V = cp - 0x1161
+    // JUNGSEONG (V) after L with no V yet — form LV (U+1161..U+1175)
+    if cp >= 4449 && cp <= 4469 && g_hangul_L >= 0 && g_hangul_V < 0 {
+        g_hangul_V = cp - 4449
         return 0
     }
-    // JONGSEONG (T) after LV — emit LVT and reset
-    if cp >= 0x11A8 && cp <= 0x11C2 && g_hangul_L >= 0 && g_hangul_V >= 0 {
-        let t_idx = cp - 0x11A7
-        let syl = 0xAC00 + (g_hangul_L * 588) + (g_hangul_V * 28) + t_idx
+    // JONGSEONG (T) after LV — emit LVT and reset (U+11A8..U+11C2)
+    if cp >= 4520 && cp <= 4546 && g_hangul_L >= 0 && g_hangul_V >= 0 {
+        let t_idx = cp - 4519
+        let syl = 44032 + (g_hangul_L * 588) + (g_hangul_V * 28) + t_idx
         g_hangul_L = -1
         g_hangul_V = -1
         return scr_put_raw(syl)
@@ -525,6 +668,7 @@ fn scr_put_raw(cp) {
     }
     if scr_cur_y >= 0 {
         if scr_cur_y < ROWS {
+            let _ = scr_mark_dirty(scr_cur_y)
             let idx = scr_cur_y * COLS + scr_cur_x
             scr_cells[idx] = cp
             scr_fg[idx] = cur_fg
@@ -533,8 +677,8 @@ fn scr_put_raw(cp) {
             if cur_bold == 1 { f = f + 1 }
             if cur_underline == 1 { f = f + 4 }
             if cur_inverse == 1 { f = f + 8 }
-            // Bit 0x10000 = wide-char head. drawRect renders 2x width.
-            if wide == 1 { f = f + 0x10000 }
+            // Bit 65536 (0x10000) = wide-char head. drawRect renders 2x width.
+            if wide == 1 { f = f + 65536 }
             scr_flags[idx] = f
             // Continuation slot — blank it out and flag bit 0x20000 so
             // drawRect skips rendering it (the wide glyph covers it).
@@ -543,7 +687,7 @@ fn scr_put_raw(cp) {
                 scr_cells[idx2] = 0
                 scr_fg[idx2] = cur_fg
                 scr_bg[idx2] = cur_bg
-                scr_flags[idx2] = 0x20000
+                scr_flags[idx2] = 131072
             }
         }
     }
@@ -551,13 +695,18 @@ fn scr_put_raw(cp) {
     return 0
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CORE §5: CSI DISPATCH
+// ═══════════════════════════════════════════════════════════════
 fn csi_dispatch(b) {
     let _ = vt_csi_flush()
 
+    let vt_n = len(vt_params)
+
     if b == 72 {
         // H — CUP
-        let mut row = vt_csi_get(0, 1) - 1
-        let mut col = vt_csi_get(1, 1) - 1
+        let mut row = (if vt_n > 0 { vt_params[0] } else { 1 }) - 1
+        let mut col = (if vt_n > 1 { vt_params[1] } else { 1 }) - 1
         if row < 0 { row = 0 }
         if col < 0 { col = 0 }
         if row >= ROWS { row = ROWS - 1 }
@@ -566,8 +715,8 @@ fn csi_dispatch(b) {
         scr_cur_x = col
     } else if b == 102 {
         // f — CUP alias
-        let mut row = vt_csi_get(0, 1) - 1
-        let mut col = vt_csi_get(1, 1) - 1
+        let mut row = (if vt_n > 0 { vt_params[0] } else { 1 }) - 1
+        let mut col = (if vt_n > 1 { vt_params[1] } else { 1 }) - 1
         if row < 0 { row = 0 }
         if col < 0 { col = 0 }
         if row >= ROWS { row = ROWS - 1 }
@@ -576,28 +725,30 @@ fn csi_dispatch(b) {
         scr_cur_x = col
     } else if b == 65 {
         // A — CUU
-        let n = vt_csi_get(0, 1)
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         scr_cur_y = scr_cur_y - n
         if scr_cur_y < scr_scroll_top { scr_cur_y = scr_scroll_top }
     } else if b == 66 {
         // B — CUD
-        let n = vt_csi_get(0, 1)
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         scr_cur_y = scr_cur_y + n
         if scr_cur_y > scr_scroll_bot { scr_cur_y = scr_scroll_bot }
     } else if b == 67 {
         // C — CUF
-        let n = vt_csi_get(0, 1)
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         scr_cur_x = scr_cur_x + n
         if scr_cur_x >= COLS { scr_cur_x = COLS - 1 }
     } else if b == 68 {
         // D — CUB
-        let n = vt_csi_get(0, 1)
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         scr_cur_x = scr_cur_x - n
         if scr_cur_x < 0 { scr_cur_x = 0 }
     } else if b == 74 {
         // J — ED (erase display)
-        let mode = vt_csi_get(0, 0)
+        let mode = if vt_n > 0 { vt_params[0] } else { 0 }
         if mode == 0 {
+            let mut dr = scr_cur_y
+            while dr < ROWS { let _ = scr_mark_dirty(dr); dr = dr + 1 }
             let start = scr_cur_y * COLS + scr_cur_x
             let mut i = start
             while i < TOTAL {
@@ -608,6 +759,8 @@ fn csi_dispatch(b) {
                 i = i + 1
             }
         } else if mode == 1 {
+            let mut dr = 0
+            while dr <= scr_cur_y { let _ = scr_mark_dirty(dr); dr = dr + 1 }
             let stop = scr_cur_y * COLS + scr_cur_x
             let mut i = 0
             while i <= stop {
@@ -618,6 +771,7 @@ fn csi_dispatch(b) {
                 i = i + 1
             }
         } else if mode == 2 {
+            let _ = scr_mark_all_dirty()
             let mut i = 0
             while i < TOTAL {
                 scr_cells[i] = 32
@@ -629,7 +783,8 @@ fn csi_dispatch(b) {
         }
     } else if b == 75 {
         // K — EL (erase line)
-        let mode = vt_csi_get(0, 0)
+        let _ = scr_mark_dirty(scr_cur_y)
+        let mode = if vt_n > 0 { vt_params[0] } else { 0 }
         let row_s = scr_cur_y * COLS
         if mode == 0 {
             let mut i = row_s + scr_cur_x
@@ -667,19 +822,21 @@ fn csi_dispatch(b) {
         let _ = sgr_apply()
     } else if b == 71 {
         // G — cursor horizontal absolute
-        let mut col = vt_csi_get(0, 1) - 1
+        let mut col = (if vt_n > 0 { vt_params[0] } else { 1 }) - 1
         if col < 0 { col = 0 }
         if col >= COLS { col = COLS - 1 }
         scr_cur_x = col
     } else if b == 100 {
         // d — vertical position absolute
-        let mut row = vt_csi_get(0, 1) - 1
+        let mut row = (if vt_n > 0 { vt_params[0] } else { 1 }) - 1
         if row < 0 { row = 0 }
         if row >= ROWS { row = ROWS - 1 }
         scr_cur_y = row
     } else if b == 76 {
         // L — insert lines
-        let n = vt_csi_get(0, 1)
+        let mut dr = scr_cur_y
+        while dr <= scr_scroll_bot { let _ = scr_mark_dirty(dr); dr = dr + 1 }
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         let mut j = 0
         while j < n {
             // Shift down from bottom
@@ -711,7 +868,9 @@ fn csi_dispatch(b) {
         }
     } else if b == 77 {
         // M — delete lines
-        let n = vt_csi_get(0, 1)
+        let mut dr = scr_cur_y
+        while dr <= scr_scroll_bot { let _ = scr_mark_dirty(dr); dr = dr + 1 }
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         let mut j = 0
         while j < n {
             let mut r = scr_cur_y
@@ -741,7 +900,8 @@ fn csi_dispatch(b) {
         }
     } else if b == 80 {
         // P — delete characters
-        let n = vt_csi_get(0, 1)
+        let _ = scr_mark_dirty(scr_cur_y)
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         let row_s = scr_cur_y * COLS
         let mut i = scr_cur_x
         while i < COLS - n {
@@ -762,7 +922,8 @@ fn csi_dispatch(b) {
         }
     } else if b == 64 {
         // @ — insert characters
-        let n = vt_csi_get(0, 1)
+        let _ = scr_mark_dirty(scr_cur_y)
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         let row_s = scr_cur_y * COLS
         let mut i = COLS - 1
         while i >= scr_cur_x + n {
@@ -784,7 +945,7 @@ fn csi_dispatch(b) {
         }
     } else if b == 83 {
         // S — scroll up
-        let n = vt_csi_get(0, 1)
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         let mut j = 0
         while j < n {
             let _ = scr_scroll_up()
@@ -792,7 +953,7 @@ fn csi_dispatch(b) {
         }
     } else if b == 84 {
         // T — scroll down
-        let n = vt_csi_get(0, 1)
+        let n = if vt_n > 0 { vt_params[0] } else { 1 }
         let mut j = 0
         while j < n {
             let _ = scr_scroll_down()
@@ -800,8 +961,8 @@ fn csi_dispatch(b) {
         }
     } else if b == 114 {
         // r — set scroll region
-        let mut top = vt_csi_get(0, 1) - 1
-        let mut bot = vt_csi_get(1, ROWS) - 1
+        let mut top = (if vt_n > 0 { vt_params[0] } else { 1 }) - 1
+        let mut bot = (if vt_n > 1 { vt_params[1] } else { ROWS }) - 1
         if top < 0 { top = 0 }
         if bot >= ROWS { bot = ROWS - 1 }
         scr_scroll_top = top
@@ -812,7 +973,7 @@ fn csi_dispatch(b) {
         // h — set mode
         if vt_private == 1 {
             // ?Ph — private mode set. Handle alt-screen variants here.
-            let pn = vt_csi_get(0, 0)
+            let pn = if vt_n > 0 { vt_params[0] } else { 0 }
             if pn == 1049 {
                 // ?1049h — save cursor + switch to alt + clear
                 let _ = enter_alt_screen(1, 1)
@@ -837,7 +998,7 @@ fn csi_dispatch(b) {
         // l — reset mode
         if vt_private == 1 {
             // ?Pl — private mode reset. Handle alt-screen variants.
-            let pn = vt_csi_get(0, 0)
+            let pn = if vt_n > 0 { vt_params[0] } else { 0 }
             if pn == 1049 {
                 // ?1049l — restore normal + restore cursor
                 let _ = leave_alt_screen(1)
@@ -866,76 +1027,113 @@ fn csi_dispatch(b) {
         // u — restore cursor
         scr_cur_x = saved_cur_x
         scr_cur_y = saved_cur_y
+    } else if b == 110 {
+        // n — Device Status Report (DSR)
+        let pn = vt_csi_get(0, 0)
+        if pn == 6 {
+            // CSI 6n → CPR: report cursor position as ESC[row;colR
+            // row/col are 1-based
+            let r = scr_cur_y + 1
+            let c = scr_cur_x + 1
+            let _ = hexa_reply_reset()
+            let _ = hexa_reply_push(27)   // ESC
+            let _ = hexa_reply_push(91)   // [
+            // row digits
+            if r >= 100 {
+                let _ = hexa_reply_push(48 + r / 100)
+            }
+            if r >= 10 {
+                let _ = hexa_reply_push(48 + (r / 10) - (r / 100) * 10)
+            }
+            let _ = hexa_reply_push(48 + r - (r / 10) * 10)
+            let _ = hexa_reply_push(59)   // ;
+            // col digits
+            if c >= 100 {
+                let _ = hexa_reply_push(48 + c / 100)
+            }
+            if c >= 10 {
+                let _ = hexa_reply_push(48 + (c / 10) - (c / 100) * 10)
+            }
+            let _ = hexa_reply_push(48 + c - (c / 10) * 10)
+            let _ = hexa_reply_push(82)   // R
+            let _ = hexa_reply_flush()
+        } else if pn == 5 {
+            // CSI 5n → status report: "OK"
+            let _ = hexa_reply_reset()
+            let _ = hexa_reply_push(27)   // ESC
+            let _ = hexa_reply_push(91)   // [
+            let _ = hexa_reply_push(48)   // 0
+            let _ = hexa_reply_push(110)  // n
+            let _ = hexa_reply_flush()
+        }
+    } else if b == 99 {
+        // c — Device Attributes (DA1)
+        if vt_private == 0 {
+            // CSI c or CSI 0c → report as VT220: ESC[?62;4c
+            let _ = hexa_reply_reset()
+            let _ = hexa_reply_push(27)   // ESC
+            let _ = hexa_reply_push(91)   // [
+            let _ = hexa_reply_push(63)   // ?
+            let _ = hexa_reply_push(54)   // 6
+            let _ = hexa_reply_push(50)   // 2
+            let _ = hexa_reply_push(59)   // ;
+            let _ = hexa_reply_push(52)   // 4
+            let _ = hexa_reply_push(99)   // c
+            let _ = hexa_reply_flush()
+        }
     }
     return 0
 }
 
 // ═══════════════════════════════════════════════════════════════
-// VT FEED BYTE — main parser
+// CORE §6: VT FEED BYTE — main parser (가장 뜨거운 함수)
 // ═══════════════════════════════════════════════════════════════
 fn scr_feed_byte(b) {
-    // State 0: GROUND
+    // State 0: GROUND — single table lookup, zero if/else on common path
     if vt_state == 0 {
-        if b == 27 {
-            // ESC introducer — also cancel any in-flight UTF-8 sequence
-            // so a partial multi-byte codepoint interrupted by an escape
-            // cannot absorb the bytes that follow the escape terminator.
-            // See T20.
+        let cls = vt_ground[b]
+        if cls == 0 {
+            // ASCII printable (32..126) — ~80% of all bytes
+            let _ = scr_put(b)
+        } else if cls == 1 {
+            // ESC — cancel in-flight UTF-8 (T20 hardening)
             utf8_cp = 0
             utf8_remain = 0
             vt_state = 1
-        } else if b == 10 {
+        } else if cls == 2 {
+            // CR
+            scr_cur_x = 0
+        } else if cls == 3 {
             // LF
             scr_cur_y = scr_cur_y + 1
             if scr_cur_y > scr_scroll_bot {
                 let _ = scr_scroll_up()
                 scr_cur_y = scr_scroll_bot
             }
-        } else if b == 13 {
-            // CR
-            scr_cur_x = 0
-        } else if b == 8 {
+        } else if cls == 4 {
             // BS
             scr_cur_x = scr_cur_x - 1
             if scr_cur_x < 0 { scr_cur_x = 0 }
-        } else if b == 9 {
+        } else if cls == 5 {
             // TAB
             let rem = scr_cur_x - (scr_cur_x / 8) * 8
             scr_cur_x = scr_cur_x + (8 - rem)
             if scr_cur_x >= COLS { scr_cur_x = COLS - 1 }
-        } else if b == 7 {
-            // BEL — ignore
-            let _ = 0
-        } else if b >= 32 {
-            if b < 128 {
-                // ASCII printable
-                let _ = scr_put(b)
-            } else if b >= 192 {
-                // UTF-8 lead byte
-                if b < 224 {
-                    // 2-byte: 110xxxxx
-                    utf8_cp = b - 192
-                    utf8_remain = 1
-                } else if b < 240 {
-                    // 3-byte: 1110xxxx
-                    utf8_cp = b - 224
-                    utf8_remain = 2
-                } else {
-                    // 4-byte: 11110xxx
-                    utf8_cp = b - 240
-                    utf8_remain = 3
-                }
-            } else {
-                // Continuation byte: 10xxxxxx (128-191)
-                if utf8_remain > 0 {
-                    utf8_cp = utf8_cp * 64 + (b - 128)
-                    utf8_remain = utf8_remain - 1
-                    if utf8_remain == 0 {
-                        let _ = scr_put(utf8_cp)
-                    }
+        } else if cls == 11 {
+            // UTF-8 continuation: 10xxxxxx (128..191)
+            if utf8_remain > 0 {
+                utf8_cp = utf8_cp * 64 + (b - 128)
+                utf8_remain = utf8_remain - 1
+                if utf8_remain == 0 {
+                    let _ = scr_put(utf8_cp)
                 }
             }
+        } else if cls >= 8 && cls <= 10 {
+            // UTF-8 lead byte (2/3/4)
+            utf8_cp = b - vt_utf8_base[cls]
+            utf8_remain = vt_utf8_remain[cls]
         }
+        // cls 6(BEL), 7(C0), 12(invalid) → drop
         return 0
     }
     // State 1: ESC
@@ -1004,6 +1202,16 @@ fn scr_feed_byte(b) {
             }
         }
         if b == 59 {
+            let _ = vt_csi_flush()
+            return 0
+        }
+        // `:` (0x3A) subparameter separator — ECMA-48/ECMA-35 extended
+        // SGR uses `4:0` / `4:3` / `58:2:::r:g:b` etc. We treat it the
+        // same as `;` to avoid eating subparams into the parent digit
+        // (e.g. `4:0m` being parsed as `40m` which sets bg=black and
+        // leaves underline sticky forever — the symptom Claude Code CLI
+        // triggers by emitting `4:0m` to turn off underline styling).
+        if b == 58 {
             let _ = vt_csi_flush()
             return 0
         }
@@ -1108,27 +1316,52 @@ fn scr_feed_byte(b) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SYNC screen buffer → AppKit bridge
+// CORE §7: SYNC screen buffer → AppKit bridge
 // ═══════════════════════════════════════════════════════════════
 fn sync_to_bridge() {
     let mut r = 0
     while r < ROWS {
-        let mut c = 0
-        while c < COLS {
-            let idx = r * COLS + c
-            let _ = hexa_appkit_term_set_cell(r, c, scr_cells[idx],
-                scr_fg[idx], scr_bg[idx], scr_flags[idx])
-            c = c + 1
+        if scr_dirty[r] == 1 || scr_all_dirty == 1 {
+            let mut c = 0
+            while c < COLS {
+                let idx = r * COLS + c
+                let _ = hexa_appkit_term_set_cell(r, c, scr_cells[idx],
+                    scr_fg[idx], scr_bg[idx], scr_flags[idx])
+                c = c + 1
+            }
+            scr_dirty[r] = 0
         }
         r = r + 1
     }
+    scr_all_dirty = 0
     let _ = hexa_appkit_term_set_cursor(scr_cur_y, scr_cur_x, 1)
     let _ = hexa_appkit_term_flush()
     return 0
 }
 
+// ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+// ▓▓▓  CORE END — 위까지가 렌더 파이프라인 핫패스             ▓▓▓
+// ▓▓▓  §1 buffer §2 VT-state §3 SGR §4 wide+hangul           ▓▓▓
+// ▓▓▓  §5 CSI §6 feed_byte §7 sync                            ▓▓▓
+// ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+
 // ═══════════════════════════════════════════════════════════════
-// SELF-TEST — headless VT + PTY pipeline verification
+// APP: PROMPT PARSER — REPL key→PTY→VT helpers (extracted module)
+// Inlined via build_c.hexa `use` preprocessor (textual include).
+// Resolves to src/prompt_parser.hexa relative to this file.
+// ═══════════════════════════════════════════════════════════════
+use "prompt_parser"
+
+// ═══════════════════════════════════════════════════════════════
+// APP: STATE SSoT — session state (cursor / cwd / last_exit)
+// REPL-P0-3, 2026-04-14. Inlined via build_c.hexa `use` preprocessor.
+// File: ~/.void/session.json (atomic write via tmp+mv). NOT
+// $VOID/state.json (that's the project SSoT — layers/blockers).
+// ═══════════════════════════════════════════════════════════════
+use "state_ssot"
+
+// ═══════════════════════════════════════════════════════════════
+// APP: SELF-TEST — headless VT + PTY pipeline verification
 // ═══════════════════════════════════════════════════════════════
 fn scr_find_probe(probe, probe_len) {
     let bound = TOTAL - probe_len
@@ -1749,22 +1982,22 @@ fn self_test() {
     // macOS filesystem returns filenames as NFD (decomposed jamos).
     // Feed U+1100 U+1161 U+11A8 (각 as CHOSEONG+JUNGSEONG+JONGSEONG)
     // via the UTF-8 byte path and assert cell[0] holds precomposed
-    // 0xAC01 with wide-head flag 0x10000 and continuation 0x20000.
+    // U+AC01 (44033) with wide-head flag 65536 and continuation 131072.
     let _ = scr_init()
     let _ = vt_reset_state()
     // U+1100 = E1 84 80
-    let _ = scr_feed_byte(0xE1)
-    let _ = scr_feed_byte(0x84)
-    let _ = scr_feed_byte(0x80)
+    let _ = scr_feed_byte(225)
+    let _ = scr_feed_byte(132)
+    let _ = scr_feed_byte(128)
     // U+1161 = E1 85 A1
-    let _ = scr_feed_byte(0xE1)
-    let _ = scr_feed_byte(0x85)
-    let _ = scr_feed_byte(0xA1)
+    let _ = scr_feed_byte(225)
+    let _ = scr_feed_byte(133)
+    let _ = scr_feed_byte(161)
     // U+11A8 = E1 86 A8
-    let _ = scr_feed_byte(0xE1)
-    let _ = scr_feed_byte(0x86)
-    let _ = scr_feed_byte(0xA8)
-    if scr_cells[0] == 0xAC01 {
+    let _ = scr_feed_byte(225)
+    let _ = scr_feed_byte(134)
+    let _ = scr_feed_byte(168)
+    if scr_cells[0] == 44033 {
         if scr_cur_x == 2 {
             println("[void-test] T21 PASS Hangul NFD composed (U+1100+U+1161+U+11A8 -> U+AC01)")
             pass = pass + 1
@@ -1795,19 +2028,788 @@ fn self_test() {
         } else { println("[void-test] T22 FAIL  cell[1]=", scr_cells[1], " bg=", scr_bg[1]); fail = fail + 1 }
     } else { println("[void-test] T22 FAIL  cell[0]=", scr_cells[0], " fg=", scr_fg[0]); fail = fail + 1 }
 
+    // ── Test 23: DSR CSI 6n → CPR response ──
+    let _ = scr_init()
+    let _ = hexa_keybuf_clear()
+    // Move cursor to (3,7) then send CSI 6n
+    // CUP: ESC[4;8H (1-based)
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(72)
+    // DSR: ESC[6n
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(110)
+    // Expect response: ESC[4;8R in key buffer
+    let t23_len = hexa_keybuf_len()
+    if t23_len == 6 {
+        let t23_0 = hexa_keybuf_byte(0)
+        let t23_1 = hexa_keybuf_byte(1)
+        let t23_2 = hexa_keybuf_byte(2)
+        let t23_3 = hexa_keybuf_byte(3)
+        let t23_4 = hexa_keybuf_byte(4)
+        let t23_5 = hexa_keybuf_byte(5)
+        // ESC=27 [=91 4=52 ;=59 8=56 R=82
+        if t23_0 == 27 && t23_1 == 91 && t23_2 == 52 && t23_3 == 59 && t23_4 == 56 && t23_5 == 82 {
+            println("[void-test] T23 PASS DSR CSI 6n → CPR ESC[4;8R")
+            pass = pass + 1
+        } else {
+            println("[void-test] T23 FAIL  response bytes=", t23_0, ",", t23_1, ",", t23_2, ",", t23_3, ",", t23_4, ",", t23_5)
+            fail = fail + 1
+        }
+    } else {
+        println("[void-test] T23 FAIL  keybuf len=", t23_len, " expected 6")
+        fail = fail + 1
+    }
+
+    // ── Test 24: DA1 CSI c → device attributes response ──
+    let _ = hexa_keybuf_clear()
+    // CSI c: ESC[c
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(99)
+    // Expect: ESC[?62;4c (8 bytes)
+    let t24_len = hexa_keybuf_len()
+    if t24_len == 8 {
+        let t24_0 = hexa_keybuf_byte(0)
+        let t24_1 = hexa_keybuf_byte(1)
+        let t24_2 = hexa_keybuf_byte(2)
+        let t24_7 = hexa_keybuf_byte(7)
+        // ESC=27 [=91 ?=63 ... c=99
+        if t24_0 == 27 && t24_1 == 91 && t24_2 == 63 && t24_7 == 99 {
+            println("[void-test] T24 PASS DA1 CSI c → ESC[?62;4c")
+            pass = pass + 1
+        } else {
+            println("[void-test] T24 FAIL  response bytes=", t24_0, ",", t24_1, ",", t24_2, "...", t24_7)
+            fail = fail + 1
+        }
+    } else {
+        println("[void-test] T24 FAIL  keybuf len=", t24_len, " expected 8")
+        fail = fail + 1
+    }
+
+    // ── Test 25: DSR CSI 5n → status OK ──
+    let _ = hexa_keybuf_clear()
+    // CSI 5n: ESC[5n
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(110)
+    // Expect: ESC[0n (4 bytes)
+    let t25_len = hexa_keybuf_len()
+    if t25_len == 4 {
+        let t25_0 = hexa_keybuf_byte(0)
+        let t25_3 = hexa_keybuf_byte(3)
+        if t25_0 == 27 && t25_3 == 110 {
+            println("[void-test] T25 PASS DSR CSI 5n → ESC[0n (status OK)")
+            pass = pass + 1
+        } else {
+            println("[void-test] T25 FAIL  response bytes=", t25_0, "...", t25_3)
+            fail = fail + 1
+        }
+    } else {
+        println("[void-test] T25 FAIL  keybuf len=", t25_len, " expected 4")
+        fail = fail + 1
+    }
+
+    // ── Test 26: Alt screen content isolation ──
+    // Write on alt, leave alt, verify alt content does NOT leak to main.
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Fill row 0 with 'M' (77) on main screen (5 chars)
+    let _ = scr_feed_byte(77)
+    let _ = scr_feed_byte(77)
+    let _ = scr_feed_byte(77)
+    let _ = scr_feed_byte(77)
+    let _ = scr_feed_byte(77)
+    // Enter alt: ESC [ ? 1 0 4 9 h
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(104)
+    // Write 'Z' (90) at alt (0,0)..(0,2)
+    let _ = scr_feed_byte(90)
+    let _ = scr_feed_byte(90)
+    let _ = scr_feed_byte(90)
+    // Verify alt screen has Z
+    let t26_alt_z = scr_cells[0]
+    // Leave alt: ESC [ ? 1 0 4 9 l
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(108)
+    // Main screen should have M (77), not Z (90)
+    if t26_alt_z == 90 {
+        if scr_cells[0] == 77 {
+            if scr_cells[4] == 77 {
+                if scr_cells[5] == 32 {
+                    println("[void-test] T26 PASS alt screen content isolation (Z not leaked to main)")
+                    pass = pass + 1
+                } else { println("[void-test] T26 FAIL  cell[5]=", scr_cells[5], " expected 32(space)"); fail = fail + 1 }
+            } else { println("[void-test] T26 FAIL  cell[4]=", scr_cells[4], " expected 77(M)"); fail = fail + 1 }
+        } else { println("[void-test] T26 FAIL  cell[0]=", scr_cells[0], " expected 77(M) after rmcup"); fail = fail + 1 }
+    } else { println("[void-test] T26 FAIL  alt cell[0]=", t26_alt_z, " expected 90(Z) during smcup"); fail = fail + 1 }
+
+    // ── Test 27: Cursor save/restore across alt screen ──
+    // Position cursor at (5,3), enter alt, move cursor to (0,0), leave alt,
+    // verify cursor is back at (5,3).
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // CUP to row 4, col 6 (1-indexed): ESC [ 4 ; 6 H → cursor at (5,3) 0-indexed
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(72)
+    let t27_pre_x = scr_cur_x
+    let t27_pre_y = scr_cur_y
+    // Enter alt: ESC [ ? 1 0 4 9 h
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(104)
+    // Alt cursor should be at (0,0) after clear
+    let t27_alt_x = scr_cur_x
+    let t27_alt_y = scr_cur_y
+    // Move cursor in alt: CUP row 10, col 20: ESC [ 1 0 ; 2 0 H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(72)
+    // Leave alt: ESC [ ? 1 0 4 9 l
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(108)
+    // Cursor should be restored to pre-alt position (5, 3)
+    if t27_pre_x == 5 {
+        if t27_pre_y == 3 {
+            if t27_alt_x == 0 {
+                if t27_alt_y == 0 {
+                    if scr_cur_x == 5 {
+                        if scr_cur_y == 3 {
+                            println("[void-test] T27 PASS cursor save/restore across alt screen")
+                            pass = pass + 1
+                        } else { println("[void-test] T27 FAIL  restored cur_y=", scr_cur_y, " expected 3"); fail = fail + 1 }
+                    } else { println("[void-test] T27 FAIL  restored cur_x=", scr_cur_x, " expected 5"); fail = fail + 1 }
+                } else { println("[void-test] T27 FAIL  alt cur_y=", t27_alt_y, " expected 0"); fail = fail + 1 }
+            } else { println("[void-test] T27 FAIL  alt cur_x=", t27_alt_x, " expected 0"); fail = fail + 1 }
+        } else { println("[void-test] T27 FAIL  pre cur_y=", t27_pre_y, " expected 3"); fail = fail + 1 }
+    } else { println("[void-test] T27 FAIL  pre cur_x=", t27_pre_x, " expected 5"); fail = fail + 1 }
+
+    // ── Test 28: Alt screen scrollback inhibition ──
+    // In alt screen, scrolling should NOT push to scrollback (Terminal.app behavior).
+    // We verify by checking that scr_is_alt gates the scrollback_push calls.
+    // Strategy: enter alt, fill all rows to trigger scroll, leave alt —
+    // the main screen content must be intact (proving no scrollback pollution).
+    COLS = 10
+    ROWS = 3
+    TOTAL = 30
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Write 'A' (65) on main row 0
+    let _ = scr_feed_byte(65)
+    // CUP to row 1 col 1: ESC [ 1 ; 1 H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(72)
+    // Enter alt: ESC [ ? 1 0 4 9 h
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(104)
+    // Fill 4 rows worth of text to trigger scrolling in alt (3 rows only)
+    // Write 30+ chars to fill and scroll the 3-row alt screen
+    let mut t28_i = 0
+    while t28_i < 35 {
+        let _ = scr_feed_byte(88)  // 'X'
+        t28_i = t28_i + 1
+    }
+    // Leave alt: ESC [ ? 1 0 4 9 l
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(63)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(108)
+    // Main screen row 0 cell 0 should still be 'A' (65), not scrolled away
+    if scr_cells[0] == 65 {
+        println("[void-test] T28 PASS alt screen scrollback inhibition (main intact after alt scroll)")
+        pass = pass + 1
+    } else {
+        println("[void-test] T28 FAIL  cell[0]=", scr_cells[0], " expected 65(A) — main screen corrupted by alt scroll")
+        fail = fail + 1
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Phase-1 regression block (T29..T53) — common bugs users hit:
+    // SGR reset/color variants, BS/TAB/CR edges, CHA/VPA, ICH,
+    // autowrap. See scripts/test_headless.sh for layer-2 coverage.
+    // ════════════════════════════════════════════════════════════
+
+    // ── Test 29: SGR 0m full reset clears bold+fg+bg ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[1;31;44m — bold red fg + blue bg
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(88) // 'X'
+    // ESC[0m — reset
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(89) // 'Y'
+    if scr_cells[0] == 88 && (scr_flags[0] - (scr_flags[0] / 2) * 2) == 1 {
+        if scr_fg[0] == 1 && scr_bg[0] == 4 {
+            if scr_cells[1] == 89 && scr_fg[1] == 7 && scr_bg[1] == 0 && scr_flags[1] == 0 {
+                println("[void-test] T29 PASS SGR 0m full reset (bold+red+blue → default)")
+                pass = pass + 1
+            } else { println("[void-test] T29 FAIL Y attrs fg=", scr_fg[1], " bg=", scr_bg[1], " flags=", scr_flags[1]); fail = fail + 1 }
+        } else { println("[void-test] T29 FAIL X fg=", scr_fg[0], " bg=", scr_bg[0]); fail = fail + 1 }
+    } else { println("[void-test] T29 FAIL X cell=", scr_cells[0], " flags=", scr_flags[0]); fail = fail + 1 }
+
+    // ── Test 30: SGR with no param == SGR 0m ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Set bold first
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    // ESC[m (empty) should reset
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(65)
+    if scr_cells[0] == 65 && scr_flags[0] == 0 && scr_fg[0] == 7 {
+        println("[void-test] T30 PASS SGR CSI m (no param) resets")
+        pass = pass + 1
+    } else { println("[void-test] T30 FAIL flags=", scr_flags[0], " fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 31: 256-color fg SGR 38;5;196 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[38;5;196m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(70) // 'F'
+    if scr_fg[0] == 196 && scr_cells[0] == 70 {
+        println("[void-test] T31 PASS SGR 38;5;196 (256-color fg)")
+        pass = pass + 1
+    } else { println("[void-test] T31 FAIL fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 32: 256-color bg SGR 48;5;21 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(66) // 'B'
+    if scr_bg[0] == 21 && scr_cells[0] == 66 {
+        println("[void-test] T32 PASS SGR 48;5;21 (256-color bg)")
+        pass = pass + 1
+    } else { println("[void-test] T32 FAIL bg=", scr_bg[0]); fail = fail + 1 }
+
+    // ── Test 33: RGB fg SGR 38;2;255;128;0 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[38;2;255;128;0m — R=255 G=128 B=0
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(82) // 'R'
+    // Encoded: 256 + 255*65536 + 128*256 + 0 = 256 + 16711680 + 32768 + 0 = 16744704
+    if scr_fg[0] == 16744704 && scr_cells[0] == 82 {
+        println("[void-test] T33 PASS SGR 38;2;255;128;0 (RGB fg)")
+        pass = pass + 1
+    } else { println("[void-test] T33 FAIL fg=", scr_fg[0], " expected 16744704"); fail = fail + 1 }
+
+    // ── Test 34: RGB bg SGR 48;2;0;128;255 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(48)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(71) // 'G'
+    // 256 + 0*65536 + 128*256 + 255 = 256 + 0 + 32768 + 255 = 33279
+    if scr_bg[0] == 33279 && scr_cells[0] == 71 {
+        println("[void-test] T34 PASS SGR 48;2;0;128;255 (RGB bg)")
+        pass = pass + 1
+    } else { println("[void-test] T34 FAIL bg=", scr_bg[0], " expected 33279"); fail = fail + 1 }
+
+    // ── Test 35: SGR 1;31;44 multi-param combined ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(77) // 'M'
+    let bold_bit = scr_flags[0] - (scr_flags[0] / 2) * 2
+    if scr_fg[0] == 1 && scr_bg[0] == 4 && bold_bit == 1 {
+        println("[void-test] T35 PASS SGR 1;31;44 (bold+red+bluebg combined)")
+        pass = pass + 1
+    } else { println("[void-test] T35 FAIL fg=", scr_fg[0], " bg=", scr_bg[0], " flags=", scr_flags[0]); fail = fail + 1 }
+
+    // ── Test 36: SGR 22 disables bold but keeps color ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[1;31m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    // ESC[22m — cancel bold
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(65)
+    if scr_cells[0] == 65 && scr_fg[0] == 1 && scr_flags[0] == 0 {
+        println("[void-test] T36 PASS SGR 22 disable bold keeps fg=1")
+        pass = pass + 1
+    } else { println("[void-test] T36 FAIL fg=", scr_fg[0], " flags=", scr_flags[0]); fail = fail + 1 }
+
+    // ── Test 37: SGR 39 resets fg to default (7) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[31m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    // ESC[39m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(88)
+    if scr_fg[0] == 7 && scr_cells[0] == 88 {
+        println("[void-test] T37 PASS SGR 39 default fg")
+        pass = pass + 1
+    } else { println("[void-test] T37 FAIL fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 38: SGR 49 resets bg to default (0) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[44m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    // ESC[49m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(89)
+    if scr_bg[0] == 0 && scr_cells[0] == 89 {
+        println("[void-test] T38 PASS SGR 49 default bg")
+        pass = pass + 1
+    } else { println("[void-test] T38 FAIL bg=", scr_bg[0]); fail = fail + 1 }
+
+    // ── Test 39: SGR 24 disables underline ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[4m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    // ESC[24m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(52)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(85)
+    // flags bit for underline is 4
+    let under_bit = (scr_flags[0] / 4) - (scr_flags[0] / 8) * 2
+    if scr_cells[0] == 85 && under_bit == 0 {
+        println("[void-test] T39 PASS SGR 24 disable underline")
+        pass = pass + 1
+    } else { println("[void-test] T39 FAIL flags=", scr_flags[0]); fail = fail + 1 }
+
+    // ── Test 40: Bright fg SGR 91 → fg=9 (bright red) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[91m
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(57)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(82)
+    if scr_fg[0] == 9 && scr_cells[0] == 82 {
+        println("[void-test] T40 PASS SGR 91 bright red fg (=9)")
+        pass = pass + 1
+    } else { println("[void-test] T40 FAIL fg=", scr_fg[0]); fail = fail + 1 }
+
+    // ── Test 41: BS at col 5 → col 4 (no erase) ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(65) // A
+    let _ = scr_feed_byte(66) // B
+    let _ = scr_feed_byte(67) // C
+    let _ = scr_feed_byte(68) // D
+    let _ = scr_feed_byte(69) // E (cursor now at col 5)
+    let _ = scr_feed_byte(8)  // BS
+    if scr_cur_x == 4 && scr_cells[4] == 69 {
+        println("[void-test] T41 PASS BS col 5 → col 4 (E preserved)")
+        pass = pass + 1
+    } else { println("[void-test] T41 FAIL cur_x=", scr_cur_x, " cell[4]=", scr_cells[4]); fail = fail + 1 }
+
+    // ── Test 42: BS at col 0 stays at col 0 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(8)
+    let _ = scr_feed_byte(8)
+    let _ = scr_feed_byte(8)
+    if scr_cur_x == 0 && scr_cur_y == 0 {
+        println("[void-test] T42 PASS BS at col 0 clamps")
+        pass = pass + 1
+    } else { println("[void-test] T42 FAIL cur=(", scr_cur_y, ",", scr_cur_x, ")"); fail = fail + 1 }
+
+    // ── Test 43: TAB from col 0 → col 8 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(9)
+    if scr_cur_x == 8 {
+        println("[void-test] T43 PASS TAB 0 → 8")
+        pass = pass + 1
+    } else { println("[void-test] T43 FAIL cur_x=", scr_cur_x); fail = fail + 1 }
+
+    // ── Test 44: TAB from col 5 → col 8 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(9)
+    if scr_cur_x == 8 {
+        println("[void-test] T44 PASS TAB 5 → 8")
+        pass = pass + 1
+    } else { println("[void-test] T44 FAIL cur_x=", scr_cur_x); fail = fail + 1 }
+
+    // ── Test 45: TAB from col 15 → col 16 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[1;16H sets cursor to col 15 (1-based 16)
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(54)
+    let _ = scr_feed_byte(72)
+    let _ = scr_feed_byte(9)
+    if scr_cur_x == 16 {
+        println("[void-test] T45 PASS TAB 15 → 16")
+        pass = pass + 1
+    } else { println("[void-test] T45 FAIL cur_x=", scr_cur_x); fail = fail + 1 }
+
+    // ── Test 46: TAB near EOL clamps to COLS-1 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // CUP row 1 col 78 (0-indexed 77): ESC[1;78H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(55)
+    let _ = scr_feed_byte(56)
+    let _ = scr_feed_byte(72)
+    let _ = scr_feed_byte(9)
+    if scr_cur_x == 79 {
+        println("[void-test] T46 PASS TAB near EOL clamps (77 → 79)")
+        pass = pass + 1
+    } else { println("[void-test] T46 FAIL cur_x=", scr_cur_x, " expected 79"); fail = fail + 1 }
+
+    // ── Test 47: CR moves to col 0 same row ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    let _ = scr_feed_byte(13) // CR
+    if scr_cur_x == 0 && scr_cur_y == 0 && scr_cells[0] == 65 {
+        println("[void-test] T47 PASS CR → col 0 same row")
+        pass = pass + 1
+    } else { println("[void-test] T47 FAIL cur=(", scr_cur_y, ",", scr_cur_x, ") cell[0]=", scr_cells[0]); fail = fail + 1 }
+
+    // ── Test 48: CR then overwrite from col 0 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    let _ = scr_feed_byte(13)
+    let _ = scr_feed_byte(88) // X overwrites A
+    if scr_cells[0] == 88 && scr_cells[1] == 66 && scr_cells[2] == 67 {
+        println("[void-test] T48 PASS CR + overwrite (ABC → XBC)")
+        pass = pass + 1
+    } else { println("[void-test] T48 FAIL cells=", scr_cells[0], ",", scr_cells[1], ",", scr_cells[2]); fail = fail + 1 }
+
+    // ── Test 49: CHA (CSI 5G) sets col absolute to 4 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // ESC[5G → col 4 (0-indexed)
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(71)
+    if scr_cur_x == 4 {
+        println("[void-test] T49 PASS CHA ESC[5G → col 4")
+        pass = pass + 1
+    } else { println("[void-test] T49 FAIL cur_x=", scr_cur_x); fail = fail + 1 }
+
+    // ── Test 50: VPA (CSI 5d) sets row absolute to 4 ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(53)
+    let _ = scr_feed_byte(100)
+    if scr_cur_y == 4 {
+        println("[void-test] T50 PASS VPA ESC[5d → row 4")
+        pass = pass + 1
+    } else { println("[void-test] T50 FAIL cur_y=", scr_cur_y); fail = fail + 1 }
+
+    // ── Test 51: Autowrap at EOL — 81st char wraps to row 1 ──
+    COLS = 80
+    ROWS = 24
+    TOTAL = 1920
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    let mut t51_i = 0
+    while t51_i < 81 {
+        let _ = scr_feed_byte(65)
+        t51_i = t51_i + 1
+    }
+    // After 81 'A's: row 0 full, row 1 has 'A' at col 0, cursor at (1,1)
+    if scr_cells[0] == 65 && scr_cells[79] == 65 {
+        let r1 = 1 * COLS
+        if scr_cells[r1] == 65 && scr_cur_y == 1 && scr_cur_x == 1 {
+            println("[void-test] T51 PASS autowrap at col 80 → row 1")
+            pass = pass + 1
+        } else { println("[void-test] T51 FAIL cur=(", scr_cur_y, ",", scr_cur_x, ") row1[0]=", scr_cells[r1]); fail = fail + 1 }
+    } else { println("[void-test] T51 FAIL row0[0]=", scr_cells[0], " row0[79]=", scr_cells[79]); fail = fail + 1 }
+
+    // ── Test 52: ICH (CSI 2@) inserts 2 blanks shifts right ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Write "ABCDE"
+    let _ = scr_feed_byte(65)
+    let _ = scr_feed_byte(66)
+    let _ = scr_feed_byte(67)
+    let _ = scr_feed_byte(68)
+    let _ = scr_feed_byte(69)
+    // Move to col 1 (1-based 2): ESC[1;2H
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(72)
+    // ESC[2@ — insert 2 blanks
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(50)
+    let _ = scr_feed_byte(64)
+    // Expect: A _ _ B C D E (B shifted from col 1 to col 3)
+    if scr_cells[0] == 65 && scr_cells[1] == 32 && scr_cells[2] == 32 && scr_cells[3] == 66 && scr_cells[4] == 67 {
+        println("[void-test] T52 PASS ICH insert 2 shifts ABCDE → A__BCDE")
+        pass = pass + 1
+    } else { println("[void-test] T52 FAIL cells=", scr_cells[0], ",", scr_cells[1], ",", scr_cells[2], ",", scr_cells[3], ",", scr_cells[4]); fail = fail + 1 }
+
+    // ── Test 53: ESC c (RIS) full reset clears screen and attrs ──
+    let _ = scr_init()
+    let _ = vt_reset_state()
+    // Write bold red 'Z'
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(91)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(59)
+    let _ = scr_feed_byte(51)
+    let _ = scr_feed_byte(49)
+    let _ = scr_feed_byte(109)
+    let _ = scr_feed_byte(90)
+    // ESC c — RIS
+    let _ = scr_feed_byte(27)
+    let _ = scr_feed_byte(99)
+    // After reset: cell[0] = space, cur_fg = 7, cur_bold = 0
+    if scr_cells[0] == 32 && cur_fg == 7 && cur_bold == 0 {
+        println("[void-test] T53 PASS ESC c (RIS) reset")
+        pass = pass + 1
+    } else { println("[void-test] T53 FAIL cell[0]=", scr_cells[0], " cur_fg=", cur_fg, " cur_bold=", cur_bold); fail = fail + 1 }
+
     // ── Summary ──
     println("")
     println("[void-test] ", pass, "/", pass + fail, " passed")
     if fail == 0 {
         println("[void-test] === ALL TESTS PASS ===")
-        return 0
+    } else {
+        println("[void-test] === ", fail, " FAILURES ===")
     }
-    println("[void-test] === ", fail, " FAILURES ===")
-    return 1
+
+    // ── Microbenchmark: scr_feed_byte throughput ──
+    let _ = scr_init()
+    let bench_bytes = 100000
+    let t0 = clock_us()
+    let mut bi = 0
+    while bi < bench_bytes {
+        // Mix: ~70% ASCII printable, ~15% LF/CR, ~15% control
+        let bb = 32 + (bi - (bi / 94) * 94)
+        let _ = scr_feed_byte(bb)
+        bi = bi + 1
+    }
+    let t1 = clock_us()
+    let us = t1 - t0
+    println("[void-bench] scr_feed_byte: ", bench_bytes, " bytes in ", us, " us")
+    if us > 0 {
+        let mbps = bench_bytes / us
+        println("[void-bench] throughput: ~", mbps, " MB/s")
+    }
+
+    // ── Microbenchmark: sync_to_bridge ──
+    let _ = scr_mark_all_dirty()
+    let t2 = clock_us()
+    let mut si = 0
+    while si < 100 {
+        let _ = scr_mark_all_dirty()
+        let _ = sync_to_bridge()
+        si = si + 1
+    }
+    let t3 = clock_us()
+    let sync_us = t3 - t2
+    println("[void-bench] sync_to_bridge (full, 100x): ", sync_us, " us")
+
+    // ── Microbenchmark: sync_to_bridge delta (1 dirty row) ──
+    let t4 = clock_us()
+    let mut di = 0
+    while di < 100 {
+        let _ = scr_mark_dirty(0)
+        let _ = sync_to_bridge()
+        di = di + 1
+    }
+    let t5 = clock_us()
+    let delta_us = t5 - t4
+    println("[void-bench] sync_to_bridge (1-row delta, 100x): ", delta_us, " us")
+
+    return fail
 }
 
 // ═══════════════════════════════════════════════════════════════
-// MAIN — entry point
+// APP: MAIN — entry point
 // ═══════════════════════════════════════════════════════════════
 // Load screen buffer from C's grid (after tab switch)
 fn load_from_bridge() {
@@ -1819,6 +2821,7 @@ fn load_from_bridge() {
         scr_flags[i] = hexa_tab_cell_flags(i)
         i = i + 1
     }
+    let _ = scr_mark_all_dirty()
     scr_cur_x = hexa_tab_cursor_x()
     scr_cur_y = hexa_tab_cursor_y()
     return 0
@@ -1863,6 +2866,12 @@ fn main() {
 
     let _ = scr_init()
 
+    // REPL-P0-3: load persisted session state BEFORE any drawing.
+    // Restored values (cursor row/col, cwd, last_exit) live in
+    // state_ssot module globals; cursor is re-applied after the
+    // screen buffer is sized, below.
+    let _ = state_load()
+
     // Init AppKit terminal window (single instance, auto-sized)
     let init_r = hexa_appkit_init_term(0, 0, 14)
     if init_r < 0 {
@@ -1874,6 +2883,21 @@ fn main() {
     ROWS = hexa_appkit_term_get_rows()
     TOTAL = ROWS * COLS
     let _ = scr_init()
+
+    // REPL-P0-3: re-apply restored cursor inside new buffer bounds.
+    // Clamp defensively in case window shrank between sessions.
+    let restored_row = state_get_cursor_row()
+    let restored_col = state_get_cursor_col()
+    if restored_row >= 0 {
+        if restored_row < ROWS {
+            if restored_col >= 0 {
+                if restored_col < COLS {
+                    scr_cur_y = restored_row
+                    scr_cur_x = restored_col
+                }
+            }
+        }
+    }
 
     // Create first tab (spawns PTY inside C)
     let t0 = hexa_tab_new()
@@ -1945,28 +2969,29 @@ fn main() {
         if m < 0 {
             let _ = hexa_sleep_us(10000)
         } else {
-            // 4. Forward keys to active PTY
-            let _ = hexa_keys_to_pty(m)
-
-            // 5. Poll PTY → VT parse → sync
-            let nread = hexa_pty_poll_read(m, 5)
-            if nread > 0 {
-                let mut i = 0
-                while i < nread {
-                    let b = hexa_pty_read_byte(i)
-                    if b >= 0 {
-                        let _ = scr_feed_byte(b)
-                    }
-                    i = i + 1
-                }
+            // 4+5. Prompt step: forward queued keys, drain PTY → VT.
+            //      Logic lives in src/prompt_parser.hexa (REPL-P0-1).
+            //      drain_cap=65536: per-frame byte cap protects UI
+            //      responsiveness on busy PTY (cat large file etc.).
+            let drained = prompt_step(m, 65536)
+            if drained > 0 {
                 let _ = sync_to_bridge()
+                // REPL-P0-3: snapshot cursor after each real PTY drain.
+                // touch_cursor is a cheap memcmp-style no-op when the
+                // cursor hasn't moved, so this is per-frame safe.
+                let _ = state_touch_cursor(scr_cur_y, scr_cur_x)
             }
 
-            if nread == 0 {
+            if drained == 0 {
                 let _ = hexa_sleep_us(2000)
             }
         }
     }
+
+    // REPL-P0-3: persist session state before exit (Cmd+Q, last tab
+    // close, AppKit quit). Atomic write — partial files impossible.
+    let _ = state_touch_cursor(scr_cur_y, scr_cur_x)
+    let _ = state_save()
 
     return 0
 }

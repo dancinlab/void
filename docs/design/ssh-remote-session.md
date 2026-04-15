@@ -139,7 +139,7 @@ tab["remote_host"] = host
 
 - SFTP / 파일 업로드 / 드래그앤드롭
 - 포트 포워딩 (-L, -R, -D)
-- tmux-over-ssh attach 자동 감지
+- 멀티플렉서-over-ssh attach 자동 감지
 - Mosh 지원
 - 자체 재연결 / keepalive 로직
 - GUI 호스트 매니저 / 북마크 (별도 Phase 5/6 UI 태스크)

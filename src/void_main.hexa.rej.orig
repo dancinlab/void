@@ -1,0 +1,76 @@
+@@ -442,25 +442,59 @@
+ // Covers Hangul, CJK Unified, Hiragana/Katakana, CJK Compat, Fullwidth.
+ // Not perfect (no emoji ZWJ / grapheme clusters) but enough to fix the
+ // "한글 뒤죽박죽" bug where Korean output from claude overlapped itself.
+-fn is_wide_cjk(cp) {
+-    if cp < 0x1100 { return 0 }
+-    if cp >= 0x1100 && cp <= 0x115F { return 1 } // Hangul Jamo
+-    if cp >= 0x2E80 && cp <= 0x303E { return 1 } // CJK radicals/Kangxi/CJK symbols
+-    if cp == 0x3000 { return 1 }                 // Ideographic space
+-    if cp >= 0x3041 && cp <= 0x33FF { return 1 } // Hiragana/Katakana/CJK compat
+-    if cp >= 0x3400 && cp <= 0x4DBF { return 1 } // CJK Ext-A
+-    if cp >= 0x4E00 && cp <= 0x9FFF { return 1 } // CJK Unified
+-    if cp >= 0xA000 && cp <= 0xA4CF { return 1 } // Yi
+-    if cp >= 0xAC00 && cp <= 0xD7A3 { return 1 } // Hangul Syllables
+-    if cp >= 0xF900 && cp <= 0xFAFF { return 1 } // CJK Compat Ideographs
+-    if cp >= 0xFE30 && cp <= 0xFE4F { return 1 } // CJK Compat Forms
+-    if cp >= 0xFF00 && cp <= 0xFF60 { return 1 } // Fullwidth ASCII
+-    if cp >= 0xFFE0 && cp <= 0xFFE6 { return 1 } // Fullwidth symbols
+-    if cp >= 0x20000 && cp <= 0x2FFFD { return 1 } // CJK Ext-B..F
+-    if cp >= 0x30000 && cp <= 0x3FFFD { return 1 } // CJK Ext-G
++//
++// O(1) page-table lookup for BMP (U+0000..U+FFFF).
++// 256 pages of 256 codepoints each.  0=all narrow, 1=all wide, 2=mixed.
++// Only 8 of 256 pages are mixed — the rest resolve without branching.
++let wide_pages = [
++    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++    0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1,
++    2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
++    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1,
++    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
++    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
++    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
++    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
++    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
++    1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
++    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
++    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
++    1, 1, 1, 1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0,
++    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 2, 2
++]
++
++// Fallback range check for the 8 mixed pages only.
++fn is_wide_cjk_mixed(cp) {
++    if cp >= 4352 && cp <= 4447 { return 1 }     // Hangul Jamo (page 17)
++    if cp >= 11904 && cp <= 12031 { return 1 }   // CJK radicals (page 46)
++    if cp >= 12288 && cp <= 12350 { return 1 }   // CJK symbols + ideographic space (page 48)
++    if cp >= 12353 && cp <= 12543 { return 1 }   // Hiragana/Katakana (page 48)
++    if cp >= 19712 && cp <= 19903 { return 1 }   // CJK Ext-A tail (page 77)
++    if cp >= 41984 && cp <= 42191 { return 1 }   // Yi tail (page 164)
++    if cp >= 55040 && cp <= 55203 { return 1 }   // Hangul Syllables tail (page 215)
++    if cp >= 65072 && cp <= 65103 { return 1 }   // CJK Compat Forms (page 254)
++    if cp >= 65280 && cp <= 65376 { return 1 }   // Fullwidth ASCII (page 255)
++    if cp >= 65504 && cp <= 65510 { return 1 }   // Fullwidth symbols (page 255)
+     return 0
+ }
+ 
++fn is_wide_cjk(cp) {
++    // Fast path: ASCII / Latin / common scripts — vast majority of input
++    if cp < 4352 { return 0 }
++    // SMP planes — not in page table, use direct range check
++    if cp >= 131072 && cp <= 196605 { return 1 }  // CJK Ext-B..F
++    if cp >= 196608 && cp <= 262141 { return 1 }  // CJK Ext-G
++    if cp > 65535 { return 0 }
++    // BMP O(1) page-table lookup
++    let page = cp / 256
++    let tag = wide_pages[page]
++    if tag == 0 { return 0 }
++    if tag == 1 { return 1 }
++    return is_wide_cjk_mixed(cp)
++}
++
+ // ── Hangul NFD → NFC composition ──────────────────────────────────
+ // macOS HFS+/APFS returns filenames as NFD (decomposed jamos), so
+ // `ls` emits L=U+1100..U+1112 + V=U+1161..U+1175 + optional

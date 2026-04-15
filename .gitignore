@@ -1,3 +1,14 @@
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
+
+# Claude Code memory (account-shared, local only)
+.claude-memory/
+
+# macOS
+.DS_Store
+
+# Transpile artifacts
+/tmp/*.c
+src/void_gen.c
+build/

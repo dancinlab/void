@@ -1,0 +1,249 @@
+// prompt_parser.hexa — VOID REPL prompt-side helpers
+//
+// Scope: APP-layer wrappers around the keyboard→PTY→VT input pipeline.
+// Extracted from src/void_main.hexa main() loop (REPL-P0-1, 2026-04-14)
+// so the prompt path can grow (history ring, intent prediction, multi-
+// line composition) without bloating void_main.hexa.
+//
+// Hexa import contract: textual `use "prompt_parser"` inlining via
+// $HEXA_LANG/self/build_c.hexa preprocessor. Cross-references to
+// CORE-layer symbols (scr_feed_byte) and EXTERN bridges (hexa_*) resolve
+// inside the same compilation unit after inlining (forward prototypes
+// are emitted by build_c.hexa).
+//
+// CORE deps (defined in void_main.hexa, MUST NOT be moved here):
+//   scr_feed_byte(b) — VT/screen state machine entry
+// EXTERN deps (declared in void_main.hexa):
+//   hexa_keys_to_pty(master_fd)
+//   hexa_pty_poll_read(fd, timeout_ms)
+//   hexa_pty_read_byte(idx)
+//   hexa_keybuf_len() / hexa_keybuf_byte(i) / hexa_keybuf_clear()
+//   hexa_void_putc(fd, b)  — sys_pty.c, single-byte fd write
+//
+// Sub-modules (use'd below):
+//   history_ring.hexa  — REPL-P0-2, 1024-slot command history ring
+//   cmd_parser.hexa    — FEATURE-P0-2, pipe/redirect tokenizer
+//   builtin_cmds.hexa  — FEATURE-P0-1, cd/pwd/clear/history/help + line_buf_*
+//
+// Public API:
+//   prompt_forward_keys(master_fd)        -> int   bytes forwarded
+//   prompt_drain_pty(master_fd, cap_bytes)-> int   bytes drained+fed
+//   prompt_step(master_fd, drain_cap)     -> int   bytes drained
+//
+// Hot-path note: prompt_drain_pty is on the hot input path. Avoid
+// allocations or dict mutations inside the inner while loop (R memory
+// feedback_hot_attr_dict_mutation — @hot aliasing pitfall).
+
+// REPL-P0-2: pull in history ring (struct + push/prev/next/reset)
+use "history_ring"
+// FEATURE-P0-2: shell-line tokenizer. MUST appear before builtin_cmds
+// because try_builtin calls cmd_has_shell_meta().
+use "cmd_parser"
+// FEATURE-P0-1: builtin dispatcher + line_buf accumulator.
+// MUST appear before any line_buf_* / try_builtin call below.
+use "builtin_cmds"
+
+// ── History scan state (module-global, REPL-P0-2) ────────────────
+// Tracks the current input-line being typed and the CSI escape parser
+// state across calls into prompt_forward_keys. Module-global on
+// purpose — caller-scope `let mut` would re-trigger the @hot dict
+// aliasing pitfall (R memory feedback_hot_attr_dict_mutation).
+//
+// CSI parser is a tiny 3-state machine over raw keybuf bytes:
+//   0 = ground   (looking for printable / Enter / 0x1B)
+//   1 = saw ESC  (waiting for 0x5B '[')
+//   2 = saw CSI  (waiting for final byte: 0x41 ↑, 0x42 ↓, etc.)
+let mut prompt_csi_state = 0
+// Accumulated current line (cleared on Enter). String concat is OK
+// here — typing rate is human, not the @hot path. Parallel to
+// builtin_cmds.line_buf (byte-level) for history_push-only purposes.
+let mut prompt_line_acc = ""
+
+// CSI escape sequence constants
+let KEY_ESC = 0x1B    // \e
+let KEY_LBR = 0x5B    // [
+let KEY_UP  = 0x41    // ESC [ A
+let KEY_DN  = 0x42    // ESC [ B
+let KEY_CR  = 0x0D
+let KEY_LF  = 0x0A
+let KEY_BS  = 0x08    // backspace
+let KEY_DEL = 0x7F    // DEL — terminals send this for ⌫
+
+// ── prompt_forward_keys ─────────────────────────────────────────
+// Forward queued keystrokes from the AppKit keybuf to the active PTY,
+// merging REPL-P0-2 (history scan on CSI ↑/↓ + Enter push) and
+// FEATURE-P0-1 (builtin Enter interception via try_builtin).
+//
+// Per-byte state machine (over the live keybuf snapshot):
+//   CSI state 1 (saw ESC): if '[' → state 2; else → ground.
+//   CSI state 2 (saw ESC [): ↑→history_prev, ↓→history_next; any
+//     byte terminates CSI back to ground.
+//   Ground state:
+//     0x1B (ESC)           → enter CSI state 1, forward raw.
+//     Enter (0x0D or 0x0A) → history_push(prompt_line_acc) if non-empty,
+//       reset acc+cursor, then try_builtin(fd).
+//         1 = handled → emit local CR+LF, swallow line_buf bytes.
+//         0 = not builtin → flush line_buf + this Enter to the PTY.
+//       line_buf_clear() after either branch.
+//     Backspace 0x08 / DEL 0x7F → trim prompt_line_acc + line_buf_pop,
+//       forward immediately so the shell mirror stays in sync.
+//     Printable (>= 0x20) → accumulate into both prompt_line_acc (for
+//       history) and line_buf (for builtin parsing). Reset history
+//       cursor so ↑ starts from newest again.
+//     Other control bytes → accumulate in line_buf only.
+//   After the loop: hexa_keybuf_clear() — every byte is either
+//   forwarded via hexa_void_putc or absorbed into the line_buf.
+//
+// Returns the number of bytes actually written to the PTY master.
+@hot
+fn prompt_forward_keys(master_fd) {
+    let n = hexa_keybuf_len()
+    if n <= 0 {
+        return 0
+    }
+    let mut forwarded = 0
+    let mut i = 0
+    while i < n {
+        let b = hexa_keybuf_byte(i)
+        if prompt_csi_state == 1 {
+            if b == KEY_LBR {
+                prompt_csi_state = 2
+            } else {
+                prompt_csi_state = 0
+            }
+            let _ = hexa_void_putc(master_fd, b)
+            forwarded = forwarded + 1
+        } else if prompt_csi_state == 2 {
+            if b == KEY_UP {
+                let _ = history_prev()
+            } else if b == KEY_DN {
+                let _ = history_next()
+            }
+            prompt_csi_state = 0
+            let _ = hexa_void_putc(master_fd, b)
+            forwarded = forwarded + 1
+        } else if b == KEY_ESC {
+            prompt_csi_state = 1
+            let _ = hexa_void_putc(master_fd, b)
+            forwarded = forwarded + 1
+        } else if b == KEY_CR {
+            // Capture the typed line BEFORE history reset so try_builtin
+            // can feed it to FEATURE-P0-2 cmd_has_shell_meta() without
+            // re-assembling it from line_buf's int-bytes (chr(i) in
+            // hexa today returns to_string(i), not a 1-byte string).
+            let snap_cr = prompt_line_acc
+            if len(prompt_line_acc) > 0 {
+                let _ = history_push(prompt_line_acc)
+            }
+            prompt_line_acc = ""
+            let _ = history_reset_cursor()
+            let handled = try_builtin(master_fd, snap_cr)
+            if handled == 1 {
+                let _ = hexa_void_putc(master_fd, 13)
+                let _ = hexa_void_putc(master_fd, 10)
+            } else {
+                let bl = line_buf_len()
+                let mut j = 0
+                while j < bl {
+                    let _ = hexa_void_putc(master_fd, line_buf_at(j))
+                    j = j + 1
+                }
+                let _ = hexa_void_putc(master_fd, b)
+                forwarded = forwarded + bl + 1
+            }
+            line_buf_clear()
+        } else if b == KEY_LF {
+            let snap_lf = prompt_line_acc
+            if len(prompt_line_acc) > 0 {
+                let _ = history_push(prompt_line_acc)
+            }
+            prompt_line_acc = ""
+            let _ = history_reset_cursor()
+            let handled = try_builtin(master_fd, snap_lf)
+            if handled == 1 {
+                let _ = hexa_void_putc(master_fd, 13)
+                let _ = hexa_void_putc(master_fd, 10)
+            } else {
+                let bl = line_buf_len()
+                let mut j = 0
+                while j < bl {
+                    let _ = hexa_void_putc(master_fd, line_buf_at(j))
+                    j = j + 1
+                }
+                let _ = hexa_void_putc(master_fd, b)
+                forwarded = forwarded + bl + 1
+            }
+            line_buf_clear()
+        } else if b == KEY_BS {
+            let acc_n = len(prompt_line_acc)
+            if acc_n > 0 {
+                prompt_line_acc = prompt_line_acc.substring(0, acc_n - 1)
+            }
+            line_buf_pop()
+            let _ = hexa_void_putc(master_fd, b)
+            forwarded = forwarded + 1
+        } else if b == KEY_DEL {
+            let acc_n = len(prompt_line_acc)
+            if acc_n > 0 {
+                prompt_line_acc = prompt_line_acc.substring(0, acc_n - 1)
+            }
+            line_buf_pop()
+            let _ = hexa_void_putc(master_fd, b)
+            forwarded = forwarded + 1
+        } else if b >= 0x20 {
+            let one = chr(b)
+            prompt_line_acc = prompt_line_acc + one
+            let _ = history_reset_cursor()
+            line_buf_push(b)
+        } else {
+            line_buf_push(b)
+        }
+        i = i + 1
+    }
+    let _ = hexa_keybuf_clear()
+    return forwarded
+}
+
+// Drain currently-available PTY output bytes and feed them through the
+// VT parser (scr_feed_byte) until either the byte cap is hit or the PTY
+// has no more data. Returns total bytes drained this call.
+//
+// Per-frame byte cap protects UI responsiveness on busy PTY (cat large
+// file, tail -f spam, etc.). 65536 is the historical APP-layer choice
+// from void_main.hexa main().
+fn prompt_drain_pty(master_fd, drain_cap) {
+    let mut drained = 0
+    let mut drain_tmo = 5
+    let mut drain_more = 1
+    while drain_more == 1 {
+        let nread = hexa_pty_poll_read(master_fd, drain_tmo)
+        // After first poll, switch to non-blocking (0ms)
+        drain_tmo = 0
+        if nread > 0 {
+            let mut i = 0
+            while i < nread {
+                let b = hexa_pty_read_byte(i)
+                if b >= 0 {
+                    let _ = scr_feed_byte(b)
+                }
+                i = i + 1
+            }
+            drained = drained + nread
+            // Stop draining if we hit the per-frame byte cap
+            if drained >= drain_cap {
+                drain_more = 0
+            }
+        } else {
+            drain_more = 0
+        }
+    }
+    return drained
+}
+
+// One full prompt-side step: forward queued keys, then drain PTY output.
+// Returns drained byte count so caller can decide whether to sync
+// (drained > 0 → sync_to_bridge) or sleep (drained == 0 → idle backoff).
+fn prompt_step(master_fd, drain_cap) {
+    let _ = prompt_forward_keys(master_fd)
+    return prompt_drain_pty(master_fd, drain_cap)
+}

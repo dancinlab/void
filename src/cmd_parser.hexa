@@ -1,0 +1,492 @@
+// cmd_parser.hexa — VOID shell-line tokenizer (FEATURE-P0-2)
+//
+// Scope: a pure, allocation-light parser that splits one line of shell
+// input into an ordered list of simple commands connected by pipes (|)
+// plus an optional trailing redirect (> or >>). No fork/exec here —
+// this is parse-only. The fork/exec half lives in FEATURE-P0-2b.
+//
+// Hexa import contract: textual `use "cmd_parser"` inlining via
+// $HEXA_LANG/self/build_c.hexa. No external deps, no malloc; we
+// build the result entirely out of Dict (#{}) + Array literals and
+// return a single Dict from cmd_parse(). Every intermediate list is
+// rebuilt via `.push()` (returns a new list) so we avoid the @hot
+// dict-mutation aliasing pitfall (R memory feedback_hot_attr_dict_mutation).
+// This module is NOT marked @hot — correctness over throughput; a
+// typed line is a human-rate event.
+//
+// Public API:
+//   cmd_parse(line: String) -> Dict
+//     Success shape:
+//       {
+//         "cmds":         [ {"cmd": "...", "args": ["...", ...]}, ... ],
+//         "redir_kind":   ""  | ">"  | ">>",
+//         "redir_target": ""  | "file.txt",
+//         "error":        ""
+//       }
+//     Failure shape (error != ""): cmds may still be partially filled
+//     for debugging, but callers should reject on `error != ""`.
+//
+//   cmd_parse_test() -> int
+//     5+ self-check cases; returns 0 on all-PASS, negative on first
+//     failure (so `hexa run src/cmd_parser.hexa` can be used as a
+//     smoke driver when a `fn main` is added externally).
+//
+// Grammar (informal):
+//   line     := ws? cmd (ws? "|" ws? cmd)* (ws? redir)? ws?
+//   cmd      := token (ws token)*
+//   token    := raw | squoted | dquoted     -- escaped via backslash
+//   squoted  := "'" (anything except "'") "'"
+//   dquoted  := "\"" (anything except "\"") "\""
+//   raw      := one or more of [^ \t|><'"\\] or "\\x" escape
+//   redir    := (">>" | ">") ws? target
+//   target   := token  -- exactly one
+//
+// Errors returned (exact strings — callers may grep):
+//   "empty command"
+//   "empty command after pipe"
+//   "unterminated quote"
+//   "dangling backslash"
+//   "missing redirect target"
+//   "multiple redirects"
+//
+// Char codes used (no magic numbers scattered through the logic):
+//   ' ' 32, '\t' 9, '\n' 10, '\r' 13
+//   '|' 124, '>' 62
+//   '"' 34, '\'' 39, '\\' 92
+// We compare via 1-char strings because String.chars() in hexa returns
+// 1-char strings (verified 2026-04-14 on `$HEXA_LANG/hexa`).
+
+// ── tiny helpers on char arrays ──────────────────────────────────
+
+// True (1) if c is ASCII whitespace we treat as a token separator.
+// Newline/CR are included so a stray \r at end of a line doesn't bleed
+// into the last token (REPL sends \r at Enter).
+fn cp_is_ws(c) -> int {
+    if c == " " { return 1 }
+    if c == "\t" { return 1 }
+    if c == "\n" { return 1 }
+    if c == "\r" { return 1 }
+    return 0
+}
+
+// True if c marks the end of a raw (unquoted) token. Pipe and redirect
+// are structure chars; quote opens a quoted span; whitespace ends it.
+fn cp_is_raw_end(c) -> int {
+    if cp_is_ws(c) == 1 { return 1 }
+    if c == "|" { return 1 }
+    if c == ">" { return 1 }
+    if c == "\"" { return 1 }
+    if c == "'" { return 1 }
+    return 0
+}
+
+// Advance idx past any run of whitespace chars in `cs`.
+fn skip_ws_cs(cs, idx) -> int {
+    let n = len(cs)
+    let mut i = idx
+    while i < n {
+        if cp_is_ws(cs[i]) == 1 {
+            i = i + 1
+        } else {
+            return i
+        }
+    }
+    return i
+}
+
+// ── token scanners ───────────────────────────────────────────────
+// Each returns a Dict {"tok": <string>, "next": <int>, "error": <string>}.
+// `next` is the index of the char AFTER the token (caller's next start).
+// `error` is "" on success; any other value aborts the parse upstream.
+
+// Scan a quoted span. cs[idx] is the opening quote (already verified).
+// `qchar` is the 1-char quote we must match to close. Inside the span
+// a backslash escapes the very next char verbatim (including the quote
+// itself and backslash). Missing closing quote → "unterminated quote".
+// Trailing dangling backslash → "dangling backslash".
+fn scan_quoted(cs, idx, qchar) -> any {
+    let n = len(cs)
+    let mut i = idx + 1          // step past opening quote
+    let mut tok = ""
+    while i < n {
+        let c = cs[i]
+        if c == qchar {
+            // closing quote — token consumed up to and including it
+            return #{"tok": tok, "next": i + 1, "error": ""}
+        }
+        if c == "\\" {
+            // escape: take the next char verbatim, skipping the backslash
+            if i + 1 >= n {
+                return #{"tok": "", "next": i, "error": "dangling backslash"}
+            }
+            tok = tok + cs[i + 1]
+            i = i + 2
+        } else {
+            tok = tok + c
+            i = i + 1
+        }
+    }
+    return #{"tok": "", "next": i, "error": "unterminated quote"}
+}
+
+// Scan a raw (unquoted) token starting at cs[idx]. Stops at any raw-end
+// char or EOL. Supports backslash escape (same semantics as quoted).
+// Returns {"tok": "..", "next": ..}; tok may be empty iff the caller
+// never should have invoked us — but we still return cleanly so the
+// top-level loop can detect "empty command" on its own.
+fn scan_raw(cs, idx) -> any {
+    let n = len(cs)
+    let mut i = idx
+    let mut tok = ""
+    while i < n {
+        let c = cs[i]
+        if c == "\\" {
+            if i + 1 >= n {
+                return #{"tok": "", "next": i, "error": "dangling backslash"}
+            }
+            tok = tok + cs[i + 1]
+            i = i + 2
+        } else {
+            if cp_is_raw_end(c) == 1 {
+                return #{"tok": tok, "next": i, "error": ""}
+            }
+            tok = tok + c
+            i = i + 1
+        }
+    }
+    return #{"tok": tok, "next": i, "error": ""}
+}
+
+// Dispatch to the right scanner based on the leading char. Whitespace
+// is NOT pre-skipped here — caller must call skip_ws_cs first. Returns
+// the same shape as scan_quoted/scan_raw; caller checks "error".
+fn scan_token(cs, idx) -> any {
+    let c = cs[idx]
+    if c == "\"" {
+        return scan_quoted(cs, idx, "\"")
+    }
+    if c == "'" {
+        return scan_quoted(cs, idx, "'")
+    }
+    return scan_raw(cs, idx)
+}
+
+// ── result builders (keep dict construction in one place) ────────
+
+// Build a single-command dict {"cmd": first, "args": rest}.
+// argv is the full list; cmd is argv[0] and args is argv[1..].
+fn build_cmd_from_argv(argv) -> any {
+    let n = len(argv)
+    if n == 0 {
+        return #{"cmd": "", "args": []}
+    }
+    let mut rest = []
+    let mut i = 1
+    while i < n {
+        rest = rest.push(argv[i])
+        i = i + 1
+    }
+    return #{"cmd": argv[0], "args": rest}
+}
+
+// Build the final success dict given accumulated state. Centralised so
+// both the happy path and early-return-with-partial-result flow share
+// the same shape (redir_kind defaults to "", error defaults to "").
+fn build_result(cmds, redir_kind, redir_target, err) -> any {
+    return #{"cmds": cmds, "redir_kind": redir_kind, "redir_target": redir_target, "error": err}
+}
+
+// ── cmd_parse: the public entry point ────────────────────────────
+// Single pass over the char array. States are implicit (index +
+// "in-token-or-between-tokens" via post-scan skip_ws). Each iteration
+// of the outer loop advances `i` to the start of the next logical
+// element (token, "|", ">", ">>", or end-of-line).
+//
+// Invariants:
+//   * `argv` is the argv of the *current* command being built.
+//   * `cmds` is the list of finalised commands (each already a dict).
+//   * `redir_kind` is "" until we see > or >>; after that, exactly one
+//     redirect target must follow and nothing else.
+//   * Transition "pipe" flushes argv → cmds, requires argv non-empty,
+//     resets argv to [] for the next command.
+//
+// Edge handling: trailing whitespace is fine; trailing pipe is
+// "empty command after pipe"; completely empty input (or pure ws) is
+// "empty command".
+fn cmd_parse(line) -> any {
+    let cs = line.chars()
+    let n = len(cs)
+    let mut i = 0
+    let mut argv = []
+    let mut cmds = []
+    let mut redir_kind = ""
+    let mut redir_target = ""
+    let mut expecting_redir_target = 0
+
+    i = skip_ws_cs(cs, i)
+    if i >= n {
+        return build_result([], "", "", "empty command")
+    }
+
+    while i < n {
+        let c = cs[i]
+
+        // Pipe: flush current argv as a command, expect a new one next.
+        if c == "|" {
+            if expecting_redir_target == 1 {
+                return build_result(cmds, redir_kind, "", "missing redirect target")
+            }
+            if redir_kind != "" {
+                // pipe after redirect is a syntax error — redirect must
+                // be the very last structural element on the line.
+                return build_result(cmds, redir_kind, redir_target, "pipe after redirect")
+            }
+            if len(argv) == 0 {
+                // Empty argv at a | means either nothing before (|foo)
+                // or two pipes in a row (foo||bar). Either way:
+                if len(cmds) == 0 {
+                    return build_result([], "", "", "empty command")
+                }
+                return build_result(cmds, "", "", "empty command after pipe")
+            }
+            cmds = cmds.push(build_cmd_from_argv(argv))
+            argv = []
+            i = skip_ws_cs(cs, i + 1)
+            continue
+        }
+
+        // Redirect: must not already have one, must be followed by a
+        // single target (possibly after ws). >> takes precedence over >.
+        if c == ">" {
+            if redir_kind != "" {
+                return build_result(cmds, redir_kind, redir_target, "multiple redirects")
+            }
+            if expecting_redir_target == 1 {
+                // shouldn't happen — expecting_redir_target is only set
+                // after we consume ">"/">>" and we already reset it —
+                // but keep as defensive guard.
+                return build_result(cmds, redir_kind, "", "missing redirect target")
+            }
+            if i + 1 < n {
+                if cs[i + 1] == ">" {
+                    redir_kind = ">>"
+                    i = i + 2
+                } else {
+                    redir_kind = ">"
+                    i = i + 1
+                }
+            } else {
+                redir_kind = ">"
+                i = i + 1
+            }
+            expecting_redir_target = 1
+            i = skip_ws_cs(cs, i)
+            if i >= n {
+                return build_result(cmds, redir_kind, "", "missing redirect target")
+            }
+            // Parse target as a single token right now.
+            let r = scan_token(cs, i)
+            if r["error"] != "" {
+                return build_result(cmds, redir_kind, "", r["error"])
+            }
+            redir_target = r["tok"]
+            i = r["next"]
+            expecting_redir_target = 0
+            i = skip_ws_cs(cs, i)
+            // After redirect target only trailing whitespace is legal;
+            // the outer loop will re-check i < n and any further non-ws
+            // chars (pipe, another redirect, token) fall into the
+            // respective branches — where we already bail on pipe/
+            // redirect after redirect. A raw token here would be
+            // appended to argv, which we disallow explicitly:
+            if i < n {
+                let nc = cs[i]
+                if nc == "|" {
+                    return build_result(cmds, redir_kind, redir_target, "pipe after redirect")
+                }
+                if nc == ">" {
+                    return build_result(cmds, redir_kind, redir_target, "multiple redirects")
+                }
+                return build_result(cmds, redir_kind, redir_target, "trailing token after redirect")
+            }
+            // fall through — loop will terminate because i >= n.
+            continue
+        }
+
+        // Anything else: it's a token (raw or quoted). scan_token will
+        // pick the right scanner based on the first char.
+        let r = scan_token(cs, i)
+        if r["error"] != "" {
+            return build_result(cmds, redir_kind, redir_target, r["error"])
+        }
+        argv = argv.push(r["tok"])
+        i = r["next"]
+        i = skip_ws_cs(cs, i)
+    }
+
+    // End of input — finalise the last command (if any).
+    if expecting_redir_target == 1 {
+        return build_result(cmds, redir_kind, "", "missing redirect target")
+    }
+    if len(argv) > 0 {
+        cmds = cmds.push(build_cmd_from_argv(argv))
+    } else {
+        // argv empty at EOL. Legal only when there's no prior command
+        // at all (which we rejected up-front) OR when we already pushed
+        // via pipe AND are sitting in the "after >/>>" tail. Otherwise
+        // the line ended with a dangling `|` — e.g. "foo |".
+        if len(cmds) > 0 {
+            if redir_kind == "" {
+                return build_result(cmds, "", "", "empty command after pipe")
+            }
+        }
+    }
+    if len(cmds) == 0 {
+        return build_result([], "", "", "empty command")
+    }
+    return build_result(cmds, redir_kind, redir_target, "")
+}
+
+// ── cmd_parse_test: self-checks ──────────────────────────────────
+// Returns 0 when every case passes, else a negative case index (1-based
+// negated: -1 for case 1 failure, -2 for case 2, ...). Keeping the test
+// inline means `hexa run` can smoke the parser with zero fixtures.
+//
+// Cases intentionally cover:
+//   1  simple pipe chain      "cat foo | grep bar"
+//   2  pipe + truncate        "cat foo | grep bar > out.txt"
+//   3  append redirect        "ls -la >> log"
+//   4  double-quoted arg      "echo \"a b\" | wc"
+//   5  empty / dangling errs  "", "foo|", "foo | | bar"
+//   6  escaped metachar       "echo a\\|b"  (one arg "a|b")
+//   7  mixed single-quoted    "grep 'x y' file"
+
+fn tst_check(name, got, want) -> int {
+    if to_string(got) == to_string(want) {
+        return 1
+    }
+    println("[FAIL] " + name + " — want=" + to_string(want) + " got=" + to_string(got))
+    return 0
+}
+
+fn cmd_parse_test() -> int {
+    let mut failed = 0
+
+    // Case 1 — simple pipe chain
+    let r1 = cmd_parse("cat foo | grep bar")
+    if tst_check("c1.error", r1["error"], "") == 0 { failed = failed + 1 }
+    if tst_check("c1.ncmds", len(r1["cmds"]), 2) == 0 { failed = failed + 1 }
+    if tst_check("c1.cmd0", r1["cmds"][0]["cmd"], "cat") == 0 { failed = failed + 1 }
+    if tst_check("c1.arg0", r1["cmds"][0]["args"][0], "foo") == 0 { failed = failed + 1 }
+    if tst_check("c1.cmd1", r1["cmds"][1]["cmd"], "grep") == 0 { failed = failed + 1 }
+    if tst_check("c1.arg1", r1["cmds"][1]["args"][0], "bar") == 0 { failed = failed + 1 }
+    if tst_check("c1.redir", r1["redir_kind"], "") == 0 { failed = failed + 1 }
+
+    // Case 2 — pipe + truncate redirect
+    let r2 = cmd_parse("cat foo | grep bar > out.txt")
+    if tst_check("c2.error", r2["error"], "") == 0 { failed = failed + 1 }
+    if tst_check("c2.ncmds", len(r2["cmds"]), 2) == 0 { failed = failed + 1 }
+    if tst_check("c2.redir_kind", r2["redir_kind"], ">") == 0 { failed = failed + 1 }
+    if tst_check("c2.redir_target", r2["redir_target"], "out.txt") == 0 { failed = failed + 1 }
+
+    // Case 3 — append redirect, no pipe
+    let r3 = cmd_parse("ls -la >> log")
+    if tst_check("c3.error", r3["error"], "") == 0 { failed = failed + 1 }
+    if tst_check("c3.ncmds", len(r3["cmds"]), 1) == 0 { failed = failed + 1 }
+    if tst_check("c3.cmd0", r3["cmds"][0]["cmd"], "ls") == 0 { failed = failed + 1 }
+    if tst_check("c3.arg0", r3["cmds"][0]["args"][0], "-la") == 0 { failed = failed + 1 }
+    if tst_check("c3.redir_kind", r3["redir_kind"], ">>") == 0 { failed = failed + 1 }
+    if tst_check("c3.redir_target", r3["redir_target"], "log") == 0 { failed = failed + 1 }
+
+    // Case 4 — double-quoted arg retains spaces
+    let r4 = cmd_parse("echo \"a b\" | wc")
+    if tst_check("c4.error", r4["error"], "") == 0 { failed = failed + 1 }
+    if tst_check("c4.ncmds", len(r4["cmds"]), 2) == 0 { failed = failed + 1 }
+    if tst_check("c4.arg0", r4["cmds"][0]["args"][0], "a b") == 0 { failed = failed + 1 }
+    if tst_check("c4.cmd1", r4["cmds"][1]["cmd"], "wc") == 0 { failed = failed + 1 }
+
+    // Case 5a — empty input is an error
+    let r5a = cmd_parse("")
+    if tst_check("c5a.error", r5a["error"], "empty command") == 0 { failed = failed + 1 }
+    // Case 5b — trailing pipe is an error
+    let r5b = cmd_parse("foo |")
+    if tst_check("c5b.error", r5b["error"], "empty command after pipe") == 0 { failed = failed + 1 }
+    // Case 5c — double pipe is an error
+    let r5c = cmd_parse("foo | | bar")
+    if tst_check("c5c.error", r5c["error"], "empty command after pipe") == 0 { failed = failed + 1 }
+
+    // Case 6 — escaped metachar reads as one token
+    let r6 = cmd_parse("echo a\\|b")
+    if tst_check("c6.error", r6["error"], "") == 0 { failed = failed + 1 }
+    if tst_check("c6.ncmds", len(r6["cmds"]), 1) == 0 { failed = failed + 1 }
+    if tst_check("c6.arg0", r6["cmds"][0]["args"][0], "a|b") == 0 { failed = failed + 1 }
+
+    // Case 7 — single-quoted token preserves inner spaces
+    let r7 = cmd_parse("grep 'x y' file")
+    if tst_check("c7.error", r7["error"], "") == 0 { failed = failed + 1 }
+    if tst_check("c7.arg0", r7["cmds"][0]["args"][0], "x y") == 0 { failed = failed + 1 }
+    if tst_check("c7.arg1", r7["cmds"][0]["args"][1], "file") == 0 { failed = failed + 1 }
+
+    if failed == 0 {
+        println("[OK] cmd_parse_test — all cases PASS")
+        return 0
+    }
+    println("[FAIL] cmd_parse_test — " + to_string(failed) + " checks failed")
+    return 0 - failed
+}
+
+// cmd_has_shell_meta — quick "does this line need the parser path?"
+// check used by builtin_cmds.try_builtin. Returns 1 if any top-level
+// (un-escaped, un-quoted) `|` or `>` byte is present so the dispatcher
+// can short-circuit the builtin branch and defer to PTY (stage 1) or
+// to the future fork/exec path (FEATURE-P0-2b).
+//
+// We do a mini re-scan rather than calling cmd_parse because try_builtin
+// runs on every Enter keystroke — we want O(n) byte check, not full
+// tokenization with dict construction. Behaviour must match the real
+// parser's rules for quoting/escape so we don't miss e.g. `echo "a|b"`.
+fn cmd_has_shell_meta(line) -> int {
+    let cs = line.chars()
+    let n = len(cs)
+    let mut i = 0
+    while i < n {
+        let c = cs[i]
+        if c == "\\" {
+            // skip escape + next char
+            i = i + 2
+            continue
+        }
+        if c == "'" {
+            // skip to matching single quote (no escapes inside, POSIX)
+            i = i + 1
+            while i < n {
+                if cs[i] == "'" {
+                    i = i + 1
+                    break
+                }
+                i = i + 1
+            }
+            continue
+        }
+        if c == "\"" {
+            // skip to matching double quote, honouring backslash escapes
+            i = i + 1
+            while i < n {
+                if cs[i] == "\\" {
+                    i = i + 2
+                    continue
+                }
+                if cs[i] == "\"" {
+                    i = i + 1
+                    break
+                }
+                i = i + 1
+            }
+            continue
+        }
+        if c == "|" { return 1 }
+        if c == ">" { return 1 }
+        i = i + 1
+    }
+    return 0
+}

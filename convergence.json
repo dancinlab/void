@@ -1,341 +1,70 @@
 {
-  "_meta": {
-    "purpose": "void 골화 (ossified) 목록 — 더 이상 수정하지 않는 확정된 결정/구현",
-    "updated": "2026-04-12"
-  },
+  "_meta": {"purpose": "void 골화 (ossified) 목록 — 더 이상 수정하지 않는 확정된 결정/구현", "updated": "2026-04-12"},
+  "evidence_ref": "convergence_evidence.json",
   "ossified": [
-    {
-      "id": "VC-01",
-      "item": "Terminal.app 단일 참조 결정",
-      "date": "2026-04-11",
-      "rule": "VD1",
-      "locked": true
-    },
-    {
-      "id": "VC-02",
-      "item": "hexa-only 로직 + sys_ 프리픽스 C/ObjC helper 구조",
-      "date": "2026-04-11",
-      "rule": "VD2",
-      "locked": true
-    },
-    {
-      "id": "VC-03",
-      "item": "이전 void 설계 (Metal/Vulkan/6-layer/plugin) 아카이브",
-      "date": "2026-04-11",
-      "locked": true
-    },
-    {
-      "id": "VC-04",
-      "item": "HexaTermView drawRect → Core Text glyph grid 렌더",
-      "date": "2026-04-11",
-      "locked": true,
-      "src": "src/sys_appkit.m (HexaTermView)",
-      "evidence": "동적 grid + SFMono 13pt + Terminal.app ANSI 팔레트. 11/11 self-test pass."
-    },
-    {
-      "id": "VC-05",
-      "item": "이벤트 루프: AppKit poll + PTY poll_read + hexa_keys_to_pty(C-side)",
-      "date": "2026-04-11",
-      "locked": true,
-      "src": "src/void_main.hexa main loop",
-      "evidence": "포인터 FFI 없음. T7 PTY→VT→screen 63바이트 검증."
-    },
-    {
-      "id": "VC-06",
-      "item": "void_main.hexa 통합 바이너리 (L1+L2+L3)",
-      "date": "2026-04-11",
-      "locked": true,
-      "src": "src/void_main.hexa + sys_pty.c + sys_appkit.m",
-      "evidence": "hexa→C + clang arm64 ~100KB. 11/11 self-test."
-    },
-    {
-      "id": "VC-07",
-      "item": "UTF-8 멀티바이트 디코딩 (2/3/4바이트 → codepoint)",
-      "date": "2026-04-11",
-      "locked": true,
-      "src": "src/void_main.hexa scr_feed_byte GROUND state",
-      "evidence": "T10 한글 U+D55C=54620 검증. 박스드로잉/한글/CJK 정상 표시."
-    },
-    {
-      "id": "VC-08",
-      "item": "동적 grid 크기 + forkpty winsize + 리사이즈 TIOCSWINSZ",
-      "date": "2026-04-11",
-      "locked": true,
-      "src": "sys_appkit.m (auto-size 85%) + sys_pty.c (hexa_pty_resize)",
-      "evidence": "T9 120x40 wrap 검증. T11 100x30 PTY 파이프라인. forkpty(&ws) 직접 전달."
-    },
-    {
-      "id": "VC-09",
-      "item": "좌측 탭바 + Cmd+T/W/Q + 탭 클릭 전환",
-      "date": "2026-04-11",
-      "locked": true,
-      "src": "sys_appkit.m (VoidTab, HexaTermView mouseDown/keyDown)",
-      "evidence": "탭별 PTY + grid save/restore(memcpy). single-instance lock."
-    },
-    {
-      "id": "VC-10",
-      "item": "VOID.app 번들 + /Applications 설치 + Dock 아이콘",
-      "date": "2026-04-11",
-      "locked": true,
-      "src": "VOID.app/Contents/{Info.plist, Resources/AppIcon.icns, MacOS/void_term}",
-      "evidence": "Spotlight/Dock 실행. Terminal.app 없이 독립 동작."
-    },
-    {
-      "id": "VC-11",
-      "item": "Terminal.app 매칭: SFMono 13pt + 블랙 배경 + ANSI 팔레트",
-      "date": "2026-04-11",
-      "locked": true,
-      "src": "sys_appkit.m (term_color, drawRect, init_term)",
-      "evidence": "defaults read com.apple.Terminal → SFMono-Regular 13pt. 동일 폰트/색상 적용 확인."
-    },
-    {
-      "id": "VC-12",
-      "item": "CJK wide-char 셀 처리 — scr_put advance 2, drawRect 2× width, continuation slot flag",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/void_main.hexa scr_put + /tmp/void_main.c mirror + sys_appkit.m drawRect",
-      "evidence": "is_wide_cjk(cp) 한글/CJK/히라가나/풀와이드 커버. flags 0x10000=head, 0x20000=continuation. 한글 출력 겹침 해소."
-    },
-    {
-      "id": "VC-13",
-      "item": "Real xterm alternate screen buffer (?1049/?1047/?47/?1048)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/void_main.hexa scr_is_alt + alt_* arrays + enter/leave_alt_screen",
-      "evidence": "T18 alt-screen save/restore 단위 테스트 통과. vim/htop/less 알트 스크린 진입·복원 정상."
-    },
-    {
-      "id": "VC-14",
-      "item": "\\x1b[?1004h TUI startup clear-injection shim (real alt-screen과 병행)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_pty.c alt_screen_rewrite in hexa_pty_poll_read",
-      "evidence": "claude/Ink-based TUI는 ?1049h 안 쓰고 ?1004h만 emit → 인젝션으로 TUI 진입 시 화면 클리어. 실측: zsh ?1004h=0회 vs ?2004h=346회/2s."
-    },
-    {
-      "id": "VC-15",
-      "item": "프로필 셸 spawn: zsh -l -c + PATH prepend (~/.local/bin 등)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m tab_spawn_pty_profile",
-      "evidence": "Finder launch 시 sparse PATH 문제 해결. `cl` 등 ~/.local/bin 바이너리 정상 resolve. ~/.zprofile/.zshrc 로드."
-    },
-    {
-      "id": "VC-16",
-      "item": "탭 드래그-이동 + 활성 인덱스 추적 + 프로필 재번호",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m tabs_move + mouseDragged/Up + void_tabs_renumber_profiles",
-      "evidence": "VoidTab 통째 memcpy로 PTY/grid/scrollback 이동, 셸 프로세스 유지. 드래그 중 파란 드롭 인디케이터."
-    },
-    {
-      "id": "VC-17",
-      "item": "탭바 자동 숨김 (탭 1개일 때 그리드 전체 너비)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m effective_tab_bar_w + drawRect + 메인 루프 reflow",
-      "evidence": "g_num_tabs <= 1 → eff_tbw=0. 탭 2개 생성 시 SIGWINCH로 그리드 reflow."
-    },
-    {
-      "id": "VC-18",
-      "item": "Cmd+Ctrl+N 프로필 단축키 첫탭 교체 규칙 + 프로필 탭 번호(1)(2)(3)…",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m tab_become_profile + Cmd-intercept + renumber",
-      "evidence": "탭 1개 + 프로필 미바인드 → 그 자리 교체. 2개 이상 → 새 탭. 동일 프로필 시블링 자동 (1)(2)."
-    },
-    {
-      "id": "VC-19",
-      "item": "Apple HIG 모노크롬 앱 아이콘 (1024 canvas, 824 plate, 185.4 radius)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m init_term 아이콘 블록 + VOID.app/Contents/Resources/AppIcon.icns",
-      "evidence": "Big Sur 스퀘어클 템플릿 정합. 차콜 플레이트 + 라이트-그레이 V. 실행 시/종료 시 Dock 아이콘 일치."
-    },
-    {
-      "id": "VC-20",
-      "item": "마우스 텍스트 선택 + Cmd+C/V 클립보드 통합",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m selection_* + copy_selection_to_clipboard + paste_from_clipboard",
-      "evidence": "드래그/더블클릭(단어)/트리플클릭(줄) 선택, NSPasteboard 통합. 붙여넣기 bracketed-paste 래핑."
-    },
-    {
-      "id": "VC-21",
-      "item": "Cmd+= / Cmd+- / Cmd+0 폰트 줌 (8..40pt)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m set_font_size + Cmd-intercept",
-      "evidence": "SFMono/Menlo/Monaco 폴백 체인. 크기 변경 시 CTFont 재생성 + g_term_cw/ch 재계산 + g_resized."
-    },
-    {
-      "id": "VC-22",
-      "item": "Cmd+F 스크롤백 검색 오버레이 (매치 하이라이트 + N/M 네비게이션)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m search_* helpers + drawRect 오버레이 + Cmd-intercept",
-      "evidence": "ASCII case-insensitive 부분 문자열, 최대 4096 매치. Enter/Shift+Enter 이동, ESC 닫기."
-    },
-    {
-      "id": "VC-23",
-      "item": "Cmd+G 타일 그리드 레이아웃 (1~9탭 자동 배치)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m LayoutMode + compute_tile_rect + apply_grid_layout + draw_grid",
-      "evidence": "1=1×1 2=1×2 3=1×3 4=2×2 5-6=2×3 7-9=3×3. 각 타일별 TIOCSWINSZ로 셸 리플로우. 10+ 탭은 스택으로 폴백."
-    },
-    {
-      "id": "VC-24",
-      "item": "void-server supervisor 데몬 v1 (PTY master 보유, unix socket + SCM_RIGHTS)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/void_server.c + src/sys_appkit.m 클라이언트 글루",
-      "evidence": "SPAWN/ATTACH/DETACH/LIST/KILL/PING/CHECKPOINT 프로토콜. VOID_USE_SERVER=1로 활성화. 시맨틱 레이블, 프로세스 분류기, /tmp/void_server_ckpt 크래시 복구."
-    },
-    {
-      "id": "VC-25",
-      "item": "Cmd+Z 탭 닫기 취소 (최근 16개 스택 → 동일 프로필 재스폰)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m ClosedTabSnapshot + tab_reopen_last + hexa_tab_close push",
-      "evidence": "탭 닫을 때 title/profile_base/cwd 스냅샷 push. Cmd+Z = pop → profile_by_title 조회 → 같은 cmd로 재스폰."
-    },
-    {
-      "id": "VC-26",
-      "item": "마우스 텍스트 선택 + Cmd+C/V NSPasteboard 통합 + bracketed paste",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m selection_* + copy_selection_to_clipboard + paste_from_clipboard",
-      "evidence": "드래그/더블클릭(단어)/트리플클릭(줄). paste = \\x1b[200~ ... \\x1b[201~."
-    },
-    {
-      "id": "VC-27",
-      "item": "Cmd+=/-/0 폰트 줌 — 8..40pt, NSUserDefaults voidFontSize persist",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m set_font_size + Cmd-intercept",
-      "evidence": "SFMono → Menlo → Monaco fallback chain. cw/ch 재계산 + g_resized로 PTY reflow."
-    },
-    {
-      "id": "VC-28",
-      "item": "Cmd+F 스크롤백 검색 오버레이 + 매치 네비게이션",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m search_* + drawRect 오버레이",
-      "evidence": "ASCII case-insensitive 부분 문자열, 최대 4096 매치. Enter/Shift+Enter 이동."
-    },
-    {
-      "id": "VC-29",
-      "item": "Cmd+G 타일 그리드 레이아웃 (1~9탭 자동) + NSUserDefaults voidLayoutMode persist",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m LayoutMode + compute_tile_rect + apply_grid_layout + draw_grid",
-      "evidence": "1=1×1 2=1×2 3=1×3 4=2×2 5-6=2×3 7-9=3×3. 재시작 시 마지막 모드 복원."
-    },
-    {
-      "id": "VC-30",
-      "item": "Real xterm alternate screen buffer (?1049/?1047/?47/?1048)",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/void_main.hexa scr_is_alt + alt_* arrays + enter/leave_alt_screen",
-      "evidence": "T18 save/restore 테스트 통과. vim/htop/less 알트 스크린 진입·복원 정상. claude는 ?1004h shim으로 처리."
-    },
-    {
-      "id": "VC-31",
-      "item": "void-server supervisor 데몬 — PTY master 보유, unix socket, SCM_RIGHTS",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/void_server.c + src/sys_appkit.m 클라이언트 글루",
-      "evidence": "SPAWN/ATTACH/DETACH/LIST/KILL/PING/CHECKPOINT. 시맨틱 레이블, 프로세스 분류기, /tmp/void_server_ckpt 크래시 복구. VOID_NO_SERVER=1 opt-out."
-    },
-    {
-      "id": "VC-32",
-      "item": "Merkle delta sync on ATTACH — 섹션 해시 비교로 변경분만 전송",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/void_server.c update_session_hashes + build_attach_body, src/sys_appkit.m void_server_attach_ex",
-      "evidence": "FNV-1a 64 per 64-row section. Python 라운드트립 테스트: 동일 해시 ATTACH는 0 바이트 payload."
-    },
-    {
-      "id": "VC-33",
-      "item": "void-server 바이너리 mtime watcher (kqueue) + prewarm stub",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/void_server.c binwatch_init + binwatch_pump + binwatch_log",
-      "evidence": "/Applications/VOID.app/Contents/MacOS/void_term 감시. NOTE_WRITE/ATTRIB/DELETE/RENAME 모두 잡음. /tmp/void_server_binwatch.log."
-    },
-    {
-      "id": "VC-34",
-      "item": "macOS 메뉴바 — 파일/편집/보기/윈도우 한국어 전체 구성 + 보기>숨은 세션 동적 서브메뉴",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m HexaTermDelegate menu* methods + menuNeedsUpdate:",
-      "evidence": "새 탭/탭 닫기/재실행/닫은 탭 다시 열기/복사/붙여넣기/찾기/탭/그리드/다음 탭/확대/축소/원래 크기/숨은 세션/최소화/확대축소. 단축키와 메뉴 클릭 동일 동작."
-    },
-    {
-      "id": "VC-35",
-      "item": "시작 시 void-server 세션 자동 ATTACH — void_term 재실행해도 탭 복원",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m hexa_appkit_init_term 자동 attach 블록",
-      "evidence": "hexa_appkit_init_term 말미에 void_server_list → 각 세션에 void_server_attach → g_tabs[] 빌드. g_shadow_restored=1 재활용으로 hexa_tab_new 첫 호출 스왈로우."
-    },
-    {
-      "id": "VC-36",
-      "item": "Self-binary kqueue watcher — /Applications 바이너리 교체 시 in-process relaunch",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m install_self_binary_watcher + self_watch_thread_main + menuRelaunch + main-loop flag check",
-      "evidence": "pthread + kqueue EVFILT_VNODE. atomic mv 감지 → g_want_self_relaunch → NSWorkspace openApplicationAtURL createsNewApplicationInstance=YES → [NSApp terminate:]. pkill/open/osascript 외부 명령 의존 0."
-    },
-    {
-      "id": "VC-37",
-      "item": "UTF-8 state reset on ESC — 부분 UTF-8 시퀀스 + 이스케이프 간섭 하드닝",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/void_main.hexa GROUND state ESC transition, T20 regression test",
-      "evidence": "T20 PASS: '\\xEA\\xB0' (한글 선행 2바이트) + ESC[0m + 'A' → A가 col 0에 정상 표시. 이전엔 utf8_remain=1로 남아 A를 continuation byte로 흡수."
-    },
-    {
-      "id": "VC-38",
-      "item": "cl 테이블 렌더링 가드 (T19) + VOID_VT_CAPTURE 진단 훅",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/void_main.hexa T19 test, src/sys_pty.c VOID_VT_CAPTURE env-gated binary dump",
-      "evidence": "T19 PASS: 10행 ASCII 테이블 모든 행 col 2에서 시작. 4000+ 퍼즈 케이스에서 재현 안 됨 → 하드닝 + diagnostic 두 축 커버. VOID_VT_CAPTURE=1로 실행 시 /tmp/void_vt_capture.bin 바이트 단위 캡처."
-    },
-    {
-      "id": "VC-39",
-      "item": "Hangul NFD→NFC composition — macOS 파일시스템 분리형 자모를 precomposed 음절로 합성",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "/tmp/void_main.c + src/void_main.hexa scr_put wrapper (g_hangul_L/V state) + scr_put_raw + hangul_flush_pending + vt_reset_state drop state",
-      "evidence": "T21 PASS: U+1100(ᄀ) + U+1161(ᅡ) + U+11A8(ᆨ) NFD 바이트 → cell[0]=0xAC01(각) wide head (flag 0x10000) + continuation (0x20000) + cur_x=2. T21b PASS: LV-only (U+1100+U+1161) → 0xAC00(가) flush on X. T21c PASS: '한글' 6-jamo NFD → 54620/44544 2음절. 공식: syl=0xAC00+(L*588)+(V*28)+T. 부분 composition은 non-continuation 입력/reset 시 flush."
-    },
-    {
-      "id": "VC-40",
-      "item": "Finder-launch CLICOLOR/LSCOLORS 기본값 — BSD ls 컬러 자동 활성",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m tab_spawn_pty_profile child env setup",
-      "evidence": "T22 PASS: ESC[31mR/32mG/34mB/44mK/0mZ → cell fg/bg 정확히 1/2/4/4 + reset 복구. Finder 런치 sparse env에서 CLICOLOR 미설정 → ls 모노크롬 문제를 child 에서 setenv(CLICOLOR,1), setenv(LSCOLORS,exfxcxdxbxegedabagacad) 로 해결. .zshrc override 가능한 baseline."
-    },
-    {
-      "id": "VC-41",
-      "item": "Tab 키 자동완성 — login shell 정확 해결",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": "src/sys_appkit.m tab_spawn_pty_profile shell resolution chain",
-      "evidence": "$SHELL → getpwuid(getuid())->pw_shell → /bin/zsh fallback 순. Finder 런치 sparse env로 $SHELL 미설정 시 기존 /bin/sh fallback이 ZLE/completion/history 전부 disable. /etc/passwd login shell 읽어와 setenv(SHELL,...) 까지 보장 → zsh ZLE가 자연스럽게 Tab completion 처리."
-    },
-    {
-      "id": "VC-42",
-      "item": "Hotfix codesign re-sign — /Applications bundle 핫릴로드 무한 크래시 루프 종결",
-      "date": "2026-04-12",
-      "locked": true,
-      "src": ".claude/hooks/auto-build, .claude/hooks/void-swap — mv 후 codesign --force --sign -",
-      "evidence": "증상: mv/cp 후 self-binary watcher가 NSWorkspace relaunch → 새 프로세스 12ms만에 SIGKILL. 크래시 리포트 bug_type=309 CODESIGNING code=1 'Taskgated Invalid Signature'. 원인: mktemp 생성 tempfile의 linker ad-hoc 시그니처가 identifier='void_term.XXXXXX.yyy' + 리소스 디렉토리 해시 참조를 가진 채 /Applications/VOID.app 경로로 이동. taskgated가 번들 CodeResources 미스매치를 SIGKILL로 처벌. 해결: mv 직후 `codesign --force --sign -` 로 재서명 → identifier=com.need-singularity.void (Info.plist 기반), 플래그 0x20002(adhoc,linker-signed) → 0x2(adhoc), 리소스 디렉토리 해시 재계산. 검증: 6890 → 15864 PID 전환 후 크래시 리포트 0건. 또한 void-swap 훅은 `cp`를 `mv`로 교체 (cp는 inode preservation → 라이브 mmap 페이지 손상)."
-    }
+    {"id":"VC-01","date":"2026-04-11","rule":"VD1","locked":true},
+    {"id":"VC-02","date":"2026-04-11","rule":"VD2","locked":true},
+    {"id":"VC-03","date":"2026-04-11","locked":true},
+    {"id":"VC-04","date":"2026-04-11","locked":true},
+    {"id":"VC-05","date":"2026-04-11","locked":true},
+    {"id":"VC-06","date":"2026-04-11","locked":true},
+    {"id":"VC-07","date":"2026-04-11","locked":true},
+    {"id":"VC-08","date":"2026-04-11","locked":true},
+    {"id":"VC-09","date":"2026-04-11","locked":true},
+    {"id":"VC-10","date":"2026-04-11","locked":true},
+    {"id":"VC-11","date":"2026-04-11","locked":true},
+    {"id":"VC-12","date":"2026-04-12","locked":true},
+    {"id":"VC-13","date":"2026-04-12","locked":true},
+    {"id":"VC-14","date":"2026-04-12","locked":true},
+    {"id":"VC-15","date":"2026-04-12","locked":true},
+    {"id":"VC-16","date":"2026-04-12","locked":true},
+    {"id":"VC-17","date":"2026-04-12","locked":true},
+    {"id":"VC-18","date":"2026-04-12","locked":true},
+    {"id":"VC-19","date":"2026-04-12","locked":true},
+    {"id":"VC-20","date":"2026-04-12","locked":true},
+    {"id":"VC-21","date":"2026-04-12","locked":true},
+    {"id":"VC-22","date":"2026-04-12","locked":true},
+    {"id":"VC-23","date":"2026-04-12","locked":true},
+    {"id":"VC-24","date":"2026-04-12","locked":true},
+    {"id":"VC-25","date":"2026-04-12","locked":true},
+    {"id":"VC-26","date":"2026-04-12","locked":true},
+    {"id":"VC-27","date":"2026-04-12","locked":true},
+    {"id":"VC-28","date":"2026-04-12","locked":true},
+    {"id":"VC-29","date":"2026-04-12","locked":true},
+    {"id":"VC-30","date":"2026-04-12","locked":true},
+    {"id":"VC-31","date":"2026-04-12","locked":true},
+    {"id":"VC-32","date":"2026-04-12","locked":true},
+    {"id":"VC-33","date":"2026-04-12","locked":true},
+    {"id":"VC-34","date":"2026-04-12","locked":true},
+    {"id":"VC-35","date":"2026-04-12","locked":true},
+    {"id":"VC-36","date":"2026-04-12","locked":true},
+    {"id":"VC-37","date":"2026-04-12","locked":true},
+    {"id":"VC-38","date":"2026-04-12","locked":true},
+    {"id":"VC-39","date":"2026-04-12","locked":true},
+    {"id":"VC-40","date":"2026-04-12","locked":true},
+    {"id":"VC-41","date":"2026-04-12","locked":true},
+    {"id":"VC-42","date":"2026-04-12","locked":true},
+    {"id":"VC-43","date":"2026-04-12","locked":true},
+    {"id":"VC-44","date":"2026-04-12","locked":true},
+    {"id":"VC-45","date":"2026-04-12","locked":true},
+    {"id":"VC-46","date":"2026-04-12","locked":true},
+    {"id":"VC-47","date":"2026-04-12","locked":true},
+    {"id":"VC-48","date":"2026-04-12","locked":true},
+    {"id":"VC-49","date":"2026-04-12","locked":true},
+    {"id":"VC-50","date":"2026-04-12","locked":true},
+    {"id":"VC-51","date":"2026-04-12","locked":true},
+    {"id":"VC-52","date":"2026-04-12","locked":true},
+    {"id":"VC-53","date":"2026-04-12","locked":true},
+    {"id":"VC-54","date":"2026-04-12","locked":true},
+    {"id":"VC-55","date":"2026-04-12","locked":true,"L0":true},
+    {"id":"VC-56","date":"2026-04-12","locked":true},
+    {"id":"VC-57","date":"2026-04-12","locked":true},
+    {"id":"VC-58","date":"2026-04-12","locked":true},
+    {"id":"VC-59","date":"2026-04-12","locked":true},
+    {"id":"VC-60","date":"2026-04-12","locked":true},
+    {"id":"VC-61","date":"2026-04-12","locked":true},
+    {"id":"VC-62","date":"2026-04-12","locked":true},
+    {"id":"VC-63","date":"2026-04-12","locked":true}
   ],
   "pending_ossification": []
 }

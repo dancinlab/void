@@ -32,8 +32,8 @@
 
 ### 빌드 명령:
 ```bash
-cd ~/Dev/void
-~/Dev/hexa-lang/hexa ~/Dev/hexa-lang/self/build_c.hexa \
+# 프로젝트 루트에서:
+hexa $HEXA_LANG/self/build_c.hexa \
   src/void_main.hexa src/sys_pty.c src/sys_appkit.m \
   -framework Cocoa
 ```
@@ -53,3 +53,70 @@ cd ~/Dev/void
 - `CLAUDE.md` — 프로젝트 규칙
 
 ---
+
+## REPL-P0-4 reconnect smoke (ROI/VD6)
+
+void_server 는 이미 daemon + ckpt 지속성 완비 (5초 주기 checkpoint + detach/disconnect/shell-exit/shutdown flush + 부팅 시 `scan_and_restore_checkpoints` + ATTACH 때 `reanimate_session`). 이 섹션은 reconnect 경로를 수동으로 검증하는 레시피.
+
+### 사전 조건
+- `/Applications/VOID.app/Contents/MacOS/void_term` 및 `void_server` 설치됨
+- `/tmp/void_server.sock` 접근 가능, `/tmp/void_server_ckpt/` 쓰기 가능
+
+### 단계 1 — 깨끗한 상태에서 기동
+```bash
+pkill -f void_server; pkill -f void_term; sleep 1
+rm -f /tmp/void_server.sock
+rm -rf /tmp/void_server_ckpt && mkdir -p /tmp/void_server_ckpt
+VOID_SERVER_FOREGROUND=1 VOID_SERVER_VERBOSE=1 \
+  /Applications/VOID.app/Contents/MacOS/void_server &
+SERVER_PID=$!
+sleep 1
+ls -la /tmp/void_server.sock      # 소켓 생성 확인
+```
+
+### 단계 2 — void_term 기동 + 세션 생성
+```bash
+open -n /Applications/VOID.app           # 또는 void_term 직접 실행
+# 창에서 "echo VOID_CKPT_MARKER_$(date +%s)" 입력 + 엔터
+# 잠깐 대기 (>=5초: 주기 checkpoint 트리거)
+sleep 6
+ls -la /tmp/void_server_ckpt/*.bin       # 1개 이상의 .bin 파일 기대
+```
+
+### 단계 3 — void_term 강제 종료 (세션은 서버에 살아있어야)
+```bash
+pkill -9 -f void_term
+sleep 1
+ps aux | grep -v grep | grep -E "void_server|void_term"
+# 기대: void_server 만 남음 (세션 shell 프로세스도 살아있음)
+ls -la /tmp/void_server_ckpt/*.bin       # .bin 남아있음
+```
+
+### 단계 4 — void_term 재실행 → 세션 복구
+```bash
+open -n /Applications/VOID.app
+# 세션 선택 UI (Cmd+L / 탭 list) 에서 이전 세션 ID 표시 확인
+# 해당 세션에 attach → 이전 scrollback 프레임(마지막 체크포인트) 보여야 함
+# 프롬프트가 살아있으면 reanimate_session 이 새 shell을 띄움 + 그리드 재활용
+```
+
+### 단계 5 — 서버 크래시 복구
+```bash
+kill -9 $SERVER_PID
+sleep 1
+VOID_SERVER_FOREGROUND=1 VOID_SERVER_VERBOSE=1 \
+  /Applications/VOID.app/Contents/MacOS/void_server &
+# stderr 에 "pruned N old checkpoint(s)" 또는 tombstone 로드 확인
+# 새 void_term 띄우고 LIST → 복구된 세션 tombstone 표시
+```
+
+### PASS 기준
+- 단계 3 후: void_term 죽어도 `/tmp/void_server_ckpt/*.bin` 잔존
+- 단계 4 후: 재실행한 void_term 이 같은 session_id 로 attach 하면 이전 그리드 + (reanimate 된) live shell 모두 보임
+- 단계 5 후: 서버 재기동 시 `scan_and_restore_checkpoints` 가 `.bin` 을 tombstone 세션으로 등록, LIST 에 나타남
+
+### 참조 코드 위치 (src/void_server.c)
+- `checkpoint_session` L758 / `scan_and_restore_checkpoints` L829 / `reanimate_session` L724
+- 주기 체크포인트 L1640-L1651 (VS-07, 5s 간격)
+- detach flush L1150, 연결 해제 flush L1321, shell EOF flush L1441, 종료 flush L1657
+- 클라이언트 side `sys_appkit.m` L3199 SPAWN / L3427 ATTACH

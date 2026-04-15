@@ -190,25 +190,50 @@ long hexa_appkit_set_title(void) {
 #define SCROLLBACK_LINES 1000 // legacy cap (unused since section-based)
 #define TAB_BAR_W 140
 #define TAB_ROW_H 28
+#define TERM_PAD  4.0f   // internal padding around the terminal grid
 
-// ── Section-based scrollback ──
-// Old: flat 1000-line ring (6.4 MB allocated up front on first push).
-// New: ring of SB_MAX_SECTIONS sections, each SB_SECTION_LINES lines.
-//      Sections are lazy-allocated, and the oldest is freed when the ring
-//      wraps — memory usage stays proportional to actual scrollback depth.
-//      Totals: 32 × 64 = 2048 lines max, ~410 KB per section.
+// ── Section-based scrollback (trailing-space trimmed) ──
+// Ring of SB_MAX_SECTIONS sections, each SB_SECTION_LINES lines.
+// Sections are lazy-allocated; the oldest is freed when the ring wraps.
+// Each row is stored trimmed (trailing default-spaces removed), so a
+// typical 80-char row on a 400-col terminal uses ~1280 bytes instead
+// of 6400 bytes. Totals: 32 × 64 = 2048 lines max.
 #define SB_SECTION_LINES 64
 #define SB_MAX_SECTIONS  32
 #define SB_TOTAL_LINES   (SB_SECTION_LINES * SB_MAX_SECTIONS)
 
 typedef struct {
-    unichar ch;
+    uint32_t ch;  // full codepoint (SMP emoji >0xFFFF must survive — VP-08)
     int fg, bg, flags;
 } TermCell;
 
+// SMP-safe NSString from a single codepoint. Caller owns the return (autoreleased).
+// Splits cp>0xFFFF into a UTF-16 surrogate pair so emoji/pictograph glyphs don't
+// truncate to 16-bit unichar and render as garbage (Claude Code CLI TUI icons).
+static inline NSString *void_nsstring_for_cp(uint32_t cp) {
+    if (cp <= 0xFFFF) {
+        unichar u = (unichar)cp;
+        return [NSString stringWithCharacters:&u length:1];
+    }
+    uint32_t v = cp - 0x10000;
+    unichar pair[2];
+    pair[0] = (unichar)(0xD800 | (v >> 10));
+    pair[1] = (unichar)(0xDC00 | (v & 0x3FF));
+    return [NSString stringWithCharacters:pair length:2];
+}
+
+// ── Compressed scrollback row ──
+// Each row stores only the non-trailing-space prefix (trimmed_len cells).
+// On a typical 80-column terminal with 400 TERM_MAX_COLS, a row with 60
+// visible characters saves (400-60)*16 = 5440 bytes — roughly 85% savings.
 typedef struct {
-    TermCell *cells; // NULL until first write; SB_SECTION_LINES * TERM_MAX_COLS
-    int lines;       // 0..SB_SECTION_LINES filled
+    int trimmed_len;   // number of stored cells (0..TERM_MAX_COLS)
+    TermCell cells[];  // flexible array member, trimmed_len entries
+} SbCompressedRow;
+
+typedef struct {
+    SbCompressedRow **rows; // NULL until first write; array of SB_SECTION_LINES pointers
+    int lines;              // 0..SB_SECTION_LINES filled
 } SbSection;
 
 // Forward decl: needed by drawRect, defined after VoidTab.
@@ -217,6 +242,7 @@ static TermCell *sb_line_ptr(struct VoidTab_ *tab, int logical_line);
 // Forward decl for alarm helpers used in HexaTermView (defined much later).
 static void clear_active_alarm(void);
 static void update_dock_badge(void);
+static void sb_section_free(SbSection *sec);
 static void poll_background_tabs(void);
 // Forward decl for drag-reorder helper used in HexaTermView's mouseUp.
 static void tabs_move(int from, int to);
@@ -225,6 +251,8 @@ static void tabs_move(int from, int to);
 // hexa_appkit_term_flush).
 static void copy_selection_to_clipboard(void);
 static void paste_from_clipboard(void);
+// Forward decl — bracketed-paste inject, used by drag-drop handler.
+void pty_inject_bracketed_paste(int fd, const char *buf, size_t n);
 // Forward decls for the undo-close path used by performKeyEquivalent +
 // hexa_appkit_term_poll Cmd intercept. Definitions live further down.
 struct VoidProfile_; // forward decl of the struct tag
@@ -381,6 +409,18 @@ static int g_sel_anchor_in_grid = 0; // 1 if mouseDown landed inside the termina
 // beyond the initial selection should override word/line mode.
 static int g_sel_click_count = 0;
 
+// ── Selection-change tracking ────────────────────────────────────────
+// drawRect uses an incremental cell cache (g_prev_grid): cells whose
+// content is unchanged are skipped. The selection overlay is painted
+// with alpha compositing ON TOP of the backing store, so a cache-skipped
+// cell retains the OLD overlay, and the NEW overlay stacks on it → the
+// highlighted region brightens frame-by-frame during a drag. We track
+// the previous frame's selection here and invalidate any cell whose
+// selection membership flipped so the row repaints from scratch.
+static int g_prev_sel_valid = 0;
+static int g_prev_sel_sr = -1, g_prev_sel_sc = -1;
+static int g_prev_sel_er = -1, g_prev_sel_ec = -1;
+
 // Clear selection — used by ESC, keystrokes, scrollback transitions.
 static inline void clear_selection(void) {
     if (g_sel_start_row < 0 && g_sel_end_row < 0) return;
@@ -409,10 +449,35 @@ static int normalize_selection(int *o_sr, int *o_sc, int *o_er, int *o_ec) {
 // to touch. These are tentative definitions — the initialised version
 // further down in the file merges with these under C's tentative-def rule.
 static TermCell g_term_grid[TERM_MAX_ROWS][TERM_MAX_COLS];
+// ── Dirty-region cell-level cache ──
+// Stores the previously rendered frame so drawRect can skip cells that
+// haven't changed since the last paint. Cleared on resize, tab switch,
+// scrollback, or any event that sets g_full_redraw = 1.
+static TermCell g_prev_grid[TERM_MAX_ROWS][TERM_MAX_COLS];
+static int g_prev_grid_valid = 0;
+static int g_prev_grid_tab = -1;  // which tab was active when prev_grid was snapshot
 static int g_term_rows;
 static int g_term_cols;
 static int g_term_cur_row;
 static int g_term_cur_col;
+// Tentative def — real definition further down. Referenced by
+// apply_grid_layout above it.
+static int g_full_redraw;
+
+// ── Headless test mode (VOID_HEADLESS=1) ─────────────────────────────
+// Skip NSApp/NSWindow/menu entirely. The hexa VT parser + scr_cells +
+// sync_to_bridge → g_term_grid pipeline still runs, but driven by a
+// regular file (VOID_HEADLESS_FEED) instead of a PTY. On exit we dump
+// g_term_grid to VOID_HEADLESS_DUMP (default /tmp/void_headless.grid)
+// so a harness can diff against a golden file. Runs fully in the
+// background with no windows popping on-screen — exists so Claude
+// Code can regression-test renderer behavior during ./scripts/
+// test_void.sh without hijacking the user's desktop focus.
+static int g_headless = 0;
+static int g_offscreen = 0;
+static int g_headless_tick = 0;
+static int g_headless_max_ticks = 30;
+static void dump_headless_grid(void);
 
 // ── Speculative Hot Swap state ───────────────────────────────────────
 // Self-replace across a rebuild while keeping PTY file descriptors (and
@@ -559,7 +624,7 @@ static void capture_argv0_once(void) {
         // buffer too small — unlikely, but fall back to a sensible default
         snprintf(g_argv0, sizeof(g_argv0),
                  "%s/Dev/void/void_term",
-                 getenv("HOME") ?: "/Users/ghost");
+                 getenv("HOME") ?: ".");
     }
 }
 
@@ -669,7 +734,128 @@ static float g_term_ch = 0;
 static CTFontRef g_term_font = NULL;
 static CTFontRef g_term_font_bold = NULL;
 static int g_font_size = 13;       // current point size (Cmd+=/-/0 mutable)
-static NSColor *g_term_color_cache[16] = {0}; // retained ANSI palette
+static CGGlyph g_ascii_glyphs[128];       // pre-cached regular glyphs for ASCII 0..127
+static CGGlyph g_ascii_glyphs_bold[128];  // pre-cached bold glyphs for ASCII 0..127
+static CGFloat g_font_ascent = 0;         // cached CTFontGetAscent(g_term_font)
+static CGFloat g_font_ascent_bold = 0;    // cached CTFontGetAscent(g_term_font_bold)
+static NSColor *g_term_color_cache[256] = {0}; // retained 256-color palette (ANSI 16 + 6x6x6 cube + 24 grays)
+
+// ── PERF-P0-1 Glyph Atlas RGBA cache ──
+// Pre-unpacked sRGB tuples for ANSI 0..15. Avoids per-cell NSColor →
+// colorUsingColorSpace → getRed:green:blue:alpha: alloc thrash inside the
+// glyph atlas blit path. Sourced from the same a16[] table as term_color()
+// so the two stay in lockstep (palette change touches both — both are right
+// here in this file).
+static CGFloat g_term_color_rgba[16][4];
+static BOOL    g_term_color_rgba_init = NO;
+static void init_term_color_rgba(void) {
+    if (g_term_color_rgba_init) return;
+    static const uint32_t a16[] = {
+        0x000000, 0x990000, 0x00A600, 0x999900,
+        0x0000B2, 0xB200B2, 0x00A6B2, 0xBFBFBF,
+        0x666666, 0xE50000, 0x00D900, 0xE5E500,
+        0x0000FF, 0xE500E5, 0x00E5E5, 0xE5E5E5
+    };
+    for (int i = 0; i < 16; i++) {
+        uint32_t c = a16[i];
+        g_term_color_rgba[i][0] = ((c >> 16) & 0xFF) / 255.0;
+        g_term_color_rgba[i][1] = ((c >>  8) & 0xFF) / 255.0;
+        g_term_color_rgba[i][2] = ( c        & 0xFF) / 255.0;
+        g_term_color_rgba[i][3] = 1.0;
+    }
+    g_term_color_rgba_init = YES;
+}
+// Lookup the sRGB tuple for a fg/bg index. Falls back to white for
+// 256-color and truecolor indices (the atlas fast path is gated on
+// printable ASCII anyway, and 256-color cells will more often be CJK or
+// styled — falling through to the NSAttributedString path).
+static inline void term_color_rgba(int idx, CGFloat *out) {
+    if (!g_term_color_rgba_init) init_term_color_rgba();
+    if (idx < 0 || idx >= 16) {
+        out[0] = out[1] = out[2] = 1.0; out[3] = 1.0;
+        return;
+    }
+    out[0] = g_term_color_rgba[idx][0];
+    out[1] = g_term_color_rgba[idx][1];
+    out[2] = g_term_color_rgba[idx][2];
+    out[3] = g_term_color_rgba[idx][3];
+}
+
+// ── PERF-P0-1 Glyph Atlas (CGLayer bitmap cache) ──
+// Pre-rendered offscreen bitmaps for printable ASCII (0x21..0x7E = 94 chars)
+// in both regular and bold weight. Each CGLayer holds ONE pre-rasterized
+// glyph in default foreground (white). drawRect tints with CGContextSetFillColor
+// before blit via CGContextDrawLayerAtPoint, so a single atlas serves all
+// 16 ANSI fg colors. Eliminates NSAttributedString alloc + CTFontDrawGlyphs
+// shaping cost on the ASCII fast path (~99% of cells).
+//
+// Layout: glyph_cache[bold ? 1 : 0][ch - 0x21]
+// Lifetime: process-wide. Released on app exit only (no per-frame churn).
+// Invalidation: set_font_size() flips g_glyph_cache_init=NO; the next
+// drawRect rebuilds the 188 layers from the new font.
+// TODO: also invalidate on dynamic font-family swap (out of scope for P0-1).
+#define GLYPH_ATLAS_FIRST 0x21    // '!'
+#define GLYPH_ATLAS_LAST  0x7E    // '~'
+#define GLYPH_ATLAS_COUNT (GLYPH_ATLAS_LAST - GLYPH_ATLAS_FIRST + 1)  // 94
+static CGLayerRef g_glyph_cache[2][GLYPH_ATLAS_COUNT] = {{0}};
+static BOOL       g_glyph_cache_init = NO;
+static CGSize     g_glyph_cache_cell = {0, 0};   // pixel size of each cached cell
+
+// Called once per font (re)size from drawRect, with a real CGContext on hand
+// (CGLayer needs a "compatible" context to allocate a backing surface). Builds
+// 188 = 94 * 2 CGLayers, each containing one pre-rendered ASCII glyph in
+// solid white. drawRect tints them via CGContextSetFillColor before blit.
+static void init_glyph_atlas(CGContextRef baseCtx) {
+    if (!baseCtx) return;
+    if (!g_term_font || !g_term_font_bold) return;
+    // Tear down any previous atlas (font resize path).
+    for (int b = 0; b < 2; b++) {
+        for (int i = 0; i < GLYPH_ATLAS_COUNT; i++) {
+            if (g_glyph_cache[b][i]) {
+                CGLayerRelease(g_glyph_cache[b][i]);
+                g_glyph_cache[b][i] = NULL;
+            }
+        }
+    }
+    // Pad cell width to absorb any glyph that overshoots the cell box
+    // (italic terminus, punctuation kerning, descender curl). The blit
+    // origin remains the cell origin, so extra width hangs harmlessly
+    // to the right of the cell — within the next cell's pre-clear region.
+    CGFloat cell_w = (CGFloat)g_term_cw;
+    CGFloat cell_h = (CGFloat)g_term_ch;
+    if (cell_w < 1) cell_w = 1;
+    if (cell_h < 1) cell_h = 1;
+    g_glyph_cache_cell = CGSizeMake(cell_w, cell_h);
+    for (int b = 0; b < 2; b++) {
+        CTFontRef fnt = b ? g_term_font_bold : g_term_font;
+        CGFloat asc   = b ? g_font_ascent_bold : g_font_ascent;
+        CGGlyph *tbl  = b ? g_ascii_glyphs_bold : g_ascii_glyphs;
+        for (int i = 0; i < GLYPH_ATLAS_COUNT; i++) {
+            int ch = GLYPH_ATLAS_FIRST + i;
+            CGLayerRef layer = CGLayerCreateWithContext(
+                baseCtx, g_glyph_cache_cell, NULL);
+            if (!layer) continue;
+            CGContextRef lc = CGLayerGetContext(layer);
+            if (!lc) { CGLayerRelease(layer); continue; }
+            // Layer authored in standard (NON-flipped) Quartz coords:
+            // origin = bottom-left, y grows up. Glyph rendered upright by
+            // an identity text matrix and a baseline = descent_pad above
+            // the bottom edge. drawRect un-flips the destination CTM
+            // around the blit (see PERF-P0-1 fast path) so the layer
+            // appears the right way up in the AppKit flipped view.
+            CGContextSetTextMatrix(lc, CGAffineTransformIdentity);
+            CGContextSetRGBFillColor(lc, 1.0, 1.0, 1.0, 1.0);
+            CGGlyph gl = tbl[ch];
+            // baseline_y measured from layer bottom: cell_h - asc - top_pad
+            CGFloat baseline_y = cell_h - asc - 2;
+            if (baseline_y < 0) baseline_y = 0;
+            CGPoint pos = CGPointMake(0, baseline_y);
+            CTFontDrawGlyphs(fnt, &gl, &pos, 1, lc);
+            g_glyph_cache[b][i] = layer;
+        }
+    }
+    g_glyph_cache_init = YES;
+}
 
 // Pure sRGB (0,0,0,1) black — NSColor.blackColor is the generic device
 // black which, on P3 wide-gamut displays, renders a hair darker than
@@ -679,6 +865,19 @@ static NSColor *srgb_black(void) {
     if (!g_srgb_black)
         g_srgb_black = [[NSColor colorWithSRGBRed:0.0 green:0.0 blue:0.0 alpha:1.0] retain];
     return g_srgb_black;
+}
+
+// Pre-cache CGGlyph IDs for ASCII 0..127 into g_ascii_glyphs (regular)
+// and g_ascii_glyphs_bold. Called once per font size change. Avoids
+// per-cell CTFontGetGlyphsForCharacters + NSAttributedString overhead
+// in the drawRect hot loop for the ~99% of cells that are ASCII.
+static void cache_ascii_glyphs(void) {
+    UniChar chars[128];
+    for (int i = 0; i < 128; i++) chars[i] = (UniChar)i;
+    CTFontGetGlyphsForCharacters(g_term_font, chars, g_ascii_glyphs, 128);
+    CTFontGetGlyphsForCharacters(g_term_font_bold, chars, g_ascii_glyphs_bold, 128);
+    g_font_ascent      = CTFontGetAscent(g_term_font);
+    g_font_ascent_bold = CTFontGetAscent(g_term_font_bold);
 }
 
 // (Re)create the monospaced body font + bold variant at `sz` points, then
@@ -705,6 +904,11 @@ static void set_font_size(int sz) {
     g_term_ch = CTFontGetAscent(g_term_font) + CTFontGetDescent(g_term_font) +
                 CTFontGetLeading(g_term_font) + 2;
     g_font_size = sz;
+    cache_ascii_glyphs();
+    // Invalidate glyph atlas — drawRect will rebuild on next frame using
+    // the new ascent/cell metrics. Tearing the layers down here would
+    // require a CGContext we don't have on this code path.
+    g_glyph_cache_init = NO;
 }
 
 // ── Grid layout helpers ──
@@ -722,21 +926,52 @@ static void compute_grid_dims(int n, int *out_rows, int *out_cols) {
 
 #define TILE_INSET 2
 
+// Compute the rect for tile `idx` of a grid layout.
+// Both the tile origin and size are snapped so that:
+//   1. origin.x / origin.y land on integer pixels (no subpixel drift
+//      between frames as the window resizes) — otherwise Core Text
+//      positions glyphs fractionally and the text on the last column
+//      of each tile appears to smear / duplicate.
+//   2. size.width / size.height are integer multiples of the cell
+//      metrics (g_term_cw / g_term_ch) — leftover pixels at the right
+//      and bottom become a deterministic gutter instead of a partial
+//      cell clipped mid-glyph.
 static NSRect compute_tile_rect(int idx, NSRect bounds, int n_tabs) {
     if (n_tabs <= 0 || idx < 0 || idx >= n_tabs) return NSZeroRect;
     int grid_rows, grid_cols;
     compute_grid_dims(n_tabs, &grid_rows, &grid_cols);
     int row = idx / grid_cols;
     int col = idx % grid_cols;
-    float tile_w = bounds.size.width  / (float)grid_cols;
-    float tile_h = bounds.size.height / (float)grid_rows;
-    float x = col * tile_w;
-    float y = row * tile_h;
-    NSRect r = NSMakeRect(x + TILE_INSET, y + TILE_INSET,
-                          tile_w - 2 * TILE_INSET, tile_h - 2 * TILE_INSET);
-    if (r.size.width  < 0) r.size.width  = 0;
-    if (r.size.height < 0) r.size.height = 0;
-    return r;
+
+    // Divide the canvas into integer-pixel cells using a running-error
+    // split so leftover pixels distribute evenly across tiles (the
+    // rightmost / bottommost tile absorbs the remainder).
+    int total_w = (int)bounds.size.width;
+    int total_h = (int)bounds.size.height;
+    int x0 = (col       * total_w) / grid_cols;
+    int x1 = ((col + 1) * total_w) / grid_cols;
+    int y0 = (row       * total_h) / grid_rows;
+    int y1 = ((row + 1) * total_h) / grid_rows;
+
+    int tx = x0 + TILE_INSET;
+    int ty = y0 + TILE_INSET;
+    int tw = (x1 - x0) - 2 * TILE_INSET;
+    int th = (y1 - y0) - 2 * TILE_INSET;
+    if (tw < 0) tw = 0;
+    if (th < 0) th = 0;
+
+    // Snap inner w/h to integer multiples of cell size — leftover pixels
+    // stay as gutter on the right/bottom of the tile, never as a partial
+    // cell at the edge (which is where text "breaks" on resize).
+    if (g_term_cw > 0) {
+        int cw = (int)g_term_cw;
+        if (cw > 0) tw = (tw / cw) * cw;
+    }
+    if (g_term_ch > 0) {
+        int ch = (int)g_term_ch;
+        if (ch > 0) th = (th / ch) * ch;
+    }
+    return NSMakeRect((CGFloat)tx, (CGFloat)ty, (CGFloat)tw, (CGFloat)th);
 }
 
 static void apply_grid_layout(NSRect bounds) {
@@ -772,6 +1007,19 @@ static void apply_grid_layout(NSRect bounds) {
             ws.ws_ypixel = 0;
             ioctl(g_tabs[t].pty_fd, TIOCSWINSZ, &ws);
         }
+        // For the active tab we ALSO need to keep the shared VT dims
+        // (g_term_rows/cols) in sync with the tile — hexa's VT parser
+        // writes into g_term_grid based on these, and a mismatch between
+        // PTY winsize and VT dims smears text at tile edges.
+        if (use_grid && t == g_active_tab) {
+            if (g_term_rows != new_rows || g_term_cols != new_cols) {
+                g_term_rows = new_rows;
+                g_term_cols = new_cols;
+                if (g_term_cur_row >= new_rows) g_term_cur_row = new_rows - 1;
+                if (g_term_cur_col >= new_cols) g_term_cur_col = new_cols - 1;
+                g_full_redraw = 1;
+            }
+        }
     }
 }
 
@@ -803,6 +1051,27 @@ static void term_key_push(const char *data, int len) {
         g_term_kw++;
     }
 }
+
+// VT response buffer — hexa pushes bytes one at a time, then flushes.
+static char  g_reply_buf[64];
+static int   g_reply_len = 0;
+
+long hexa_reply_reset(void) { g_reply_len = 0; return 0; }
+long hexa_reply_push(long b) {
+    if (g_reply_len < (int)sizeof(g_reply_buf))
+        g_reply_buf[g_reply_len++] = (char)b;
+    return 0;
+}
+long hexa_reply_flush(void) {
+    term_key_push(g_reply_buf, g_reply_len);
+    g_reply_len = 0;
+    return 0;
+}
+
+// Test helpers: peek at key buffer without consuming.
+long hexa_keybuf_len(void)         { return g_term_kw - g_term_kr; }
+long hexa_keybuf_byte(long idx)    { return (unsigned char)g_term_keys[(g_term_kr + (int)idx) % TERM_KEY_SIZE]; }
+void hexa_keybuf_clear(void)       { g_term_kr = g_term_kw = 0; }
 
 // ── Cmd+F scrollback search ──
 // State for the search overlay. Query is a UTF-8 byte buffer; matches hold
@@ -1029,29 +1298,34 @@ static NSColor *term_color(int idx) {
         0x0000FF, 0xE500E5, 0x00E5E5, 0xE5E5E5
     };
     if (idx < 0) idx = 7;
-    if (idx < 16) {
-        // Cache hot path: 16 ANSI colors are retained at first access,
-        // never released. Avoids ~3840 NSColor allocs per drawRect.
+    // ── RENDER-P0 256-color cache ──
+    // The full 256-entry palette is retained on first access, never released.
+    // SGR 38;5;N / 48;5;N (xterm 256) previously allocated a fresh NSColor
+    // on every hit (heavy tmux/nvim/CJK logs spam thousands per frame). The
+    // array is flat: 0..15 ANSI, 16..231 6×6×6 RGB cube, 232..255 grays.
+    // Truecolor (idx >= 256) stays uncached — unbounded key space.
+    if (idx < 256) {
         if (!g_term_color_cache[idx]) {
-            uint32_t c = a16[idx];
-            g_term_color_cache[idx] =
-                [[NSColor colorWithSRGBRed:((c>>16)&0xFF)/255.0
-                                     green:((c>>8)&0xFF)/255.0
-                                      blue:(c&0xFF)/255.0
-                                     alpha:1.0] retain];
+            NSColor *nc = nil;
+            if (idx < 16) {
+                uint32_t c = a16[idx];
+                nc = [NSColor colorWithSRGBRed:((c>>16)&0xFF)/255.0
+                                         green:((c>>8)&0xFF)/255.0
+                                          blue:(c&0xFF)/255.0
+                                         alpha:1.0];
+            } else if (idx < 232) {
+                int v = idx - 16;
+                int r = v/36, g = (v%36)/6, b = v%6;
+                nc = [NSColor colorWithSRGBRed:r?(r*40+55)/255.0:0
+                                         green:g?(g*40+55)/255.0:0
+                                          blue:b?(b*40+55)/255.0:0 alpha:1.0];
+            } else {
+                int g = (idx-232)*10+8;
+                nc = [NSColor colorWithSRGBRed:g/255.0 green:g/255.0 blue:g/255.0 alpha:1.0];
+            }
+            g_term_color_cache[idx] = [nc retain];
         }
         return g_term_color_cache[idx];
-    }
-    if (idx < 232) {
-        int v = idx - 16;
-        int r = v/36, g = (v%36)/6, b = v%6;
-        return [NSColor colorWithSRGBRed:r?(r*40+55)/255.0:0
-                                   green:g?(g*40+55)/255.0:0
-                                    blue:b?(b*40+55)/255.0:0 alpha:1.0];
-    }
-    if (idx < 256) {
-        int g = (idx-232)*10+8;
-        return [NSColor colorWithSRGBRed:g/255.0 green:g/255.0 blue:g/255.0 alpha:1.0];
     }
     int rgb = idx - 256;
     return [NSColor colorWithSRGBRed:(rgb/65536)/255.0
@@ -1061,8 +1335,22 @@ static NSColor *term_color(int idx) {
 
 // ── HexaTermView (with tab bar) ──
 
-@interface HexaTermView : NSView
+@interface HexaTermView : NSView <NSTextInputClient>
 @end
+
+// ── IME composition state ────────────────────────────────────────────
+// When a Korean / Chinese / Japanese IME is active, interpretKeyEvents
+// routes keystrokes through -setMarkedText: until the composition is
+// committed (then -insertText: fires with the composed UTF-8, which we
+// forward to the PTY).  The marked string is drawn inline at the cursor
+// position as underlined text so the user sees the in-progress jamo
+// before it becomes a completed syllable.
+static NSString *g_marked_text = nil;
+static NSRange   g_marked_selection = {NSNotFound, 0};
+
+static inline int ime_has_marked(void) {
+    return (g_marked_text && [g_marked_text length] > 0);
+}
 
 @implementation HexaTermView
 - (BOOL)isFlipped { return YES; }
@@ -1082,6 +1370,10 @@ static NSColor *term_color(int idx) {
     // supported range (1-9), render every tab simultaneously. 10+ tabs
     // falls back to the stacked path below via effective_tab_bar_w().
     if (g_layout_mode == LAYOUT_GRID && g_num_tabs >= 1 && g_num_tabs <= 9) {
+        // Grid mode: invalidate the stacked-path cell cache since we
+        // don't maintain per-tile prev grids. On switch back to stacked
+        // mode the first frame will do a full repaint.
+        g_prev_grid_valid = 0;
         // Paint the whole canvas sRGB-pinned black so tile gutters read
         // as a distinct separator instead of showing bare bounds.
         [srgb_black() setFill];
@@ -1089,6 +1381,15 @@ static NSColor *term_color(int idx) {
 
         NSMutableDictionary *attrBuf = [NSMutableDictionary dictionaryWithCapacity:3];
         NSNumber *underlineNum = @(NSUnderlineStyleSingle);
+        CGContextRef drawCtx = [[NSGraphicsContext currentContext] CGContext];
+        // Fix text matrix for CTFontDrawGlyphs in flipped view (isFlipped=YES).
+        // The CGContext CTM is y-flipped by AppKit, but the default identity
+        // text matrix doesn't compensate — glyphs render upside-down and
+        // overlap adjacent rows.  Scale(1,-1) un-flips glyph shapes while
+        // keeping positions in the flipped coordinate space.
+        CGContextSetTextMatrix(drawCtx, CGAffineTransformMakeScale(1.0, -1.0));
+        // ── PERF-P0-1: ensure glyph atlas exists (built once per font size).
+        if (!g_glyph_cache_init) init_glyph_atlas(drawCtx);
 
         for (int t = 0; t < g_num_tabs; t++) {
             if (!g_tabs[t].used) continue;
@@ -1122,31 +1423,103 @@ static NSColor *term_color(int idx) {
                 if (y + g_term_ch < dirtyRect.origin.y ||
                     y > dirtyRect.origin.y + dirtyRect.size.height) continue;
                 TermCell *cell_row = src_grid[r];
+
+                // ── Batch background fill: merge consecutive cells that
+                // share the same bg color into a single NSRectFill call.
+                // Typical case (all-black row) collapses 80+ fills to 0.
+                int run_bg = 0;       // bg index of current run (0 = default, skip)
+                float run_x = 0.0f;   // pixel x where current run started
+                float run_w = 0.0f;   // accumulated width of current run
+                for (int c = 0; c < tile_cols; c++) {
+                    float x = ox + c * g_term_cw;
+                    if (x + g_term_cw > max_x) break;
+                    TermCell *cell = &cell_row[c];
+                    if (cell->flags & 0x20000) continue; // continuation cell
+                    int wide = (cell->flags & 0x10000) != 0;
+                    float cell_w = wide ? (2.0f * g_term_cw) : g_term_cw;
+                    int bg = cell->bg;
+                    if (cell->flags & 8) bg = cell->fg; // reverse video
+                    if (bg == run_bg) {
+                        run_w += cell_w;
+                    } else {
+                        // Flush previous run
+                        if (run_bg != 0 && run_w > 0) {
+                            [term_color(run_bg) setFill];
+                            NSRectFill(NSMakeRect(run_x, y, run_w, g_term_ch));
+                        }
+                        run_bg = bg;
+                        run_x = x;
+                        run_w = cell_w;
+                    }
+                }
+                // Flush final run
+                if (run_bg != 0 && run_w > 0) {
+                    [term_color(run_bg) setFill];
+                    NSRectFill(NSMakeRect(run_x, y, run_w, g_term_ch));
+                }
+
+                // ── Glyph rendering: per-cell as before.
                 for (int c = 0; c < tile_cols; c++) {
                     float x = ox + c * g_term_cw;
                     if (x + g_term_cw > max_x) break;
                     TermCell *cell = &cell_row[c];
                     if (cell->flags & 0x20000) continue;
-                    int wide = (cell->flags & 0x10000) != 0;
-                    float cell_w = wide ? (2.0f * g_term_cw) : g_term_cw;
-                    int bg = cell->bg, fg = cell->fg;
-                    if (cell->flags & 8) { int tt = bg; bg = fg; fg = tt; }
-                    if (bg != 0) {
-                        [term_color(bg) setFill];
-                        NSRectFill(NSMakeRect(x, y, cell_w, g_term_ch));
-                    }
                     if (cell->ch <= ' ') continue;
-
-                    CTFontRef df = (cell->flags & 1) ? g_term_font_bold : g_term_font;
-                    [attrBuf removeAllObjects];
-                    attrBuf[NSFontAttributeName] = (__bridge id)df;
-                    attrBuf[NSForegroundColorAttributeName] = term_color(fg);
-                    if (cell->flags & 4) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
-                    unichar uch = cell->ch;
-                    NSString *s = [NSString stringWithCharacters:&uch length:1];
-                    NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
-                    [as drawAtPoint:NSMakePoint(x, y + 2)];
-                    [as release];
+                    int fg = cell->fg;
+                    if (cell->flags & 8) fg = cell->bg; // reverse video
+                    int bold = (cell->flags & 1);
+                    CTFontRef df = bold ? g_term_font_bold : g_term_font;
+                    if (g_glyph_cache_init &&
+                        cell->ch >= GLYPH_ATLAS_FIRST && cell->ch <= GLYPH_ATLAS_LAST &&
+                        !(cell->flags & 4) /* no underline */ &&
+                        !(cell->flags & 0x10000) /* not wide */ &&
+                        fg >= 0 && fg < 16 /* atlas tint = ANSI 16 only */) {
+                        // ── PERF-P0-1 fast path: blit pre-rendered CGLayer
+                        // tinted to fg color. No allocs, no shaping.
+                        CGLayerRef layer = g_glyph_cache[bold ? 1 : 0][cell->ch - GLYPH_ATLAS_FIRST];
+                        if (layer) {
+                            CGFloat rgba[4];
+                            term_color_rgba(fg, rgba);
+                            CGFloat ch_h = g_glyph_cache_cell.height;
+                            CGContextSaveGState(drawCtx);
+                            // Un-flip around the blit (see stacked path).
+                            CGContextTranslateCTM(drawCtx, x, y + ch_h);
+                            CGContextScaleCTM(drawCtx, 1.0, -1.0);
+                            CGContextSetRGBFillColor(drawCtx,
+                                rgba[0], rgba[1], rgba[2], rgba[3]);
+                            CGContextDrawLayerAtPoint(drawCtx, CGPointZero, layer);
+                            CGContextRestoreGState(drawCtx);
+                            // Re-establish text matrix in case CGLayer or
+                            // subsequent CT calls perturb it.
+                            CGContextSetTextMatrix(drawCtx,
+                                CGAffineTransformMakeScale(1.0, -1.0));
+                        }
+                    } else if (cell->ch < 128 && !(cell->flags & 4)) {
+                        // Fast path: ASCII glyph from pre-cached table.
+                        // Bypasses NSAttributedString + CTFontGetGlyphsForCharacters.
+                        // Used for ch < 0x21 (space, control) where the atlas
+                        // has nothing to blit but a full draw isn't needed.
+                        CGGlyph gl = bold ? g_ascii_glyphs_bold[cell->ch]
+                                          : g_ascii_glyphs[cell->ch];
+                        CGFloat asc = bold ? g_font_ascent_bold : g_font_ascent;
+                        [term_color(fg) set];
+                        CGPoint pos = CGPointMake(x, y + 2 + asc);
+                        CTFontDrawGlyphs(df, &gl, &pos, 1, drawCtx);
+                    } else {
+                        // Slow path: non-ASCII or underlined — full attributed string.
+                        [attrBuf removeAllObjects];
+                        attrBuf[NSFontAttributeName] = (__bridge id)df;
+                        attrBuf[NSForegroundColorAttributeName] = term_color(fg);
+                        if (cell->flags & 4) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
+                        NSString *s = void_nsstring_for_cp(cell->ch);
+                        NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
+                        [as drawAtPoint:NSMakePoint(x, y + 2)];
+                        [as release];
+                        // NSAttributedString may clobber the text matrix —
+                        // re-set for subsequent fast-path CTFontDrawGlyphs.
+                        CGContextSetTextMatrix(drawCtx,
+                            CGAffineTransformMakeScale(1.0, -1.0));
+                    }
                 }
             }
 
@@ -1266,19 +1639,54 @@ static NSColor *term_color(int idx) {
     }
 
     // ── Terminal grid (right of tab bar, or full width when tab bar hidden) ──
-    float ox = eff_tbw;
-    [srgb_black() setFill];
-    NSRectFill(NSMakeRect(ox, 0, bounds.size.width - ox, bounds.size.height));
+    float ox = eff_tbw + TERM_PAD;
 
     VoidTab *atab = (g_active_tab >= 0 && g_active_tab < g_num_tabs) ? &g_tabs[g_active_tab] : NULL;
+
+    // ── Dirty-region cell-level skip ──
+    // When the prev_grid cache is valid and we are in live view (no
+    // scrollback), only repaint cells whose content changed since the
+    // last drawRect. Scrollback, search overlay, and full-redraw events
+    // invalidate the cache and fall back to painting everything.
+    // Invalidate prev_grid if active tab changed since snapshot
+    if (g_prev_grid_tab != g_active_tab) {
+        g_prev_grid_valid = 0;
+    }
+    // ── Selection-change forces full repaint for this frame ──
+    // The incremental cache path only re-fills black under changed
+    // cells, so a cached row still carries last frame's translucent
+    // selection overlay. Painting the new overlay on top stacks alphas
+    // (→ highlight brightens during drag, "flicker"). When the selection
+    // rect moves, bypass the cache entirely so the backing store is
+    // fully rebuilt before the overlay is applied.
+    {
+        int cur_active = 0, csr=0, csc=0, cer=0, cec=0;
+        cur_active = normalize_selection(&csr, &csc, &cer, &cec);
+        int sel_changed = 0;
+        if (cur_active != g_prev_sel_valid) sel_changed = 1;
+        else if (cur_active &&
+                 (csr != g_prev_sel_sr || csc != g_prev_sel_sc ||
+                  cer != g_prev_sel_er || cec != g_prev_sel_ec)) sel_changed = 1;
+        if (sel_changed) g_full_redraw = 1;
+    }
+
+    int use_prev = (g_prev_grid_valid && !g_full_redraw && g_scroll_offset == 0 && !g_search_active);
+    if (!use_prev) {
+        // Full repaint: clear the entire grid background once.
+        [srgb_black() setFill];
+        NSRectFill(NSMakeRect(ox, 0, bounds.size.width - ox, bounds.size.height));
+    }
 
     // Reusable mutable attribute dict — built once, mutated per cell.
     // Avoids 1920+ NSMutableDictionary allocs per frame.
     NSMutableDictionary *attrBuf = [NSMutableDictionary dictionaryWithCapacity:3];
     NSNumber *underlineNum = @(NSUnderlineStyleSingle);
+    CGContextRef drawCtx = [[NSGraphicsContext currentContext] CGContext];
+    // ── PERF-P0-1: ensure glyph atlas exists (built once per font size).
+    if (!g_glyph_cache_init) init_glyph_atlas(drawCtx);
 
     for (int r = 0; r < g_term_rows; r++) {
-        float y = r * g_term_ch;
+        float y = TERM_PAD + r * g_term_ch;
         if (y + g_term_ch < dirtyRect.origin.y ||
             y > dirtyRect.origin.y + dirtyRect.size.height) continue;
 
@@ -1298,39 +1706,187 @@ static NSColor *term_color(int idx) {
         }
         if (!cell_row) continue;
 
+        TermCell *prev_row = g_prev_grid[r];
+
+        // ── Batch background fill: merge consecutive cells with the
+        // same bg color into one NSRectFill.  A typical all-black row
+        // (bg==0 everywhere) produces zero fill calls instead of 80+.
+        // Skip in delta mode — changed cells handle their own bg erase.
+        if (!use_prev) {
+            int run_bg = 0;
+            float run_x = 0.0f;
+            float run_w = 0.0f;
+            for (int c = 0; c < g_term_cols; c++) {
+                float x = ox + c * g_term_cw;
+                TermCell *cell = &cell_row[c];
+                if (cell->flags & 0x20000) continue; // continuation
+                int wide = (cell->flags & 0x10000) != 0;
+                float cell_w = wide ? (2.0f * g_term_cw) : g_term_cw;
+                int bg = cell->bg;
+                if (cell->flags & 8) bg = cell->fg; // reverse video
+                if (bg == run_bg) {
+                    run_w += cell_w;
+                } else {
+                    if (run_bg != 0 && run_w > 0) {
+                        [term_color(run_bg) setFill];
+                        NSRectFill(NSMakeRect(run_x, y, run_w, g_term_ch));
+                    }
+                    run_bg = bg;
+                    run_x = x;
+                    run_w = cell_w;
+                }
+            }
+            if (run_bg != 0 && run_w > 0) {
+                [term_color(run_bg) setFill];
+                NSRectFill(NSMakeRect(run_x, y, run_w, g_term_ch));
+            }
+        }
+
+        // ── Glyph rendering: per-cell with dirty check.
+        // ── RENDER-P0 glyph batch ──
+        // Accumulate consecutive fallback cells (non-atlas: wide/underline/
+        // non-ASCII/256-color fg) sharing the same (fg, bold, underline) into
+        // a single NSAttributedString + drawAtPoint. Typical CJK-heavy line
+        // drops from 80+ drawAtPoint calls to 1-5. Monospace cell layout
+        // guarantees `c * g_term_cw` spacing is exactly the advance width
+        // across ASCII fallbacks; wide cells break the run and flush alone.
+        NSMutableString *runBuf = [NSMutableString stringWithCapacity:g_term_cols];
+        __block int run_start_c = -1;
+        __block int run_fg      = 0;
+        __block int run_bold    = 0;
+        __block int run_under   = 0;
+        // Flush lambda (plain block for readability; cheap stack frame).
+        void (^flush_run)(void) = ^{
+            if (run_start_c < 0 || runBuf.length == 0) { run_start_c = -1; return; }
+            CTFontRef df = run_bold ? g_term_font_bold : g_term_font;
+            [attrBuf removeAllObjects];
+            attrBuf[NSFontAttributeName] = (__bridge id)df;
+            attrBuf[NSForegroundColorAttributeName] = term_color(run_fg);
+            if (run_under) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
+            NSAttributedString *as = [[NSAttributedString alloc]
+                                         initWithString:runBuf attributes:attrBuf];
+            float rx = ox + run_start_c * g_term_cw;
+            [as drawAtPoint:NSMakePoint(rx, y + 2)];
+            [as release];
+            [runBuf setString:@""];
+            run_start_c = -1;
+        };
+
         for (int c = 0; c < g_term_cols; c++) {
             float x = ox + c * g_term_cw;
             TermCell *cell = &cell_row[c];
-            // Continuation cell for a wide char drawn at (c-1) — the
-            // glyph itself already covers this cell; just skip it. Its
-            // background is part of the wide cell's double-fill so we
-            // don't need to re-fill here either.
             if (cell->flags & 0x20000) continue;
-            int wide = (cell->flags & 0x10000) != 0;
-            float cell_w = wide ? (2.0f * g_term_cw) : g_term_cw;
-            int bg = cell->bg, fg = cell->fg;
-            if (cell->flags & 8) { int t = bg; bg = fg; fg = t; }
-            if (bg != 0) {
-                [term_color(bg) setFill];
+
+            // ── Cell-level dirty check ──
+            // Compare with prev_grid: skip this cell entirely if ch, fg,
+            // bg, and flags are all identical to the last rendered frame.
+            if (use_prev) {
+                TermCell *prev = &prev_row[c];
+                if (cell->ch == prev->ch && cell->fg == prev->fg &&
+                    cell->bg == prev->bg && cell->flags == prev->flags) {
+                    // A cached (skipped) cell sits in the grid — the glyph
+                    // at that column was painted by an earlier frame. The
+                    // current batch run would overpaint it if we continued
+                    // past, so flush.
+                    flush_run();
+                    continue;
+                }
+                // Cell changed: erase its rect before redrawing so the
+                // old content doesn't show through.
+                int wide = (cell->flags & 0x10000) != 0;
+                float cell_w = wide ? (2.0f * g_term_cw) : g_term_cw;
+                [srgb_black() setFill];
                 NSRectFill(NSMakeRect(x, y, cell_w, g_term_ch));
             }
-            if (cell->ch <= ' ') continue;
 
+            if (cell->ch <= ' ') { flush_run(); continue; }
+            int fg = cell->fg;
+            if (cell->flags & 8) fg = cell->bg; // reverse video
             // Use cached fonts and cached colors — no per-cell CFCreate.
-            CTFontRef df = (cell->flags & 1) ? g_term_font_bold : g_term_font;
-            [attrBuf removeAllObjects];
-            // CTFont is toll-free bridged to NSFont — NSFontAttributeName accepts it
-            attrBuf[NSFontAttributeName] = (__bridge id)df;
-            // NSForegroundColorAttributeName takes NSColor — no CGColor
-            // bridging hazard. term_color() returns a retained cached object.
-            attrBuf[NSForegroundColorAttributeName] = term_color(fg);
-            if (cell->flags & 4) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
+            int bold = (cell->flags & 1);
+            // ── PERF-P0-1 fast path: printable ASCII (0x21..0x7E) and no
+            // underline → blit pre-rendered CGLayer tinted to fg color.
+            // Avoids NSAttributedString / NSString / NSDictionary allocs
+            // entirely. CGLayer is a 1-channel alpha mask under fillColor,
+            // so a single layer serves all 16 ANSI fg variants.
+            if (g_glyph_cache_init &&
+                cell->ch >= GLYPH_ATLAS_FIRST && cell->ch <= GLYPH_ATLAS_LAST &&
+                !(cell->flags & 4) /* no underline */ &&
+                !(cell->flags & 0x10000) /* not wide */ &&
+                fg >= 0 && fg < 16 /* atlas tint = ANSI 16 only */) {
+                CGLayerRef layer = g_glyph_cache[bold ? 1 : 0][cell->ch - GLYPH_ATLAS_FIRST];
+                if (layer) {
+                    flush_run();  // atlas blit breaks any pending fallback run
+                    CGFloat rgba[4];
+                    term_color_rgba(fg, rgba);
+                    CGFloat ch_h = g_glyph_cache_cell.height;
+                    CGContextSaveGState(drawCtx);
+                    // Un-flip CTM around the layer blit. The view is
+                    // isFlipped=YES (y down), but the layer is authored in
+                    // standard Quartz orientation (y up). Translate to the
+                    // cell's TOP-left in flipped space, then Scale(1,-1) so
+                    // the layer's bottom-left maps to the cell's top-left
+                    // visually.  After the blit the saved state restores the
+                    // flipped CTM for the next cell.
+                    CGContextTranslateCTM(drawCtx, x, y + ch_h);
+                    CGContextScaleCTM(drawCtx, 1.0, -1.0);
+                    CGContextSetRGBFillColor(drawCtx, rgba[0], rgba[1], rgba[2], rgba[3]);
+                    CGContextDrawLayerAtPoint(drawCtx, CGPointZero, layer);
+                    CGContextRestoreGState(drawCtx);
+                    continue;
+                }
+            }
+            // Fallback: wide CJK, underline, non-ASCII, or atlas miss.
+            int under = (cell->flags & 4) ? 1 : 0;
+            int wide  = (cell->flags & 0x10000) != 0;
+            // Wide cells flush any accumulated narrow run, render solo, and
+            // don't participate in batching (advance width mismatch).
+            if (wide) {
+                flush_run();
+                [attrBuf removeAllObjects];
+                attrBuf[NSFontAttributeName] = (__bridge id)(bold ? g_term_font_bold : g_term_font);
+                attrBuf[NSForegroundColorAttributeName] = term_color(fg);
+                if (under) attrBuf[NSUnderlineStyleAttributeName] = underlineNum;
+                NSString *s = void_nsstring_for_cp(cell->ch);
+                NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
+                [as drawAtPoint:NSMakePoint(x, y + 2)];
+                [as release];
+                continue;
+            }
+            // Narrow fallback: start or extend a run. Break on attr change
+            // or non-contiguous column.
+            if (run_start_c >= 0 &&
+                (run_fg != fg || run_bold != bold || run_under != under ||
+                 (run_start_c + (int)runBuf.length) != c)) {
+                flush_run();
+            }
+            if (run_start_c < 0) {
+                run_start_c = c;
+                run_fg      = fg;
+                run_bold    = bold;
+                run_under   = under;
+            }
+            [runBuf appendString:void_nsstring_for_cp(cell->ch)];
+        }
+        // End of row: flush any trailing run.
+        flush_run();
+    }
 
-            unichar uch = cell->ch;
-            NSString *s = [NSString stringWithCharacters:&uch length:1];
-            NSAttributedString *as = [[NSAttributedString alloc] initWithString:s attributes:attrBuf];
-            [as drawAtPoint:NSMakePoint(x, y + 2)];
-            [as release]; // MRR — was leaking ~1920 objs/frame
+    // ── Snapshot current frame into prev_grid ──
+    // Only cache when in live view — scrollback frames are transient and
+    // would pollute the cache with non-grid data.
+    if (g_scroll_offset == 0 && !g_search_active) {
+        memcpy(g_prev_grid, g_term_grid, sizeof(g_prev_grid));
+        g_prev_grid_valid = 1;
+        g_prev_grid_tab = g_active_tab;
+        // Snapshot selection state — see g_prev_sel_* declaration.
+        int _sr, _sc, _er, _ec;
+        if (normalize_selection(&_sr, &_sc, &_er, &_ec)) {
+            g_prev_sel_valid = 1;
+            g_prev_sel_sr = _sr; g_prev_sel_sc = _sc;
+            g_prev_sel_er = _er; g_prev_sel_ec = _ec;
+        } else {
+            g_prev_sel_valid = 0;
         }
     }
     // ── Selection overlay ── translucent blue shade painted ON TOP of the
@@ -1360,7 +1916,30 @@ static NSColor *term_color(int idx) {
         g_term_cur_row < g_term_rows && g_term_cur_col < g_term_cols) {
         [[NSColor colorWithRed:0.6 green:0.6 blue:0.6 alpha:0.5] setFill];
         NSRectFill(NSMakeRect(ox + g_term_cur_col * g_term_cw,
-                              g_term_cur_row * g_term_ch, g_term_cw, g_term_ch));
+                              TERM_PAD + g_term_cur_row * g_term_ch, g_term_cw, g_term_ch));
+    }
+    // ── IME marked (composing) text overlay ──
+    // When a Hangul / Kana / Pinyin composition is in progress, draw the
+    // uncommitted string inline at the cursor so the user sees the jamo
+    // before they become a finished syllable.  Bytes stay out of the PTY
+    // until -insertText: fires (on commit).
+    if (g_scroll_offset == 0 && ime_has_marked() &&
+        g_term_cur_row >= 0 && g_term_cur_row < g_term_rows) {
+        float mx = ox + g_term_cur_col * g_term_cw;
+        float my = TERM_PAD + g_term_cur_row * g_term_ch;
+        NSDictionary *ma = @{
+            NSFontAttributeName: (__bridge id)g_term_font,
+            NSForegroundColorAttributeName:
+                [NSColor colorWithRed:1.0 green:1.0 blue:1.0 alpha:1.0],
+            NSUnderlineStyleAttributeName: underlineNum,
+            NSBackgroundColorAttributeName: srgb_black()
+        };
+        NSSize msz = [g_marked_text sizeWithAttributes:ma];
+        // Black background under the marked glyphs so any cells the IME
+        // string overlaps are clearly "not yet committed".
+        [srgb_black() setFill];
+        NSRectFill(NSMakeRect(mx, my, msz.width, g_term_ch));
+        [g_marked_text drawAtPoint:NSMakePoint(mx, my + 2) withAttributes:ma];
     }
     // Scrollback indicator
     if (g_scroll_offset > 0) {
@@ -1392,7 +1971,7 @@ static NSColor *term_color(int idx) {
             if (sm->line < view_top_vline || sm->line >= view_bot_vline) continue;
             int row = sm->line - view_top_vline;
             float x = ox + sm->col * g_term_cw;
-            float y = row * g_term_ch;
+            float y = TERM_PAD + row * g_term_ch;
             float w = sm->len * g_term_cw;
             if (m == g_search_cursor) [hitCur setFill];
             else                       [hitAll setFill];
@@ -1535,8 +2114,8 @@ static NSColor *term_color(int idx) {
     }
     // ── Mouse selection start (terminal grid area) ──
     if (g_term_cw <= 0 || g_term_ch <= 0) return;
-    int col = (int)((p.x - eff_tbw) / g_term_cw);
-    int row = (int)(p.y / g_term_ch);
+    int col = (int)((p.x - eff_tbw - TERM_PAD) / g_term_cw);
+    int row = (int)((p.y - TERM_PAD) / g_term_ch);
     if (col < 0) col = 0;
     if (row < 0) row = 0;
     if (col >= g_term_cols) col = g_term_cols - 1;
@@ -1586,12 +2165,16 @@ static NSColor *term_color(int idx) {
     // Single click: seed an inert selection. Becomes active once the
     // user drags past the origin; plain clicks just clear the previous
     // selection (if any) without leaving a stray highlight.
+    int had_prev_sel = (g_sel_active != 0);
     g_sel_start_row = row;
     g_sel_start_col = col;
     g_sel_end_row = row;
     g_sel_end_col = col;
     g_sel_active = 0;
-    [self setNeedsDisplay:YES];
+    // Only repaint if we actually need to erase a previous highlight —
+    // otherwise a plain click inside an already-unselected area would
+    // trigger a needless full-view redraw.
+    if (had_prev_sel) [self setNeedsDisplay:YES];
 }
 
 - (void)mouseDragged:(NSEvent *)event {
@@ -1626,8 +2209,8 @@ static NSColor *term_color(int idx) {
     if (!g_sel_anchor_in_grid) return;
     if (g_term_cw <= 0 || g_term_ch <= 0) return;
     int eff_tbw = effective_tab_bar_w();
-    int col = (int)((p.x - eff_tbw) / g_term_cw);
-    int row = (int)(p.y / g_term_ch);
+    int col = (int)((p.x - eff_tbw - TERM_PAD) / g_term_cw);
+    int row = (int)((p.y - TERM_PAD) / g_term_ch);
     if (col < 0) col = 0;
     if (row < 0) row = 0;
     if (col >= g_term_cols) col = g_term_cols - 1;
@@ -1641,6 +2224,10 @@ static NSColor *term_color(int idx) {
             g_sel_active = 1;
         }
     }
+    // Skip the redraw if the drag is still inside the same cell — an
+    // NSEvent mouseDragged fires every few pixels, so without this we
+    // trigger 30+ full-view redraws per second with identical output.
+    if (row == g_sel_end_row && col == g_sel_end_col && g_sel_active) return;
     g_sel_end_row = row;
     g_sel_end_col = col;
     [self setNeedsDisplay:YES];
@@ -1679,7 +2266,7 @@ static NSColor *term_color(int idx) {
     int with_ctrl = (mods & NSEventModifierFlagControl) != 0;
 
     if (ch == 't') { g_tab_cmd = 1; return YES; } // Cmd+T new tab
-    if (ch == 'w') { g_tab_cmd = 2; return YES; } // Cmd+W close tab
+    if (ch == 'w') { g_tab_cmd = 2; { FILE *d=fopen("/tmp/void_dbg.log","a"); if(d){fprintf(d,"[cmd-w] performKey g_tab_cmd=2 active=%d ntabs=%d\n",g_active_tab,g_num_tabs);fclose(d);} } return YES; } // Cmd+W close tab
     if (ch == 'q') { g_term_quit = 1; return YES; } // Cmd+Q quit
     // Cmd+Z → undo the most recent tab close (reopen same profile fresh).
     if (ch == 'z' && !(mods & NSEventModifierFlagShift)) {
@@ -1871,8 +2458,100 @@ static NSColor *term_color(int idx) {
         case NSPageDownFunctionKey:   term_key_push("\033[6~", 4); return;
         case NSDeleteFunctionKey:     term_key_push("\033[3~", 4); return;
     }
-    const char *utf8 = [chars UTF8String];
-    term_key_push(utf8, (int)strlen(utf8));
+    // Route through the IME so Hangul / Kana / Pinyin composition works.
+    // For plain ASCII with no composition in progress the input method
+    // passes the character straight through to -insertText: which writes
+    // it to the PTY.  Enter / Backspace / Tab come back as AppKit
+    // selectors via -doCommandBySelector:.
+    [self interpretKeyEvents:@[event]];
+}
+
+// ── NSTextInputClient ────────────────────────────────────────────────
+- (BOOL)hasMarkedText { return ime_has_marked() ? YES : NO; }
+- (NSRange)markedRange {
+    return ime_has_marked()
+        ? NSMakeRange(0, [g_marked_text length])
+        : NSMakeRange(NSNotFound, 0);
+}
+- (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }
+
+- (void)setMarkedText:(id)string
+        selectedRange:(NSRange)selRange
+     replacementRange:(NSRange)replacementRange {
+    NSString *s = [string isKindOfClass:[NSAttributedString class]]
+        ? [(NSAttributedString *)string string]
+        : (NSString *)string;
+    [g_marked_text release];
+    g_marked_text = (s && [s length] > 0) ? [s copy] : nil;
+    g_marked_selection = selRange;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)unmarkText {
+    [g_marked_text release];
+    g_marked_text = nil;
+    g_marked_selection = NSMakeRange(NSNotFound, 0);
+    [self setNeedsDisplay:YES];
+}
+
+- (NSArray<NSAttributedStringKey> *)validAttributesForMarkedText { return @[]; }
+
+- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range
+                                                actualRange:(NSRangePointer)actualRange {
+    if (actualRange) *actualRange = NSMakeRange(NSNotFound, 0);
+    return nil;
+}
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+    NSString *s = [string isKindOfClass:[NSAttributedString class]]
+        ? [(NSAttributedString *)string string]
+        : (NSString *)string;
+    [g_marked_text release];
+    g_marked_text = nil;
+    g_marked_selection = NSMakeRange(NSNotFound, 0);
+    if (s && [s length] > 0) {
+        const char *utf8 = [s UTF8String];
+        if (utf8) term_key_push(utf8, (int)strlen(utf8));
+    }
+    [self setNeedsDisplay:YES];
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)point { return NSNotFound; }
+
+- (NSRect)firstRectForCharacterRange:(NSRange)range
+                         actualRange:(NSRangePointer)actualRange {
+    if (actualRange) *actualRange = range;
+    if (g_term_cw <= 0 || g_term_ch <= 0) return NSZeroRect;
+    int eff_tbw = effective_tab_bar_w();
+    float x = eff_tbw + TERM_PAD + g_term_cur_col * g_term_cw;
+    float y = TERM_PAD + g_term_cur_row * g_term_ch;
+    NSRect vr = NSMakeRect(x, y, g_term_cw, g_term_ch);
+    NSRect wr = [self convertRect:vr toView:nil];
+    NSWindow *w = [self window];
+    return w ? [w convertRectToScreen:wr] : wr;
+}
+
+- (void)doCommandBySelector:(SEL)selector {
+    // Map AppKit text-editing selectors back onto the bytes the terminal
+    // actually cares about.  Arrow keys and function keys are handled
+    // earlier in -keyDown: so they don't need cases here, but Enter /
+    // Backspace / Tab round-trip through the IME on commit and need to
+    // be translated.
+    if (selector == @selector(insertNewline:) ||
+        selector == @selector(insertLineBreak:)) {
+        term_key_push("\r", 1);
+    } else if (selector == @selector(insertTab:)) {
+        term_key_push("\t", 1);
+    } else if (selector == @selector(insertBacktab:)) {
+        term_key_push("\033[Z", 3);
+    } else if (selector == @selector(deleteBackward:)) {
+        term_key_push("\x7f", 1);
+    } else if (selector == @selector(deleteForward:)) {
+        term_key_push("\033[3~", 4);
+    } else if (selector == @selector(cancelOperation:)) {
+        term_key_push("\x1b", 1);
+    }
+    // Unrecognized selectors are silently dropped — matches Terminal.app.
 }
 - (void)scrollWheel:(NSEvent *)event {
     if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
@@ -1900,6 +2579,60 @@ static NSColor *term_color(int idx) {
     [self setNeedsDisplay:YES];
 }
 - (void)flagsChanged:(NSEvent *)e {}
+
+// ── Drag-drop: file URL → @<abs-path> bracketed-paste ────────────────
+// Accepts any file URL dragged onto the terminal view. Multiple files
+// are space-joined as `@/a/b @/c/d ` so Claude Code / @-aware REPLs
+// pick up each one as a separate reference.
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+    NSPasteboard *pb = [sender draggingPasteboard];
+    if ([[pb types] containsObject:NSPasteboardTypeFileURL]) return NSDragOperationCopy;
+    return NSDragOperationNone;
+}
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender { return YES; }
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+    @autoreleasepool {
+        if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return NO;
+        VoidTab *tab = &g_tabs[g_active_tab];
+        if (!tab->used || tab->pty_fd < 0) return NO;
+
+        NSPasteboard *pb = [sender draggingPasteboard];
+        NSArray *urls = [pb readObjectsForClasses:@[[NSURL class]] options:nil];
+        if (!urls || [urls count] == 0) return NO;
+
+        NSMutableString *out = [NSMutableString string];
+        for (NSURL *u in urls) {
+            if (![u isFileURL]) continue;
+            NSString *p = [u path];
+            if (!p || [p length] == 0) continue;
+            // Shell-safe quoting: wrap in single quotes and escape any
+            // embedded single quote as '\''. Applied only when the path
+            // contains whitespace or shell metachars; otherwise emit raw.
+            BOOL needs_quote = NO;
+            const char *cp = [p UTF8String];
+            for (const char *q = cp; q && *q; q++) {
+                if (*q == ' ' || *q == '\t' || *q == '"' || *q == '\'' ||
+                    *q == '$' || *q == '`' || *q == '\\' || *q == '(' ||
+                    *q == ')' || *q == '&' || *q == ';' || *q == '|') {
+                    needs_quote = YES; break;
+                }
+            }
+            if (needs_quote) {
+                NSString *esc = [p stringByReplacingOccurrencesOfString:@"'"
+                                                             withString:@"'\\''"];
+                [out appendFormat:@"@'%@' ", esc];
+            } else {
+                [out appendFormat:@"@%@ ", p];
+            }
+        }
+        const char *utf8 = [out UTF8String];
+        if (!utf8) return NO;
+        size_t n = strlen(utf8);
+        if (n == 0) return NO;
+        pty_inject_bracketed_paste(tab->pty_fd, utf8, n);
+        return YES;
+    }
+}
 @end
 
 // ── Forward decls for the delegate hidden-sessions handlers ──
@@ -1920,6 +2653,7 @@ typedef struct VsSessionEntry_ {
 extern VsSessionEntry g_vs_list[VS_LIST_MAX];
 extern int g_vs_list_count;
 static int  void_server_enabled(void);
+static int  void_server_kill(const char id[32]);
 static int  void_server_list(void);
 static int  void_server_attach(const char id[32], int *out_fd,
                                int *out_rows, int *out_cols);
@@ -1956,7 +2690,32 @@ static void void_tabs_renumber_profiles(void);
 @implementation HexaTermDelegate
 @synthesize hiddenSessionsMenu = _hiddenSessionsMenu;
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)s { return YES; }
-- (void)applicationWillTerminate:(NSNotification *)n { g_term_quit = 1; }
+- (void)applicationWillTerminate:(NSNotification *)n {
+    // Kill ALL server sessions — not just the ones in g_tabs[].
+    // Previous crashes or prior instances may have left orphaned
+    // sessions that the current tab list doesn't know about.
+    // Hot-swap exits via _exit(0) which bypasses this handler, so
+    // those sessions survive as intended.
+    if (void_server_enabled()) {
+        int ns = void_server_list();
+        for (int i = 0; i < ns && i < VS_LIST_MAX; i++) {
+            void_server_kill(g_vs_list[i].id);
+        }
+        // Belt: nuke checkpoint dir so tombstones can't resurrect
+        // even if some KILLs failed or the server wrote a checkpoint
+        // between our KILL and its shutdown.
+        @autoreleasepool {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            NSString *dir = @"/tmp/void_server_ckpt";
+            NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
+            for (NSString *f in files) {
+                if ([f hasSuffix:@".bin"])
+                    [fm removeItemAtPath:[dir stringByAppendingPathComponent:f] error:nil];
+            }
+        }
+    }
+    g_term_quit = 1;
+}
 - (void)windowWillClose:(NSNotification *)n { g_term_quit = 1; }
 
 // Menu actions — each mirrors the equivalent Cmd-intercept branch so
@@ -2201,7 +2960,7 @@ static void void_tabs_renumber_profiles(void);
     g_tabs[idx].cur_row = 0;
     g_tabs[idx].cur_col = 0;
     for (int s = 0; s < SB_MAX_SECTIONS; s++) {
-        g_tabs[idx].sb[s].cells = NULL;
+        g_tabs[idx].sb[s].rows = NULL;
         g_tabs[idx].sb[s].lines = 0;
     }
     g_tabs[idx].sb_head = 0;
@@ -2672,6 +3431,30 @@ fail:
     return -1;
 }
 
+// Send KILL command. Server terminates the shell and frees the session.
+static int void_server_kill(const char id[32]) {
+    if (void_server_ensure() != 0) return -1;
+    uint32_t hdr[3] = { VS_MAGIC_CLIENT, VS_CMD_KILL, 32 };
+    if (vs_write_exact(g_server_sock, hdr, sizeof(hdr)) < 0) goto fail;
+    if (vs_write_exact(g_server_sock, id, 32) < 0) goto fail;
+    uint32_t rhdr[3];
+    if (vs_read_exact(g_server_sock, rhdr, sizeof(rhdr)) < 0) goto fail;
+    uint32_t body_len = rhdr[2];
+    if (body_len > 0 && body_len < 1 << 20) {
+        char skip[4096];
+        uint32_t left = body_len;
+        while (left > 0) {
+            uint32_t chunk = left > sizeof(skip) ? sizeof(skip) : left;
+            if (vs_read_exact(g_server_sock, skip, chunk) < 0) goto fail;
+            left -= chunk;
+        }
+    }
+    return 0;
+fail:
+    if (g_server_sock >= 0) { close(g_server_sock); g_server_sock = -1; }
+    return -1;
+}
+
 // ── LIST + ATTACH client helpers ─────────────────────────────────────
 //
 // VsSessionEntry + VS_LIST_MAX are forward-declared up near the
@@ -3072,6 +3855,35 @@ static int try_single_instance(void) {
 long hexa_appkit_init_term(long rows, long cols, long font_size) {
     capture_argv0_once();
 
+    // ── Headless short-circuit ──
+    // VOID_HEADLESS=1: skip every NSApp/NSWindow/menu/dock step. Only
+    // seed the grid dims hexa needs (via get_rows/get_cols) and flip
+    // g_headless so poll/flush/check_resize/tab_new take their headless
+    // branches. See the comment near g_headless declaration.
+    if (getenv("VOID_HEADLESS")) {
+        g_headless = 1;
+        g_offscreen = getenv("VOID_HEADLESS_OFFSCREEN") ? 1 : 0;
+        const char *rs = getenv("VOID_HEADLESS_ROWS");
+        const char *cs = getenv("VOID_HEADLESS_COLS");
+        int hr = rs ? atoi(rs) : 24, hc = cs ? atoi(cs) : 80;
+        if (hr < 1 || hr > TERM_MAX_ROWS) hr = 24;
+        if (hc < 1 || hc > TERM_MAX_COLS) hc = 80;
+        g_term_rows = hr; g_term_cols = hc;
+        const char *maxt = getenv("VOID_HEADLESS_MAX_TICKS");
+        if (maxt) { int v = atoi(maxt); if (v > 0) g_headless_max_ticks = v; }
+        (void)rows; (void)cols; (void)font_size;
+        if (!g_offscreen) {
+            g_term_cw = 8; g_term_ch = 16;
+            tab_clear_grid(g_term_grid);
+            fprintf(stderr, "[void-headless] init rows=%d cols=%d (no NSApp)\n",
+                    g_term_rows, g_term_cols);
+            return 0;
+        }
+        // Offscreen: fall through to full init, gated by g_offscreen below.
+        fprintf(stderr, "[void-offscreen] init rows=%d cols=%d\n",
+                g_term_rows, g_term_cols);
+    }
+
     // Shadow mode: our parent is about to hand over control. Skip the
     // single-instance lock (parent still holds it, will release on exit),
     // adopt the inherited handoff socket, and read the state file.
@@ -3089,7 +3901,7 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             }
             unlink(handoff_path); // one-shot
         }
-    } else if (!try_single_instance()) {
+    } else if (!g_offscreen && !try_single_instance()) {
         fprintf(stderr, "[void] already running\n");
         return -1;
     }
@@ -3131,19 +3943,28 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
             wh = restored_hdr.win_h;
             wx = restored_hdr.win_x;
             wy = restored_hdr.win_y;
+        } else if (g_offscreen) {
+            // Honor VOID_HEADLESS_ROWS/COLS exactly — offscreen is for
+            // deterministic tests, screen auto-size would vary by display.
+            int init_tbw = effective_tab_bar_w();
+            tab_clear_grid(g_term_grid);
+            ww = init_tbw + 2 * TERM_PAD + g_term_cw * g_term_cols;
+            wh = 2 * TERM_PAD + g_term_ch * g_term_rows;
+            wx = -99999;
+            wy = -99999;
         } else {
             ww = screenFrame.size.width * 0.85;
             wh = screenFrame.size.height * 0.85;
             int init_tbw = effective_tab_bar_w();
-            g_term_cols = (int)((ww - init_tbw) / g_term_cw);
-            g_term_rows = (int)(wh / g_term_ch);
+            g_term_cols = (int)((ww - init_tbw - 2 * TERM_PAD) / g_term_cw);
+            g_term_rows = (int)((wh - 2 * TERM_PAD) / g_term_ch);
             if (g_term_cols < 80) g_term_cols = 80;
             if (g_term_rows < 24) g_term_rows = 24;
             if (g_term_cols > TERM_MAX_COLS) g_term_cols = TERM_MAX_COLS;
             if (g_term_rows > TERM_MAX_ROWS) g_term_rows = TERM_MAX_ROWS;
             tab_clear_grid(g_term_grid);
-            ww = init_tbw + g_term_cw * g_term_cols;
-            wh = g_term_ch * g_term_rows;
+            ww = init_tbw + 2 * TERM_PAD + g_term_cw * g_term_cols;
+            wh = 2 * TERM_PAD + g_term_ch * g_term_rows;
             wx = screenFrame.origin.x + (screenFrame.size.width - ww) / 2;
             wy = screenFrame.origin.y + (screenFrame.size.height - wh) / 2;
         }
@@ -3165,6 +3986,11 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         [g_window setContentView:tv];
         [g_window makeFirstResponder:tv];
 
+        // Fast-attach: accept file URLs dragged onto the terminal. The
+        // drop handler builds `@<abs-path> ` and injects via bracketed
+        // paste so Claude Code CLI / REPLs pick it up as a single token.
+        [tv registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
+
         // ── Auto-attach on startup ───────────────────────────────────
         //
         // When void-server is enabled and the shadow-restore path did
@@ -3180,9 +4006,36 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
         // hexa_tab_new's first call from main() becomes a no-op and
         // doesn't spawn a redundant blank tab on top of the restored
         // ones.
-        if (!is_shadow && void_server_enabled()) {
+        if (!is_shadow && !g_offscreen && void_server_enabled()) {
+            // Fresh launch (not hot-swap): kill ALL prior sessions.
+            // The previous instance should have cleaned up via
+            // applicationWillTerminate, but that handler is bypassed
+            // when the auto-build hook uses _exit(0) for hot-swap,
+            // or when the app is force-quit. Clean slate on every
+            // fresh launch — hot-swap sessions survive because
+            // is_shadow is true in that path.
+            {
+                int nk = void_server_list();
+                for (int k = 0; k < nk && k < VS_LIST_MAX; k++)
+                    void_server_kill(g_vs_list[k].id);
+                // Also nuke checkpoint files
+                @autoreleasepool {
+                    NSFileManager *fm = [NSFileManager defaultManager];
+                    NSString *dir = @"/tmp/void_server_ckpt";
+                    NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
+                    for (NSString *f in files) {
+                        if ([f hasSuffix:@".bin"])
+                            [fm removeItemAtPath:[dir stringByAppendingPathComponent:f] error:nil];
+                    }
+                }
+            }
             int n = void_server_list();
             int attached = 0;
+            // Track which labels we've already attached so we don't
+            // create duplicate tabs for the same profile (e.g. two
+            // "nexus" sessions → only the first one gets a tab).
+            char seen_labels[MAX_TABS][64];
+            int seen_count = 0;
             for (int i = 0; i < n && i < VS_LIST_MAX &&
                             g_num_tabs < MAX_TABS; i++) {
                 if (g_vs_list[i].label[0] == 0) continue;
@@ -3192,6 +4045,17 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
                 // non-blocking protocol. Users can revive tombstones
                 // explicitly via the menu (Window → Hidden Sessions).
                 if (g_vs_list[i].proc_count == 0) continue;
+                // Deduplicate: skip if we already attached a session
+                // with this label. Prevents N stale "nexus" tabs.
+                int dup = 0;
+                for (int k = 0; k < seen_count; k++) {
+                    if (strncmp(seen_labels[k], g_vs_list[i].label, 64) == 0) {
+                        dup = 1; break;
+                    }
+                }
+                if (dup) continue;
+                if (seen_count < MAX_TABS)
+                    memcpy(seen_labels[seen_count++], g_vs_list[i].label, 64);
                 int fd = -1, rows = 0, cols = 0;
                 if (void_server_attach(g_vs_list[i].id, &fd, &rows, &cols) != 0)
                     continue;
@@ -3211,7 +4075,7 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
                          "%s", g_vs_list[i].cwd);
                 tab_clear_grid(g_tabs[idx].grid);
                 for (int s = 0; s < SB_MAX_SECTIONS; s++) {
-                    g_tabs[idx].sb[s].cells = NULL;
+                    g_tabs[idx].sb[s].rows = NULL;
                     g_tabs[idx].sb[s].lines = 0;
                 }
                 g_tabs[idx].sb_head = 0;
@@ -3247,7 +4111,10 @@ long hexa_appkit_init_term(long rows, long cols, long font_size) {
 
         // Shadow process keeps its window off-screen until the parent
         // hands over (RDY/GO protocol). Everyone else shows it now.
-        if (!is_shadow) {
+        if (g_offscreen) {
+            [g_window setAlphaValue:0.0];
+            [g_window setFrameOrigin:NSMakePoint(-99999, -99999)];
+        } else if (!is_shadow) {
             [g_window makeKeyAndOrderFront:nil];
         }
 
@@ -3549,20 +4416,26 @@ static int tab_become_profile(int idx, VoidProfile *vp) {
         g_tabs[idx].pid = 0;
     }
 
+    // Update g_term_cols/rows BEFORE spawning the PTY so forkpty
+    // inside tab_spawn_pty_profile uses the correct dimensions.
+    if (g_window && g_term_cw > 0 && g_term_ch > 0) {
+        NSRect f = [[g_window contentView] frame];
+        int tbw = effective_tab_bar_w();
+        int cc = (int)((f.size.width - tbw - 2 * TERM_PAD) / g_term_cw);
+        int rc = (int)((f.size.height - 2 * TERM_PAD) / g_term_ch);
+        if (cc < 20) cc = 20;  if (rc < 5) rc = 5;
+        if (cc > TERM_MAX_COLS) cc = TERM_MAX_COLS;
+        if (rc > TERM_MAX_ROWS) rc = TERM_MAX_ROWS;
+        g_term_cols = cc;
+        g_term_rows = rc;
+    }
+
     int fd = tab_spawn_pty_profile(vp);
     if (fd < 0) return -1;
 
     g_tabs[idx].pty_fd = fd;
     g_tabs[idx].pid = 0;
     g_tabs[idx].is_blank = 0;
-
-    // Size the PTY to the current grid.
-    struct winsize ws;
-    ws.ws_row = (unsigned short)g_term_rows;
-    ws.ws_col = (unsigned short)g_term_cols;
-    ws.ws_xpixel = 0;
-    ws.ws_ypixel = 0;
-    ioctl(fd, TIOCSWINSZ, &ws);
 
     // Title / profile metadata (mirrors the hexa_tab_new logic).
     g_tabs[idx].title_locked = 0;
@@ -3586,8 +4459,15 @@ static int tab_become_profile(int idx, VoidProfile *vp) {
     tab_clear_grid(g_term_grid);
     g_term_cur_row = 0;
     g_term_cur_col = 0;
-    g_resized = 1;        // triggers scr_init + vt_reset_state + pty_resize
+    // Do NOT set g_resized — tab replacement doesn't change terminal
+    // dimensions. The cmd=3 handler already calls load_from_bridge +
+    // vt_reset_state. An extra resize would trigger a second
+    // scr_init + vt_reset_state that can race with incoming PTY data
+    // from fast profile commands.
     g_full_redraw = 1;
+    g_prev_grid_valid = 0;
+    // Debug: capture first PTY bytes for this tab
+    { FILE *f = fopen("/tmp/void_pty_capture.bin","w"); if(f) fclose(f); }
     return 0;
 }
 
@@ -3597,6 +4477,75 @@ static int tab_become_profile(int idx, VoidProfile *vp) {
 // The user picks a profile via Cmd+Ctrl+N which then converts the blank
 // in place via tab_become_profile, so the app opens with zero clutter.
 long hexa_tab_new(void) {
+    // Headless (no-NSApp) tab path. Skipped for g_offscreen — offscreen
+    // uses the real tab_spawn_pty_profile path below so VOID_HEADLESS_
+    // ACTION=profile1 dispatches through the normal NSApp pipeline.
+    if (g_headless && !g_offscreen) {
+        const char *spawn = getenv("VOID_HEADLESS_SPAWN");
+        const char *feed  = getenv("VOID_HEADLESS_FEED");
+        int fd = -1;
+        if (spawn && spawn[0]) {
+            struct winsize ws;
+            ws.ws_row = (unsigned short)g_term_rows;
+            ws.ws_col = (unsigned short)g_term_cols;
+            ws.ws_xpixel = 0;
+            ws.ws_ypixel = 0;
+            int master = -1;
+            pid_t pid = forkpty(&master, NULL, NULL, &ws);
+            if (pid < 0) {
+                fprintf(stderr, "[void-headless] forkpty failed\n");
+                return -1;
+            }
+            if (pid == 0) {
+                setenv("TERM", "xterm-256color", 1);
+                setenv("LANG", "en_US.UTF-8", 1);
+                setenv("CLICOLOR", "1", 1);
+                // Prepend common PATH dirs so commands like `claude`
+                // resolve even when the harness scrubbed PATH.
+                const char *old_path = getenv("PATH");
+                char new_path[2048];
+                snprintf(new_path, sizeof(new_path),
+                         "%s/.local/bin:%s/bin:/opt/homebrew/bin:/usr/local/bin:%s",
+                         getenv("HOME") ?: "", getenv("HOME") ?: "",
+                         old_path ?: "/usr/bin:/bin");
+                setenv("PATH", new_path, 1);
+                execl("/bin/sh", "sh", "-c", spawn, (char*)NULL);
+                _exit(127);
+            }
+            int fl = fcntl(master, F_GETFL, 0);
+            fcntl(master, F_SETFL, fl | O_NONBLOCK);
+            fd = master;
+            fprintf(stderr, "[void-headless] spawn pid=%d: %s\n", pid, spawn);
+        } else if (feed && feed[0]) {
+            fd = open(feed, O_RDONLY);
+            if (fd < 0) {
+                fprintf(stderr, "[void-headless] open feed '%s' failed\n", feed);
+                return -1;
+            }
+        } else {
+            fd = open("/dev/null", O_RDONLY);
+            if (fd < 0) return -1;
+        }
+        int idx = g_num_tabs;
+        memset(&g_tabs[idx], 0, sizeof(VoidTab));
+        g_tabs[idx].used         = 1;
+        g_tabs[idx].pty_fd       = fd;
+        g_tabs[idx].pid          = 0;
+        g_tabs[idx].is_blank     = 0;
+        g_tabs[idx].title_locked = 1;
+        snprintf(g_tabs[idx].title, sizeof(g_tabs[idx].title), "headless");
+        tab_clear_grid(g_tabs[idx].grid);
+        g_tabs[idx].tile_rows = g_term_rows;
+        g_tabs[idx].tile_cols = g_term_cols;
+        g_num_tabs++;
+        g_active_tab = idx;
+        const char *src = (spawn && spawn[0]) ? "spawn"
+                        : (feed  && feed[0])  ? feed
+                                              : "(none)";
+        fprintf(stderr, "[void-headless] tab 0 fd=%d source=%s\n", fd, src);
+        return (long)idx;
+    }
+
     // Blank-initial rule: the first tab is always a real working shell
     // (so ssh/git/etc. are immediately usable) but flagged is_blank so
     // a profile shortcut can convert it in place — UNTIL the user types
@@ -3640,6 +4589,12 @@ long hexa_tab_new(void) {
     g_initial_tab_done = 1;
 
     int idx = g_num_tabs;
+    // Bump tab count BEFORE spawning so effective_tab_bar_w() returns
+    // the width that will actually be in effect once the tab is visible.
+    // Without this, the first profile shortcut (1→2 tabs) computes
+    // cols at full window width (tbw=0), but the tab bar appears
+    // immediately after, shrinking the display area by TAB_BAR_W.
+    g_num_tabs++;
     // Route through void-server when enabled — the daemon owns the PTY
     // master so the session survives void_term exit and hot-swap. Falls
     // back to direct fork-pty on server failure so the UI never breaks.
@@ -3649,7 +4604,21 @@ long hexa_tab_new(void) {
         const char *t = (vp && vp->title[0]) ? vp->title : "session";
         const char *p = (vp && vp->path[0])  ? vp->path  : (getenv("HOME") ?: "");
         const char *c = (vp && vp->cmd[0])   ? vp->cmd   : "";
-        if (void_server_spawn(t, p, c, g_term_rows, g_term_cols,
+        // Recalculate cols from the actual window frame using the
+        // CURRENT effective_tab_bar_w (which now accounts for the
+        // new tab since we already bumped g_num_tabs above).
+        int spawn_cols = g_term_cols, spawn_rows = g_term_rows;
+        if (g_window && g_term_cw > 0 && g_term_ch > 0) {
+            NSRect f = [[g_window contentView] frame];
+            int tbw = effective_tab_bar_w();
+            spawn_cols = (int)((f.size.width - tbw - 2 * TERM_PAD) / g_term_cw);
+            spawn_rows = (int)((f.size.height - 2 * TERM_PAD) / g_term_ch);
+            if (spawn_cols < 20) spawn_cols = 20;
+            if (spawn_rows < 5)  spawn_rows = 5;
+            if (spawn_cols > TERM_MAX_COLS) spawn_cols = TERM_MAX_COLS;
+            if (spawn_rows > TERM_MAX_ROWS) spawn_rows = TERM_MAX_ROWS;
+        }
+        if (void_server_spawn(t, p, c, spawn_rows, spawn_cols,
                               new_session_id, &fd) != 0) {
             fd = -1;
             if (getenv("VOID_DEBUG_SERVER"))
@@ -3659,7 +4628,7 @@ long hexa_tab_new(void) {
     if (fd < 0) {
         fd = tab_spawn_pty_profile(vp);
     }
-    if (fd < 0) return -1;
+    if (fd < 0) { g_num_tabs--; return -1; }
 
     g_tabs[idx].used = 1;
     g_tabs[idx].pty_fd = fd;
@@ -3667,13 +4636,28 @@ long hexa_tab_new(void) {
     g_tabs[idx].is_blank = make_blank ? 1 : 0;
     memcpy(g_tabs[idx].session_id, new_session_id, 32);
 
-    // Set PTY to actual window size immediately
+    // Set PTY to actual window size using current effective_tab_bar_w
+    // (g_num_tabs already bumped above, so tbw is correct).
+    int actual_cols = g_term_cols, actual_rows = g_term_rows;
+    if (g_window && g_term_cw > 0 && g_term_ch > 0) {
+        NSRect f = [[g_window contentView] frame];
+        int tbw = effective_tab_bar_w();
+        actual_cols = (int)((f.size.width - tbw - 2 * TERM_PAD) / g_term_cw);
+        actual_rows = (int)((f.size.height - 2 * TERM_PAD) / g_term_ch);
+        if (actual_cols < 20) actual_cols = 20;
+        if (actual_rows < 5)  actual_rows = 5;
+        if (actual_cols > TERM_MAX_COLS) actual_cols = TERM_MAX_COLS;
+        if (actual_rows > TERM_MAX_ROWS) actual_rows = TERM_MAX_ROWS;
+    }
     struct winsize ws;
-    ws.ws_row = (unsigned short)g_term_rows;
-    ws.ws_col = (unsigned short)g_term_cols;
+    ws.ws_row = (unsigned short)actual_rows;
+    ws.ws_col = (unsigned short)actual_cols;
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
     ioctl(fd, TIOCSWINSZ, &ws);
+    // Also update g_term_cols/rows so hexa's scr_init uses the right dims
+    g_term_cols = actual_cols;
+    g_term_rows = actual_rows;
 
     // Title: profile tabs are renumbered as a group by void_tabs_renumber_profiles.
     // 1 sibling → "nexus", 2+ siblings → "nexus (1)", "nexus (2)", … in tab order.
@@ -3695,7 +4679,7 @@ long hexa_tab_new(void) {
     g_tabs[idx].cur_row = 0;
     g_tabs[idx].cur_col = 0;
     for (int s = 0; s < SB_MAX_SECTIONS; s++) {
-        g_tabs[idx].sb[s].cells = NULL;
+        g_tabs[idx].sb[s].rows = NULL;
         g_tabs[idx].sb[s].lines = 0;
     }
     g_tabs[idx].sb_head = 0;
@@ -3703,7 +4687,7 @@ long hexa_tab_new(void) {
     g_tabs[idx].sb_total = 0;
     g_tabs[idx].has_alarm = 0;
 
-    g_num_tabs++;
+    // g_num_tabs already bumped at the top of this function.
     g_active_tab = idx;
 
     // Mirror the current shared rows/cols into the new tab's tile
@@ -3809,11 +4793,7 @@ close_bookkeeping:
 
     // Free scrollback sections before shift
     for (int s = 0; s < SB_MAX_SECTIONS; s++) {
-        if (g_tabs[idx].sb[s].cells) {
-            free(g_tabs[idx].sb[s].cells);
-            g_tabs[idx].sb[s].cells = NULL;
-            g_tabs[idx].sb[s].lines = 0;
-        }
+        sb_section_free(&g_tabs[idx].sb[s]);
     }
     g_tabs[idx].sb_head = 0;
     g_tabs[idx].sb_num = 0;
@@ -3827,7 +4807,7 @@ close_bookkeeping:
     // NULL dead slot to prevent double-free (shift copied pointers).
     if (g_num_tabs < MAX_TABS) {
         for (int s = 0; s < SB_MAX_SECTIONS; s++) {
-            g_tabs[g_num_tabs].sb[s].cells = NULL;
+            g_tabs[g_num_tabs].sb[s].rows = NULL;
             g_tabs[g_num_tabs].sb[s].lines = 0;
         }
         g_tabs[g_num_tabs].sb_head = 0;
@@ -3839,6 +4819,19 @@ close_bookkeeping:
 
     if (g_num_tabs == 0) {
         g_active_tab = -1;
+        // Last tab closed — terminate the app. Simply returning -1
+        // sets running=0 in hexa's main loop, but the NSApplication
+        // event machinery and the window may linger. Posting a proper
+        // terminate ensures applicationWillTerminate fires and the
+        // window closes cleanly.
+        // VOID_TEST: skip terminate so self_test() can clean up tabs
+        // mid-run and keep executing subsequent tests. The process will
+        // exit normally after self_test returns.
+        if (!getenv("VOID_TEST")) {
+            @autoreleasepool {
+                [[NSApplication sharedApplication] terminate:nil];
+            }
+        }
         return -1;
     }
 
@@ -3870,6 +4863,22 @@ close_bookkeeping:
 long hexa_tab_get_pty(void) {
     if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
     return (long)g_tabs[g_active_tab].pty_fd;
+}
+
+// Nudge the active tab's PTY with a same-size TIOCSWINSZ so the shell
+// redraws its prompt (SIGWINCH). Called after tab switch so hexa's VT
+// parser picks up the fresh output instead of showing a frozen snapshot.
+long hexa_tab_nudge_pty(void) {
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
+    int fd = g_tabs[g_active_tab].pty_fd;
+    if (fd < 0) return -1;
+    struct winsize ws;
+    ws.ws_row = (unsigned short)g_term_rows;
+    ws.ws_col = (unsigned short)g_term_cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+    ioctl(fd, TIOCSWINSZ, &ws);
+    return 0;
 }
 
 // Poll for tab commands: 0=none, 1=new, 2=close, 3=switched
@@ -3928,9 +4937,9 @@ void hexa_appkit_term_set_cell(int row, int col, int ch, int fg, int bg, int fla
     TermCell *cp = &g_term_grid[row][col];
     // Equal-cell early exit: hexa's sync_to_bridge writes the whole grid every
     // frame; this cuts ~90% of writes for typing workloads.
-    if (cp->ch == (unichar)ch && cp->fg == fg &&
+    if (cp->ch == (uint32_t)ch && cp->fg == fg &&
         cp->bg == bg && cp->flags == flags) return;
-    cp->ch = (unichar)ch;
+    cp->ch = (uint32_t)ch;
     cp->fg = fg;
     cp->bg = bg;
     cp->flags = flags;
@@ -4121,6 +5130,10 @@ static void copy_selection_to_clipboard(void) {
     }
 }
 
+// paste_write_chunked + pty_inject_bracketed_paste live in paste_util.c
+// so the C-level test harness (tests/paste_test.c) can link them
+// without pulling in Cocoa. Forward decls here for C++-style linkage.
+
 static void paste_from_clipboard(void) {
     @autoreleasepool {
         if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return;
@@ -4142,20 +5155,137 @@ static void paste_from_clipboard(void) {
         // that haven't enabled the mode will print the ESC sequences
         // literally — acceptable tradeoff since DEC escape query is
         // far more intrusive than a one-line oddity on legacy shells.
-        static const char START[] = "\x1b[200~";
-        static const char END[]   = "\x1b[201~";
-        (void)write(tab->pty_fd, START, sizeof(START) - 1);
-        size_t off = 0;
-        while (off < n) {
-            ssize_t w = write(tab->pty_fd, utf8 + off, n - off);
-            if (w <= 0) break;
-            off += (size_t)w;
+        pty_inject_bracketed_paste(tab->pty_fd, utf8, n);
+    }
+}
+
+// Write g_term_grid + cursor state to VOID_HEADLESS_DUMP (or
+// /tmp/void_headless.grid). Called once right before the headless poll
+// returns quit=1 so the caller can diff against a golden file.
+// Format (readable by `diff`, greppable by test harness):
+//   # void headless grid dump — rows=R cols=C cursor=(r,c)
+//   <row 0 as UTF-8 text; ch<0x20 → '.'>
+//   <row 1>
+//   …
+//   # flags — one char per cell:
+//   #   '.' normal   'W' wide-head (cell uses 2 columns)
+//   #   'c' continuation (right half of a wide char)
+//   <row 0 flags, only printed when VOID_HEADLESS_DUMP_FLAGS=1 or
+//    any row has non-'.' flags — catches CJK wide-char layout bugs
+//    that the text row alone can mask.>
+//   …
+//   # cursor_row=r cursor_col=c cursor_vis=v
+static void dump_headless_grid(void) {
+    const char *dump = getenv("VOID_HEADLESS_DUMP");
+    if (!dump || !dump[0]) dump = "/tmp/void_headless.grid";
+    FILE *f = fopen(dump, "w");
+    if (!f) {
+        fprintf(stderr, "[void-headless] dump open %s failed\n", dump);
+        return;
+    }
+    fprintf(f, "# void headless grid dump — rows=%d cols=%d cursor=(%d,%d)\n",
+            g_term_rows, g_term_cols, g_term_cur_row, g_term_cur_col);
+
+    // 1) Text rows — UTF-8 encode BMP codepoints so CJK/Emoji renders
+    //    readably in the dump file and survives a text diff.
+    for (int r = 0; r < g_term_rows; r++) {
+        for (int c = 0; c < g_term_cols; c++) {
+            unichar ch = g_term_grid[r][c].ch;
+            if (ch == 0) ch = ' ';
+            if (ch < 0x20) {
+                fputc('.', f);
+            } else if (ch < 0x80) {
+                fputc((char)ch, f);
+            } else if (ch < 0x800) {
+                fputc(0xc0 | (ch >> 6),   f);
+                fputc(0x80 | (ch & 0x3f), f);
+            } else {
+                fputc(0xe0 | (ch >> 12),         f);
+                fputc(0x80 | ((ch >> 6) & 0x3f), f);
+                fputc(0x80 | (ch & 0x3f),        f);
+            }
         }
-        (void)write(tab->pty_fd, END, sizeof(END) - 1);
+        fputc('\n', f);
+    }
+
+    // 2) Flags block — only emitted when the grid has any wide/continuation
+    //    cells, or when the caller forces it via VOID_HEADLESS_DUMP_FLAGS=1.
+    //    Purpose: CJK/emoji layout regressions (e.g. "가" occupying 1
+    //    column instead of 2, or continuation cells drifting) produce
+    //    identical TEXT rows but different flag maps — text diff alone
+    //    would miss them.
+    int force_flags = 0;
+    const char *ff = getenv("VOID_HEADLESS_DUMP_FLAGS");
+    if (ff && ff[0] == '1') force_flags = 1;
+    int any_wide = 0;
+    if (!force_flags) {
+        for (int r = 0; r < g_term_rows && !any_wide; r++) {
+            for (int c = 0; c < g_term_cols; c++) {
+                int flg = g_term_grid[r][c].flags;
+                if (flg & 0x30000) { any_wide = 1; break; }
+            }
+        }
+    }
+    if (force_flags || any_wide) {
+        fprintf(f, "# flags (. normal, W wide, c continuation)\n");
+        for (int r = 0; r < g_term_rows; r++) {
+            for (int c = 0; c < g_term_cols; c++) {
+                int flg = g_term_grid[r][c].flags;
+                char k = '.';
+                if (flg & 0x10000) k = 'W';        // wide-head
+                else if (flg & 0x20000) k = 'c';   // continuation
+                fputc(k, f);
+            }
+            fputc('\n', f);
+        }
+    }
+
+    fprintf(f, "# cursor_row=%d cursor_col=%d cursor_vis=%d\n",
+            g_term_cur_row, g_term_cur_col, g_term_cur_vis);
+    fclose(f);
+    fprintf(stderr, "[void-headless] grid dumped to %s\n", dump);
+
+    // Offscreen-only: PNG snapshot of the real Core Text render output.
+    // Catches drawRect-level bugs (glyph overlap, font metrics, selection
+    // highlight) that the text-grid dump alone cannot see.
+    const char *snap = getenv("VOID_HEADLESS_SNAPSHOT");
+    if (g_offscreen && snap && snap[0] && g_window) {
+        @autoreleasepool {
+            NSView *v = [g_window contentView];
+            [v display];
+            NSRect b = [v bounds];
+            NSBitmapImageRep *rep = [v bitmapImageRepForCachingDisplayInRect:b];
+            if (rep) {
+                [v cacheDisplayInRect:b toBitmapImageRep:rep];
+                NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG
+                                                properties:@{}];
+                if (png) {
+                    [png writeToFile:[NSString stringWithUTF8String:snap]
+                          atomically:YES];
+                    fprintf(stderr, "[void-offscreen] snapshot %zuB → %s\n",
+                            (size_t)png.length, snap);
+                }
+            }
+        }
     }
 }
 
 void hexa_appkit_term_flush(void) {
+    if (g_headless && !g_offscreen) return;
+    if (g_offscreen) {
+        @autoreleasepool {
+            NSView *v = [g_window contentView];
+            if (v) {
+                g_prev_grid_valid = 0;
+                g_full_redraw = 0;
+                g_dirty_min = -1; g_dirty_max = -1;
+                [v display];   // Synchronous drawRect — drives Core Text
+                               // render even when the window was never
+                               // ordered-front.
+            }
+        }
+        return;
+    }
     @autoreleasepool {
         NSView *v = [g_window contentView];
         if (!v) return;
@@ -4164,6 +5294,9 @@ void hexa_appkit_term_flush(void) {
             // overlay — redraw everything. Overlay needs the full rect
             // so match highlights repaint against shifted cells when
             // PTY output scrolls the backing buffer.
+            // Invalidate the cell-level dirty cache so the next drawRect
+            // does a complete repaint instead of diffing against stale data.
+            g_prev_grid_valid = 0;
             [v setNeedsDisplay:YES];
             g_full_redraw = 0;
             g_dirty_min = -1;
@@ -4171,19 +5304,13 @@ void hexa_appkit_term_flush(void) {
             return;
         }
         if (g_dirty_min < 0) return; // nothing dirty
-        // Convert dirty row range → minimal setNeedsDisplayInRect.
-        // Expand by 1 row on each side to catch partial glyph overhang.
-        int r0 = g_dirty_min - 1; if (r0 < 0) r0 = 0;
-        int r1 = g_dirty_max + 1; if (r1 >= g_term_rows) r1 = g_term_rows - 1;
-        int eff_tbw = effective_tab_bar_w();
-        NSRect rect = NSMakeRect(eff_tbw,
-                                  r0 * g_term_ch,
-                                  [v bounds].size.width - eff_tbw,
-                                  (r1 - r0 + 1) * g_term_ch);
-        [v setNeedsDisplayInRect:rect];
-        // Tab bar also needs repaint if title changed — cheap, do always
-        if (eff_tbw > 0)
-            [v setNeedsDisplayInRect:NSMakeRect(0, 0, eff_tbw, [v bounds].size.height)];
+        // Force full-view redraw + invalidate delta cache so every cell
+        // is repainted from scratch.  The previous setNeedsDisplayInRect
+        // partial-update path relied on macOS preserving the backing store
+        // for non-dirty regions, which is not guaranteed on layer-backed
+        // views (macOS 15+).
+        g_prev_grid_valid = 0;
+        [v setNeedsDisplay:YES];
         g_dirty_min = -1;
         g_dirty_max = -1;
     }
@@ -4191,7 +5318,54 @@ void hexa_appkit_term_flush(void) {
 
 static int g_resized = 0;
 
+// Fire pending selector on g_term_delegate once, at offscreen tick 3, so
+// the window has stabilized. VOID_HEADLESS_ACTION=profile1..9|grid|stacked|
+// new_tab|close_tab dispatches to the same menu handler Cmd+Ctrl+N uses.
+static void offscreen_dispatch_action(void) {
+    const char *act = getenv("VOID_HEADLESS_ACTION");
+    if (!act || !act[0] || !g_term_delegate) return;
+    if (strncmp(act, "profile", 7) == 0 && act[7] >= '0' && act[7] <= '9') {
+        VoidProfile *vp = profile_by_key(act[7]);
+        if (vp) {
+            g_pending_profile = vp;
+            g_tab_cmd = 1;
+        }
+    } else if (strcmp(act, "grid") == 0) {
+        [g_term_delegate menuLayoutGrid:nil];
+    } else if (strcmp(act, "stacked") == 0) {
+        [g_term_delegate menuLayoutStacked:nil];
+    } else if (strcmp(act, "new_tab") == 0) {
+        g_tab_cmd = 1;
+    } else if (strcmp(act, "close_tab") == 0) {
+        g_tab_cmd = 2;
+    }
+    fprintf(stderr, "[void-offscreen] action=%s dispatched\n", act);
+}
+
 long hexa_appkit_term_poll(void) {
+    if (g_headless && !g_offscreen) {
+        g_headless_tick++;
+        struct timespec ts = { 0, 2 * 1000 * 1000 };
+        nanosleep(&ts, NULL);
+        if (g_headless_tick >= g_headless_max_ticks) {
+            fprintf(stderr, "[void-headless] tick budget hit (%d)\n",
+                    g_headless_max_ticks);
+            dump_headless_grid();
+            return 1;
+        }
+        return 0;
+    }
+    if (g_offscreen) {
+        g_headless_tick++;
+        if (g_headless_tick == 3) offscreen_dispatch_action();
+        if (g_headless_tick >= g_headless_max_ticks) {
+            fprintf(stderr, "[void-offscreen] tick budget hit (%d)\n",
+                    g_headless_max_ticks);
+            dump_headless_grid();
+            return 1;
+        }
+        // Fall through to AppKit event loop so dispatched shortcuts run.
+    }
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
         while (1) {
@@ -4230,11 +5404,13 @@ long hexa_appkit_term_poll(void) {
                                      g_tabs[0].profile_base[0] == 0);
                                 if (replace &&
                                     tab_become_profile(0, vp) == 0) {
+                                    { FILE *d=fopen("/tmp/void_dbg.log","a"); if(d){fprintf(d,"[shortcut] REPLACE path g_term=%dx%d tbw=%d\n",g_term_cols,g_term_rows,effective_tab_bar_w());fclose(d);} }
                                     g_tab_cmd = 3; // hexa reload screen
                                     clear_active_alarm();
                                     if (g_window)
                                         [[g_window contentView] setNeedsDisplay:YES];
                                 } else {
+                                    { FILE *d=fopen("/tmp/void_dbg.log","a"); if(d){fprintf(d,"[shortcut] NEW TAB path g_term=%dx%d tbw=%d ntabs=%d\n",g_term_cols,g_term_rows,effective_tab_bar_w(),g_num_tabs);fclose(d);} }
                                     g_pending_profile = vp;
                                     g_tab_cmd = 1; // new tab signal to hexa
                                 }
@@ -4292,7 +5468,7 @@ long hexa_appkit_term_poll(void) {
                             }
                             continue;
                         }
-                        if (ch == 'w') { g_tab_cmd = 2; continue; }
+                        if (ch == 'w') { g_tab_cmd = 2; { FILE *d=fopen("/tmp/void_dbg.log","a"); if(d){fprintf(d,"[cmd-w] poll-intercept g_tab_cmd=2 active=%d ntabs=%d\n",g_active_tab,g_num_tabs);fclose(d);} } continue; }
                         if (ch == 'q') { g_term_quit = 1; continue; }
                         // Cmd+Z → undo the most recent tab close.
                         if (ch == 'z' && !(mods & NSEventModifierFlagShift)) {
@@ -4412,8 +5588,8 @@ long hexa_appkit_term_poll(void) {
                 }
             } else {
                 // Stacked mode: classic path — all tabs share g_term_rows/cols.
-                int new_cols = (int)((f.size.width - eff_tbw) / g_term_cw);
-                int new_rows = (int)(f.size.height / g_term_ch);
+                int new_cols = (int)((f.size.width - eff_tbw - 2 * TERM_PAD) / g_term_cw);
+                int new_rows = (int)((f.size.height - 2 * TERM_PAD) / g_term_ch);
                 if (new_cols < 20) new_cols = 20;
                 if (new_rows < 5)  new_rows = 5;
                 if (new_cols > TERM_MAX_COLS) new_cols = TERM_MAX_COLS;
@@ -4474,7 +5650,17 @@ long hexa_appkit_term_poll(void) {
 
 // Returns 1 if window was resized since last check, 0 otherwise.
 long hexa_appkit_term_check_resize(void) {
-    if (g_resized) { g_resized = 0; return 1; }
+    if (g_headless) return 0;
+    if (g_resized) {
+        g_resized = 0;
+        FILE *dbg = fopen("/tmp/void_dbg.log", "a");
+        if (dbg) {
+            fprintf(dbg, "[resize] g_term=%dx%d tbw=%d\n",
+                    g_term_cols, g_term_rows, effective_tab_bar_w());
+            fclose(dbg);
+        }
+        return 1;
+    }
     return 0;
 }
 
@@ -4815,20 +6001,49 @@ const char *hexa_tab_cwd(void) {
 //
 // Data model:
 //   A VoidTab owns a ring of SB_MAX_SECTIONS SbSection slots. Each section
-//   holds SB_SECTION_LINES rows × TERM_MAX_COLS cells, lazy-allocated on
-//   first write (~410 KB/section). Sections are appended at the "tail"
+//   holds up to SB_SECTION_LINES compressed rows, lazy-allocated on
+//   first write. Sections are appended at the "tail"
 //   (head + num - 1); when the ring fills and a new line arrives, the
 //   oldest section is freed and the head advances.
 //
 // Benefit vs. the old flat 1000-line ring:
 //   - Idle tab: 0 bytes (was 0 bytes — same)
-//   - 100 lines of scrollback: 2 sections = ~820 KB (was 6.4 MB)
-//   - 2048 lines (full): 32 sections = ~13 MB (was 6.4 MB, fewer lines)
+//   - 100 lines (avg 80 chars): ~131 KB (was ~820 KB, was 6.4 MB before sections)
+//   - 2048 lines (avg 80 chars): ~2.6 MB (was ~13 MB flat-section, was 6.4 MB)
 //   - Load on ring overflow: free() one section instead of overwrite
 //     of 1000 lines' worth of slots — steady-state memory bounded and
 //     reclaimable.
+//
+// RLE-trimmed compression (2026-04-12):
+//   Each scrollback row now stores only its non-trailing-space prefix
+//   (SbCompressedRow with flexible array). A typical 80-char row on a
+//   400-col terminal drops from 6400 bytes to ~1280 bytes (~80% savings).
+//   Write path: cells accumulate in a staging buffer, then push_end
+//   trims trailing default-spaces and allocates a compact copy.
+//   Read path: sb_line_ptr decompresses into a static full-width decode
+//   buffer, padding the remainder with default-space cells. Single-
+//   threaded AppKit rendering means one decode buffer is sufficient.
 
-static TermCell *sb_cur_row_ptr = NULL; // cell[] pointer for active push row
+// Staging buffer: accumulates cells during push_begin / push_cell cycle,
+// then compressed to a trimmed SbCompressedRow in push_end.
+static TermCell sb_staging[TERM_MAX_COLS];
+static int sb_staging_active = 0; // 1 while between push_begin / push_end
+
+// Decode buffer: sb_line_ptr fills this with the decompressed full-width
+// row and returns a pointer to it. Only one row is ever needed at a time
+// (drawRect and search iterate row-by-row, never hold two simultaneously).
+static TermCell sb_decode_buf[TERM_MAX_COLS];
+
+// Free all compressed rows within a section, then the row-pointer array.
+static void sb_section_free(SbSection *sec) {
+    if (!sec->rows) return;
+    for (int r = 0; r < sec->lines; r++) {
+        if (sec->rows[r]) { free(sec->rows[r]); sec->rows[r] = NULL; }
+    }
+    free(sec->rows);
+    sec->rows = NULL;
+    sec->lines = 0;
+}
 
 long hexa_scrollback_push_begin(void) {
     if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return -1;
@@ -4848,12 +6063,9 @@ long hexa_scrollback_push_begin(void) {
             if (tab->sb_num == SB_MAX_SECTIONS) {
                 // Ring full: free the oldest section before reusing slot.
                 int old = tab->sb_head;
-                if (tab->sb[old].cells) {
-                    free(tab->sb[old].cells);
-                    tab->sb[old].cells = NULL;
-                }
-                tab->sb_total -= tab->sb[old].lines;
-                tab->sb[old].lines = 0;
+                int old_lines = tab->sb[old].lines;
+                sb_section_free(&tab->sb[old]);
+                tab->sb_total -= old_lines;
                 tab->sb_head = (tab->sb_head + 1) % SB_MAX_SECTIONS;
                 tab->sb_num--;
             }
@@ -4862,11 +6074,10 @@ long hexa_scrollback_push_begin(void) {
         }
     }
 
-    // Lazy alloc the target section.
-    if (!tab->sb[tail].cells) {
-        tab->sb[tail].cells = calloc(
-            (size_t)SB_SECTION_LINES * TERM_MAX_COLS, sizeof(TermCell));
-        if (!tab->sb[tail].cells) {
+    // Lazy alloc the target section's row-pointer array.
+    if (!tab->sb[tail].rows) {
+        tab->sb[tail].rows = calloc(SB_SECTION_LINES, sizeof(SbCompressedRow *));
+        if (!tab->sb[tail].rows) {
             // Allocation failed; roll back the advance.
             if (tab->sb_num > 1) tab->sb_num--;
             return -1;
@@ -4874,14 +6085,16 @@ long hexa_scrollback_push_begin(void) {
         tab->sb[tail].lines = 0;
     }
 
-    sb_cur_row_ptr = &tab->sb[tail].cells[tab->sb[tail].lines * TERM_MAX_COLS];
+    // Clear staging buffer and mark active.
+    memset(sb_staging, 0, sizeof(sb_staging));
+    sb_staging_active = 1;
     g_sb_push_col = 0;
     return 0;
 }
 
 long hexa_scrollback_push_cell(long ch, long fg, long bg, long flags) {
-    if (!sb_cur_row_ptr || g_sb_push_col >= TERM_MAX_COLS) return -1;
-    TermCell *dst = &sb_cur_row_ptr[g_sb_push_col];
+    if (!sb_staging_active || g_sb_push_col >= TERM_MAX_COLS) return -1;
+    TermCell *dst = &sb_staging[g_sb_push_col];
     dst->ch = (unichar)ch;
     dst->fg = (int)fg;
     dst->bg = (int)bg;
@@ -4891,21 +6104,45 @@ long hexa_scrollback_push_cell(long ch, long fg, long bg, long flags) {
 }
 
 long hexa_scrollback_push_end(void) {
-    if (g_active_tab < 0 || g_active_tab >= g_num_tabs || !sb_cur_row_ptr) return -1;
+    if (g_active_tab < 0 || g_active_tab >= g_num_tabs || !sb_staging_active) return -1;
     VoidTab *tab = &g_tabs[g_active_tab];
-    // Pad remaining columns with spaces
+
+    // Pad remaining columns in staging with default spaces (fg=7, bg=0).
     while (g_sb_push_col < TERM_MAX_COLS) {
-        TermCell *dst = &sb_cur_row_ptr[g_sb_push_col];
+        TermCell *dst = &sb_staging[g_sb_push_col];
         dst->ch = ' ';
         dst->fg = 7;
         dst->bg = 0;
         dst->flags = 0;
         g_sb_push_col++;
     }
+
+    // Trim trailing default-space cells. A "default space" is
+    // ch=' ', fg=7, bg=0, flags=0 — the padding value.
+    int trimmed = TERM_MAX_COLS;
+    while (trimmed > 0) {
+        TermCell *c = &sb_staging[trimmed - 1];
+        if (c->ch != ' ' || c->fg != 7 || c->bg != 0 || c->flags != 0) break;
+        trimmed--;
+    }
+
+    // Allocate a compact compressed row.
+    SbCompressedRow *crow = malloc(sizeof(SbCompressedRow)
+                                   + (size_t)trimmed * sizeof(TermCell));
+    if (!crow) {
+        sb_staging_active = 0;
+        return -1;
+    }
+    crow->trimmed_len = trimmed;
+    if (trimmed > 0) {
+        memcpy(crow->cells, sb_staging, (size_t)trimmed * sizeof(TermCell));
+    }
+
     int tail = (tab->sb_head + tab->sb_num - 1) % SB_MAX_SECTIONS;
+    tab->sb[tail].rows[tab->sb[tail].lines] = crow;
     tab->sb[tail].lines++;
     tab->sb_total++;
-    sb_cur_row_ptr = NULL;
+    sb_staging_active = 0;
     return 0;
 }
 
@@ -4915,7 +6152,9 @@ long hexa_scrollback_count(void) {
 }
 
 // Fetch a scrollback line by logical index (0 = oldest live line).
-// Returns NULL if out of range.
+// Returns a pointer to a full-width (TERM_MAX_COLS) decode buffer, or
+// NULL if out of range. The buffer is valid until the next sb_line_ptr
+// call (single static buffer — fine for single-threaded AppKit).
 static TermCell *sb_line_ptr(struct VoidTab_ *tab, int logical_line) {
     if (logical_line < 0 || logical_line >= tab->sb_total) return NULL;
     // Walk sections from head until we've skipped `logical_line` lines.
@@ -4923,21 +6162,46 @@ static TermCell *sb_line_ptr(struct VoidTab_ *tab, int logical_line) {
     for (int i = 0; i < tab->sb_num; i++) {
         int idx = (tab->sb_head + i) % SB_MAX_SECTIONS;
         SbSection *sec = &tab->sb[idx];
-        if (remain < sec->lines)
-            return &sec->cells[remain * TERM_MAX_COLS];
+        if (remain < sec->lines) {
+            SbCompressedRow *crow = sec->rows[remain];
+            if (!crow) return NULL;
+            // Copy stored prefix into decode buffer.
+            int tlen = crow->trimmed_len;
+            if (tlen > 0) {
+                memcpy(sb_decode_buf, crow->cells, (size_t)tlen * sizeof(TermCell));
+            }
+            // Pad remainder with default spaces.
+            for (int p = tlen; p < TERM_MAX_COLS; p++) {
+                sb_decode_buf[p].ch = ' ';
+                sb_decode_buf[p].fg = 7;
+                sb_decode_buf[p].bg = 0;
+                sb_decode_buf[p].flags = 0;
+            }
+            return sb_decode_buf;
+        }
         remain -= sec->lines;
     }
     return NULL;
 }
 
 // Memory usage report (in bytes) for the active tab's scrollback — used
-// by the section-eviction test and for debugging.
+// by the section-eviction test and for debugging. Now accounts for the
+// per-row compressed storage instead of flat section allocation.
 long hexa_scrollback_mem_bytes(void) {
     if (g_active_tab < 0 || g_active_tab >= g_num_tabs) return 0;
     VoidTab *tab = &g_tabs[g_active_tab];
     long n = 0;
     for (int s = 0; s < SB_MAX_SECTIONS; s++) {
-        if (tab->sb[s].cells) n += (long)SB_SECTION_LINES * TERM_MAX_COLS * sizeof(TermCell);
+        if (tab->sb[s].rows) {
+            // Row-pointer array itself.
+            n += (long)SB_SECTION_LINES * (long)sizeof(SbCompressedRow *);
+            for (int r = 0; r < tab->sb[s].lines; r++) {
+                if (tab->sb[s].rows[r]) {
+                    n += (long)sizeof(SbCompressedRow)
+                       + (long)tab->sb[s].rows[r]->trimmed_len * (long)sizeof(TermCell);
+                }
+            }
+        }
     }
     return n;
 }

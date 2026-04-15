@@ -332,7 +332,7 @@ long hexa_pty_spawn_login_shell(void) {
     pid_t pid = forkpty(&master, NULL, NULL, NULL);
     if (pid < 0) return -1;
     if (pid == 0) {
-        setenv("TERM", "xterm-256color", 1);
+        setenv("TERM", "void-256color", 1);
         char *shell = getenv("SHELL");
         if (!shell) shell = "/bin/sh";
         execl(shell, shell, "-l", (char*)NULL);
@@ -371,9 +371,31 @@ static int g_pty_read_len = 0;
 #define TUI_CLEAR "\x1b[2J\x1b[1H"
 #define TUI_CLEAR_LEN 8
 
+// 대용량 붙여넣기 백지 회귀 방지: Claude Code 등 일부 Ink/React TUI 는
+// paste 처리 후 raw-mode 재초기화 과정에서 ?1004h 를 재전송한다. 매번
+// TUI_CLEAR 를 주입하면 Claude 의 다음 full-redraw 가 도착하기 전 프레임이
+// 통째로 백지로 보인다. 세션당 최초 1 회만 clear 하고, TUI 종료 시그널인
+// ?1004l 를 보면 리셋해 다음 TUI 진입에 대비한다.
+static int g_tui_cleared_once = 0;
+
 static int alt_screen_rewrite(char *buf, int *plen, int cap) {
     int len = *plen;
     int subs = 0;
+    // 먼저 ?1004l 스캔 — TUI 가 종료하면서 focus-event 를 끄면 다음 진입에서
+    // 다시 1 회 clear 할 수 있도록 플래그를 리셋. (clear 주입은 하지 않음.)
+    for (int i = 0; i + 8 <= len; i++) {
+        if (buf[i]     == '\x1b' &&
+            buf[i + 1] == '['    &&
+            buf[i + 2] == '?'    &&
+            buf[i + 3] == '1'    &&
+            buf[i + 4] == '0'    &&
+            buf[i + 5] == '0'    &&
+            buf[i + 6] == '4'    &&
+            buf[i + 7] == 'l') {
+            g_tui_cleared_once = 0;
+            break;
+        }
+    }
     for (int i = len - 8; i >= 0; i--) {
         if (buf[i]     == '\x1b' &&
             buf[i + 1] == '['    &&
@@ -383,11 +405,13 @@ static int alt_screen_rewrite(char *buf, int *plen, int cap) {
             buf[i + 5] == '0'    &&
             buf[i + 6] == '4'    &&
             buf[i + 7] == 'h') {
+            if (g_tui_cleared_once) continue;
             if (len + TUI_CLEAR_LEN >= cap) break;
             memmove(&buf[i + TUI_CLEAR_LEN], &buf[i], len - i);
             memcpy(&buf[i], TUI_CLEAR, TUI_CLEAR_LEN);
             len += TUI_CLEAR_LEN;
             subs++;
+            g_tui_cleared_once = 1;
         }
     }
     *plen = len;
@@ -410,8 +434,46 @@ long hexa_pty_poll_read(long fd, long timeout_ms) {
 
     int subs = alt_screen_rewrite(g_pty_read_buf, &g_pty_read_len,
                                   PTY_READ_BUF_SIZE - 1);
+    // Ensure every LF (0x0A) is preceded by CR (0x0D). The VT parser
+    // treats LF as cursor-down only (no carriage return), matching the
+    // strict VT100 spec. But programs that bypass onlcr (raw PTY mode)
+    // send standalone LF expecting the terminal to auto-CR. Terminal.app
+    // does this implicitly. Insert CR before each standalone LF so the
+    // void parser behaves the same way.
+    {
+        // Count insertions needed first.
+        int need = 0;
+        for (int i = 0; i < g_pty_read_len; i++)
+            if (g_pty_read_buf[i] == '\n' && (i == 0 || g_pty_read_buf[i-1] != '\r'))
+                need++;
+        if (need > 0 && g_pty_read_len + need < PTY_READ_BUF_SIZE) {
+            // Expand from right to left to avoid overwrite.
+            int src = g_pty_read_len - 1;
+            int dst = g_pty_read_len + need - 1;
+            while (src >= 0) {
+                g_pty_read_buf[dst--] = g_pty_read_buf[src];
+                if (g_pty_read_buf[src] == '\n' && (src == 0 || g_pty_read_buf[src-1] != '\r'))
+                    g_pty_read_buf[dst--] = '\r';
+                src--;
+            }
+            g_pty_read_len += need;
+        }
+    }
     g_pty_read_buf[g_pty_read_len] = '\0';
 
+    // Debug: capture first PTY bytes after tab_become_profile
+    {
+        static long captured = 0;
+        FILE *chk = fopen("/tmp/void_pty_capture.bin", "r");
+        if (chk) {
+            fclose(chk);
+            if (captured < 8192 && g_pty_read_len > 0) {
+                FILE *cf = fopen("/tmp/void_pty_capture.bin", "a");
+                if (cf) { fwrite(g_pty_read_buf, 1, g_pty_read_len, cf); fclose(cf); }
+                captured += g_pty_read_len;
+            }
+        }
+    }
     // Debug trace — when VOID_PTY_TRACE is set, append each read to a log.
     // Used to diagnose sequences reaching hexa that shouldn't be. Off
     // by default.
@@ -460,6 +522,13 @@ long hexa_pty_alt_screen_rewrite_test(long ptr, long plen, long cap) {
     return ((long)subs << 32) | (long)len;
 }
 
+// Test helper: reset the "TUI cleared once" session flag so each test
+// case starts from a known fresh state. Only used by the harness — the
+// production path relies on ?1004l auto-reset.
+void hexa_pty_alt_screen_rewrite_test_reset(void) {
+    g_tui_cleared_once = 0;
+}
+
 long hexa_pty_read_byte(long idx) {
     if (idx < 0 || idx >= g_pty_read_len) return -1;
     return (long)(unsigned char)g_pty_read_buf[idx];
@@ -494,4 +563,80 @@ long hexa_fd_write(long fd, long buf, long n) {
 long hexa_sleep_us(long us) {
     usleep((useconds_t)us);
     return 0;
+}
+long clock_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)(ts.tv_sec * 1000000L + ts.tv_nsec / 1000L);
+}
+
+// ── FEATURE-P0-1: builtin command dispatcher helpers ──────────
+// Five builtin commands (cd/pwd/clear/history/help) execute in-process
+// instead of being forwarded to the spawned shell. The .hexa side
+// (src/builtin_cmds.hexa) handles parsing + dispatch; this C layer
+// supplies the OS-level primitives that hexa cannot express directly:
+// chdir(), getcwd(), and a per-byte fd write helper used to emit
+// builtin output (pwd/help/clear) to the active PTY master so the VT
+// parser sees it like normal shell output.
+//
+// Path staging buffer: hexa pushes path bytes one at a time, then
+// calls _chdir() which null-terminates and invokes libc chdir().
+// Mirrors the existing OSC-7 cwd_push/apply pattern in sys_appkit.m.
+//
+// CWD readback buffer: hexa calls _refresh() to snapshot the process
+// cwd into a static buffer, then reads it byte-by-byte for echoing
+// pwd output without needing string-typed FFI returns.
+#include <sys/syslimits.h>
+
+static char g_void_path_buf[PATH_MAX];
+static int  g_void_path_len = 0;
+
+void hexa_void_path_reset(void) {
+    g_void_path_len = 0;
+    g_void_path_buf[0] = '\0';
+}
+
+void hexa_void_path_push(long b) {
+    if (g_void_path_len < (int)sizeof(g_void_path_buf) - 1) {
+        g_void_path_buf[g_void_path_len++] = (char)b;
+        g_void_path_buf[g_void_path_len] = '\0';
+    }
+}
+
+// chdir(2) wrapper. Returns 0 on success, -1 on error (errno preserved
+// implicitly — hexa side treats non-zero as failure). Affects ONLY this
+// REPL process: the spawned shell child has its own cwd that we cannot
+// reach into. cmd_help() documents this asymmetry.
+long hexa_void_chdir(void) {
+    if (g_void_path_len == 0) return -1;
+    return (long)chdir(g_void_path_buf);
+}
+
+static char g_void_cwd_buf[PATH_MAX];
+static int  g_void_cwd_len = 0;
+
+// Snapshot getcwd() into the readback buffer. Returns length, or -1 on
+// failure (e.g. cwd was deleted). Hexa calls this once before reading
+// bytes via hexa_void_cwd_byte().
+long hexa_void_cwd_refresh(void) {
+    if (getcwd(g_void_cwd_buf, sizeof(g_void_cwd_buf)) == NULL) {
+        g_void_cwd_len = 0;
+        g_void_cwd_buf[0] = '\0';
+        return -1;
+    }
+    g_void_cwd_len = (int)strlen(g_void_cwd_buf);
+    return (long)g_void_cwd_len;
+}
+
+long hexa_void_cwd_byte(long idx) {
+    if (idx < 0 || idx >= g_void_cwd_len) return -1;
+    return (long)(unsigned char)g_void_cwd_buf[idx];
+}
+
+// Single-byte write to fd (PTY master, stdout, etc.). Used by builtin
+// output emitters in builtin_cmds.hexa. Slow per-byte path — fine for
+// ≤200-byte outputs (pwd / help). Returns 1 on success, -1 on error.
+long hexa_void_putc(long fd, long b) {
+    char c = (char)b;
+    return (long)write((int)fd, &c, 1);
 }
