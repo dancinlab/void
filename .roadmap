@@ -15,14 +15,15 @@
 #   (3) perf-first  : speed / memory / GPU / syscall budgets tracked per PR
 
 # active phase
-- active [P1] grid-mode + input-rebind keybinding
+- active [P1] grid-mode + new-tab keybinding
   eta 2026-04-28
-  why "native N×M pane grid (tiling, 최우선 기능) + cmd+ctrl+N 누르면 키보드 입력이 N번 셀로 re-bind. 포커스만 옮기는게 아니라 PTY 입력 target 자체가 해당 셀로 스위치."
+  why "native N×M pane grid (최우선) + cmd+ctrl+N 누르면 N번 위치에 '새 탭' 오픈. 기존 셀 포커스 스위치가 아니라 grid 위에 새 PTY 세션을 spawn 해서 해당 slot 에 연결."
   features
     - grid-layout   : N×M tiling surface, shared renderer, per-cell cwd/env
-    - input-rebind  : cmd+ctrl+1..9 = cell 1..9 로 입력 바인딩 재지정
-                      (키 누른 시점부터 모든 stdin → 해당 cell PTY)
-                      cmd+ctrl+0       = 전체 broadcast (모든 cell 동시 입력)
+    - new-tab-open  : cmd+ctrl+1..9 = grid slot 1..9 에 '새 탭' spawn
+                      (해당 slot 이 비어있으면 새 PTY 셀 생성 후 바로연결,
+                       이미 있으면 no-op 또는 config 에 따라 replace/focus)
+                      cmd+ctrl+0       = 전체 broadcast (모든 셀 동시 입력)
                       cmd+ctrl+`       = grid on/off 토글
     - visual-cue    : active cell 테두리/색 강조, 나머지 dim
   ship-target
