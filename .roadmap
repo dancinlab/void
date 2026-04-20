@@ -15,11 +15,22 @@
 #   (3) perf-first  : speed / memory / GPU / syscall budgets tracked per PR
 
 # active phase
-- active [P1] stack-analysis
-  eta 2026-04-22
-  why "map ghostty internals before cutting into it — renderer/apprt/terminal/font"
-- todo   [P2] grid-mode design
-  why "native N×M pane grid, shared surface, keyboard-routing, per-cell cwd"
+- active [P1] grid-mode + input-rebind keybinding
+  eta 2026-04-28
+  why "native N×M pane grid (tiling, 최우선 기능) + cmd+ctrl+N 누르면 키보드 입력이 N번 셀로 re-bind. 포커스만 옮기는게 아니라 PTY 입력 target 자체가 해당 셀로 스위치."
+  features
+    - grid-layout   : N×M tiling surface, shared renderer, per-cell cwd/env
+    - input-rebind  : cmd+ctrl+1..9 = cell 1..9 로 입력 바인딩 재지정
+                      (키 누른 시점부터 모든 stdin → 해당 cell PTY)
+                      cmd+ctrl+0       = 전체 broadcast (모든 cell 동시 입력)
+                      cmd+ctrl+`       = grid on/off 토글
+    - visual-cue    : active cell 테두리/색 강조, 나머지 dim
+  ship-target
+    - N=2 (horizontal split) MVP 먼저 → N×M 일반화
+    - keybinding 은 config 에서 rebind 가능 (하드코딩 X)
+- todo   [P2] stack-analysis
+  eta 2026-05-05
+  why "grid 구현 전 ghostty renderer/apprt/terminal/font 내부 map — 실장 중 diff 최소화"
 - todo   [P3] ai-native IO protocol
   why "structured agent I/O channel alongside PTY — tool-call / token-stream aware"
 - todo   [P4] perf baseline
