@@ -20,11 +20,12 @@
   why "native N×M pane grid (최우선) + cmd+ctrl+N 누르면 N번 위치에 '새 탭' 오픈. 기존 셀 포커스 스위치가 아니라 grid 위에 새 PTY 세션을 spawn 해서 해당 slot 에 연결."
   features
     - grid-layout   : N×M tiling surface, shared renderer, per-cell cwd/env
-    - new-tab-open  : cmd+ctrl+1..9 = grid slot 1..9 에 '새 탭' spawn
-                      (해당 slot 이 비어있으면 새 PTY 셀 생성 후 바로연결,
-                       이미 있으면 no-op 또는 config 에 따라 replace/focus)
+    - new-tab-open  : cmd+ctrl+1..9 = grid slot 1..9 에 '새 탭' spawn.
+                      **이미 해당 slot 에 탭이 있어도 매번 추가 생성** (no-op / replace X).
+                      같은 slot 내 탭은 스택처럼 쌓임 (cmd+ctrl+N 반복 누를수록 N번 slot 에
+                      탭 증식). slot 내 탭 순환은 별도 키 (e.g. cmd+ctrl+shift+N) 로 분리.
                       cmd+ctrl+0       = 전체 broadcast (모든 셀 동시 입력)
-                      cmd+ctrl+`       = grid on/off 토글
+                      cmd+G            = grid mode ON/OFF 토글
     - visual-cue    : active cell 테두리/색 강조, 나머지 dim
   ship-target
     - N=2 (horizontal split) MVP 먼저 → N×M 일반화
