@@ -29,3 +29,6 @@ glad.zip
 
 vgcore.*
 
+# void fork — local-only scaffold
+/.claude/
+/.hexa-init/

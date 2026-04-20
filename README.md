@@ -1,6 +1,22 @@
 <!-- LOGO -->
 <h1>
 <p align="center">
+  <br>void
+</h1>
+  <p align="center">
+    AI-native terminal with first-class grid mode. ghostty-based fork, perf-first.
+    <br />
+    See <a href="VOID_FORK.md">VOID_FORK.md</a> for fork rationale and direction.
+    <br />
+    <br />
+    <em>— original ghostty README follows below —</em>
+    <br /><br />
+  </p>
+</p>
+
+<!-- LOGO -->
+<h1>
+<p align="center">
   <img src="https://github.com/user-attachments/assets/fe853809-ba8b-400b-83ab-a9a0da25be8a" alt="Logo" width="128">
   <br>Ghostty
 </h1>

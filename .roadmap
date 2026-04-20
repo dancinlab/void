@@ -1,0 +1,32 @@
+# void /.roadmap — ghostty fork direction
+# Rewritten 2026-04-21 after pivot.
+
+# checkpoint
+- done [C0] project-init — hexa scaffold 2026-04-21
+- done [C1] fork-base   — ghostty → void rebrand 2026-04-21
+
+# scope
+# void = ghostty-based AI-native terminal emulator.
+# - upstream = ghostty-org/ghostty (zig + swift)
+# - direction =
+#   (1) grid mode   : native tiling/pane grid as first-class (not plugin)
+#   (2) ai-native   : agent I/O, structured stream, tool-call protocol baked
+#                     into terminal layer (not wrapper)
+#   (3) perf-first  : speed / memory / GPU / syscall budgets tracked per PR
+
+# active phase
+- active [P1] stack-analysis
+  eta 2026-04-22
+  why "map ghostty internals before cutting into it — renderer/apprt/terminal/font"
+- todo   [P2] grid-mode design
+  why "native N×M pane grid, shared surface, keyboard-routing, per-cell cwd"
+- todo   [P3] ai-native IO protocol
+  why "structured agent I/O channel alongside PTY — tool-call / token-stream aware"
+- todo   [P4] perf baseline
+  why "capture ghostty baseline benches, set void regression budgets"
+- todo   [P5] diverge / upstream strategy
+  why "decide which changes feed back to ghostty vs stay void-only"
+
+# non-goals
+# - drop-in ghostty replacement (we will diverge in UX)
+# - being a shell (void drives shells, does not replace them)
