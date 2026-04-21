@@ -32,3 +32,9 @@ vgcore.*
 # void fork — local-only scaffold
 /.claude/
 /.hexa-init/
+/.hook-commands/
+/bin/
+/config/
+/shared/
+# prefix-less icon sizes (용도 재확정 대기 — 기존 icon_*.png 는 커밋됨)
+/images/icons/[0-9]*.png
