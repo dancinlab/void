@@ -7104,15 +7104,17 @@ pub const Keybinds = struct {
                 .end_search,
                 .{ .performable = true },
             );
+            // void: cmd+g reserved for P1 grid-mode toggle (ghostty upstream = Find Next).
+            // Find Next/Prev moved to cmd+opt+return / cmd+shift+opt+return.
             try self.set.putFlags(
                 alloc,
-                .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true } },
+                .{ .key = .{ .physical = .enter }, .mods = .{ .super = true, .alt = true } },
                 .{ .navigate_search = .next },
                 .{ .performable = true },
             );
             try self.set.putFlags(
                 alloc,
-                .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true, .shift = true } },
+                .{ .key = .{ .physical = .enter }, .mods = .{ .super = true, .alt = true, .shift = true } },
                 .{ .navigate_search = .previous },
                 .{ .performable = true },
             );

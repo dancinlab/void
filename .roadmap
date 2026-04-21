@@ -28,6 +28,9 @@
                       cmd+G            = **grid mode ↔ tab mode 전환**
                                          (tab mode = 기존 ghostty 단일 pane+탭,
                                           grid mode = N×M 분할, 둘이 서로 토글)
+                      # cmd+G 탈취 후 Find Next/Prev 재할당
+                      cmd+opt+return   = navigate_search next  (원 cmd+G)
+                      cmd+shift+opt+return = navigate_search previous  (원 cmd+shift+G)
     - visual-cue    : active cell 테두리/색 강조, 나머지 dim
   ship-target
     - N=2 (horizontal split) MVP 먼저 → N×M 일반화
