@@ -2,7 +2,7 @@
     .name = .void,
     .version = "0.0.0-void.1.3.2-dev",
     .paths = .{""},
-    .fingerprint = 0x64407a2a0b4147e5,
+    .fingerprint = 0xd27bd9eed48eba8d,
     .minimum_zig_version = "0.15.2",
     .dependencies = .{
         // Zig libs
