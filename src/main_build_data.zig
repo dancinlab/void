@@ -45,7 +45,7 @@ pub fn main() !void {
         .@"vim-ftdetect" => try writer.writeAll(@import("extra/vim.zig").ftdetect),
         .@"vim-ftplugin" => try writer.writeAll(@import("extra/vim.zig").ftplugin),
         .@"vim-compiler" => try writer.writeAll(@import("extra/vim.zig").compiler),
-        .terminfo => try @import("terminfo/void.zig").void.encode(writer),
+        .terminfo => try @import("terminfo/void.zig").vd.encode(writer),
     }
     try stdout_writer.end();
 }

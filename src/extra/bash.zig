@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Config = @import("../config/Config.zig");
-const Action = @import("../cli.zig").void.Action;
+const Action = @import("../cli.zig").vd.Action;
 
 /// A bash completions configuration that contains all the available commands
 /// and options.
