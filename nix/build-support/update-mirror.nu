@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 # This script downloads external dependencies from build.zig.zon.json that
-# are not already mirrored at deps.files.void.org, saves them to a local
+# are not already mirrored at deps.files.ghostty.org, saves them to a local
 # directory, and updates build.zig.zon to point to the new mirror URLs.
 #
 # The downloaded files are unmodified so their checksums and content hashes
@@ -11,7 +11,7 @@
 # to blob storage, and build.zig.zon will already be updated with the new URLs.
 def main [
   --output: string = "tmp-mirror", # Output directory for the mirrored files
-  --prefix: string = "https://deps.files.void.org/", # Final URL prefix to ignore
+  --prefix: string = "https://deps.files.ghostty.org/", # Final URL prefix to ignore
   --dry-run, # Print what would be downloaded without downloading
 ] {
   let script_dir = ($env.CURRENT_FILE | path dirname)
