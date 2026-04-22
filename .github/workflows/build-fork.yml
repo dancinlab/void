@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 90
     env:
       ZIG_VERSION: "0.15.2"
+      SPARKLE_VERSION: "2.9.0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,39 +24,74 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Pick latest installed Xcode; project requires 26.x
           sudo xcode-select -s "$(ls -d /Applications/Xcode_26* 2>/dev/null | sort -r | head -1)" || \
           sudo xcode-select -s "$(ls -d /Applications/Xcode_16* 2>/dev/null | sort -r | head -1)" || true
           xcodebuild -version
 
+      - name: Cache Zig toolchain + package cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/zig
+            ~/.cache/zig
+            .zig-cache
+          key: zig-${{ runner.os }}-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig.zon', 'build.zig') }}
+          restore-keys: |
+            zig-${{ runner.os }}-${{ env.ZIG_VERSION }}-
+            zig-${{ runner.os }}-
+
       - name: Install Zig ${{ env.ZIG_VERSION }}
         run: |
-          ARCH=$(uname -m)
-          case "$ARCH" in
-            arm64) ZIG_ARCH=aarch64 ;;
-            x86_64) ZIG_ARCH=x86_64 ;;
-            *) echo "unknown arch $ARCH"; exit 1 ;;
-          esac
-          URL="https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-macos-${ZIG_VERSION}.tar.xz"
-          curl -fsSL "$URL" -o /tmp/zig.tar.xz
-          mkdir -p "$HOME/zig" && tar -xJf /tmp/zig.tar.xz -C "$HOME/zig" --strip-components=1
+          if [ -x "$HOME/zig/zig" ]; then
+            echo "zig already cached"
+          else
+            ARCH=$(uname -m)
+            case "$ARCH" in
+              arm64)  ZIG_ARCH=aarch64 ;;
+              x86_64) ZIG_ARCH=x86_64 ;;
+              *) echo "unknown arch $ARCH"; exit 1 ;;
+            esac
+            URL="https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-macos-${ZIG_VERSION}.tar.xz"
+            curl -fsSL "$URL" -o /tmp/zig.tar.xz
+            mkdir -p "$HOME/zig"
+            tar -xJf /tmp/zig.tar.xz -C "$HOME/zig" --strip-components=1
+          fi
           echo "$HOME/zig" >> "$GITHUB_PATH"
           "$HOME/zig/zig" version
 
-      - name: Build VoidKit framework
-        run: zig build -Doptimize=ReleaseFast -Demit-macos-app=false
+      - name: Build VoidKit (native target only)
+        run: |
+          zig build \
+            -Doptimize=ReleaseFast \
+            -Demit-macos-app=false \
+            -Dxcframework-target=native
+
+      - name: Cache Sparkle SPM archive
+        uses: actions/cache@v4
+        with:
+          path: .action/sparkle
+          key: sparkle-${{ env.SPARKLE_VERSION }}
 
       - name: Setup Sparkle
-        env:
-          SPARKLE_VERSION: "2.9.0"
         run: |
-          mkdir -p .action/sparkle
-          cd .action/sparkle
-          curl -fsSL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-for-Swift-Package-Manager.zip" -o sparkle.zip
-          unzip -q sparkle.zip
-          echo "$(pwd)/bin" >> "$GITHUB_PATH"
+          if [ ! -f .action/sparkle/sparkle.zip ]; then
+            mkdir -p .action/sparkle
+            cd .action/sparkle
+            curl -fsSL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-for-Swift-Package-Manager.zip" -o sparkle.zip
+            unzip -q sparkle.zip
+          fi
+          echo "$(pwd)/.action/sparkle/bin" >> "$GITHUB_PATH"
 
-      - name: Build Void.app (ad-hoc signed)
+      - name: Cache Xcode DerivedData + compilation cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData
+          key: xcode-${{ runner.os }}-${{ hashFiles('macos/**/*.swift', 'macos/**/*.pbxproj', 'macos/**/*.plist') }}
+          restore-keys: |
+            xcode-${{ runner.os }}-
+
+      - name: Build Void.app (ad-hoc signed, icon off)
         run: |
           cd macos
           xcodebuild -project Void.xcodeproj \
@@ -64,7 +100,10 @@ jobs:
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM=""
+            DEVELOPMENT_TEAM="" \
+            ASSETCATALOG_COMPILER_APPICON_NAME="" \
+            COMPILATION_CACHE_CAS_PATH="$HOME/Library/Developer/Xcode/DerivedData/CompilationCache.noindex" \
+            COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 
       - name: Zip artifact
         run: |
