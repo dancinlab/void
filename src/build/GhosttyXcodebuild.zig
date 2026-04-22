@@ -79,6 +79,19 @@ pub fn init(
             // zig build 의 copy-app-bundle step 이 경로 맞음.
             "-clonedSourcePackagesDirPath",
             "/tmp/.claude/void-spm",
+            // void fork — Package.resolved pinning.
+            // 매 빌드마다 xcodebuild 가 SPM 의존성 버전을 재해석하면 빌드
+            // reproducibility 가 깨지고 (실험적으로 Sparkle minor 업데이트가
+            // 빌드 중간에 끼어드는 경우 목격) sandbox-exec 호출 빈도도 증가.
+            // 아래 플래그는 Package.resolved 에 고정된 버전만 쓰고 추가 resolve
+            // 를 억제 → 캐시 warm 상태에서 빌드 phase 수 감소.
+            // NOTE: xcodebuild 가 link-time 에 또 한번 SPM 경로를 참조하는데
+            // 이때 macOS 커널 nested-sandbox 가 sandbox_apply syscall 자체를
+            // 차단 ("sandbox_apply: Operation not permitted"). harness 내부
+            // 빌드에서는 이 마지막 단계가 항상 실패하므로 외부 Terminal 에서
+            // 최종 빌드를 한번 돌려 app bundle 을 정상화하는 것이 권장 경로.
+            "-onlyUsePackageVersionsFromResolvedFile",
+            "-disableAutomaticPackageResolution",
         });
 
         // If we have a specific architecture, we need to pass it
