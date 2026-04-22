@@ -2,7 +2,7 @@ const std = @import("std");
 const Source = @import("Source.zig");
 
 /// Void's terminfo entry.
-pub const void: Source = .{
+pub const app: Source = .{
     .names = &.{
         // We support the "xterm-" prefix because some poorly behaved programs
         // use this to detect if the terminal supports 256 colors and other
@@ -392,6 +392,6 @@ test "encode" {
     // Encode
     var buf: [1024 * 16]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
-    try void.encode(&writer);
+    try app.encode(&writer);
     try std.testing.expect(writer.buffered().len > 0);
 }
