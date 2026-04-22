@@ -21,41 +21,41 @@
     </radialGradient>
   </defs>
 
-  <!-- Apple HIG macOS icon body = 824/1024 of canvas with squircle corners.
-       In our 512 viewBox: 412×412 inside (50..462), corner radius ~92. -->
-  <rect x="50" y="50" width="412" height="412" rx="92" ry="92" fill="url(#bg)"/>
+  <!-- Full-canvas body with macOS squircle corners (radius 226/1024 → 113/512).
+       macOS Dock does NOT auto-mask app icons, so squircle must be baked into PNG. -->
+  <rect x="0" y="0" width="512" height="512" rx="113" ry="113" fill="url(#bg)"/>
 
   <!-- concentric hexagons (flat-top) warping toward center.
        scale 0.75 → outer vertex 172 px from center (body half-width 206 → 34 px margin inside squircle). -->
-  <g transform="translate(256 256) scale(0.65)" fill="none" stroke="#f0f0f0" stroke-linejoin="miter">
-    <polygon points="230,0 115,199.186 -115,199.186 -230,0 -115,-199.186 115,-199.186"
+  <g transform="translate(256 256)" fill="none" stroke="#f0f0f0" stroke-linejoin="miter">
+    <polygon points="195.5,0 97.75,169.308 -97.75,169.308 -195.5,0 -97.75,-169.308 97.75,-169.308"
              stroke-width="3.5" stroke-opacity="1.00"/>
-    <polygon points="200,0 100,173.205 -100,173.205 -200,0 -100,-173.205 100,-173.205"
+    <polygon points="170,0 85,147.224 -85,147.224 -170,0 -85,-147.224 85,-147.224"
              stroke-width="2.6" stroke-opacity="0.85"/>
-    <polygon points="172,0 86,148.956 -86,148.956 -172,0 -86,-148.956 86,-148.956"
+    <polygon points="146.2,0 73.1,126.613 -73.1,126.613 -146.2,0 -73.1,-126.613 73.1,-126.613"
              stroke-width="2.2" stroke-opacity="0.76"/>
-    <polygon points="146,0 73,126.439 -73,126.439 -146,0 -73,-126.439 73,-126.439"
+    <polygon points="124.1,0 62.05,107.473 -62.05,107.473 -124.1,0 -62.05,-107.473 62.05,-107.473"
              stroke-width="1.9" stroke-opacity="0.68"/>
-    <polygon points="122,0 61,105.655 -61,105.655 -122,0 -61,-105.655 61,-105.655"
+    <polygon points="103.7,0 51.85,89.807 -51.85,89.807 -103.7,0 -51.85,-89.807 51.85,-89.807"
              stroke-width="1.7" stroke-opacity="0.60"/>
-    <polygon points="100,0 50,86.603 -50,86.603 -100,0 -50,-86.603 50,-86.603"
+    <polygon points="85,0 42.5,73.613 -42.5,73.613 -85,0 -42.5,-73.613 42.5,-73.613"
              stroke-width="1.5" stroke-opacity="0.52"/>
-    <polygon points="80,0 40,69.282 -40,69.282 -80,0 -40,-69.282 40,-69.282"
+    <polygon points="68,0 34,58.89 -34,58.89 -68,0 -34,-58.89 34,-58.89"
              stroke-width="1.4" stroke-opacity="0.44"/>
-    <polygon points="62,0 31,53.694 -31,53.694 -62,0 -31,-53.694 31,-53.694"
+    <polygon points="52.7,0 26.35,45.64 -26.35,45.64 -52.7,0 -26.35,-45.64 26.35,-45.64"
              stroke-width="1.3" stroke-opacity="0.36"/>
-    <polygon points="46,0 23,39.837 -23,39.837 -46,0 -23,-39.837 23,-39.837"
+    <polygon points="39.1,0 19.55,33.861 -19.55,33.861 -39.1,0 -19.55,-33.861 19.55,-33.861"
              stroke-width="1.2" stroke-opacity="0.28"/>
   </g>
 
   <!-- 6 radial spokes (subtle) -->
-  <g transform="translate(256 256) scale(0.65)" stroke="#aaaaaa" stroke-width="1.2" stroke-opacity="0.30" fill="none">
-    <line x1="0" y1="0" x2="230" y2="0"/>
-    <line x1="0" y1="0" x2="115" y2="199.186"/>
-    <line x1="0" y1="0" x2="-115" y2="199.186"/>
-    <line x1="0" y1="0" x2="-230" y2="0"/>
-    <line x1="0" y1="0" x2="-115" y2="-199.186"/>
-    <line x1="0" y1="0" x2="115" y2="-199.186"/>
+  <g transform="translate(256 256)" stroke="#aaaaaa" stroke-width="1.2" stroke-opacity="0.30" fill="none">
+    <line x1="0" y1="0" x2="195.5" y2="0"/>
+    <line x1="0" y1="0" x2="97.75" y2="169.308"/>
+    <line x1="0" y1="0" x2="-97.75" y2="169.308"/>
+    <line x1="0" y1="0" x2="-195.5" y2="0"/>
+    <line x1="0" y1="0" x2="-97.75" y2="-169.308"/>
+    <line x1="0" y1="0" x2="97.75" y2="-169.308"/>
   </g>
 
   <!-- photon sphere glow -->
