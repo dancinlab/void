@@ -1,0 +1,19 @@
+{
+  "schema": "void.proposal_inventory.v1",
+  "id_prefix": "vd",
+  "updated_ts": "2026-04-23T00:00:00Z",
+  "entries": [],
+  "proposals": [],
+  "_meta": {
+    "owner_repo": "void",
+    "sister_repos": {
+      "anima":            {"prefix": "anima", "inventory_path": "/Users/ghost/core/anima/state/proposals/inventory.json"},
+      "nexus":            {"prefix": "nxs",   "inventory_path": "/Users/ghost/core/nexus/state/proposals/inventory.json"},
+      "hexa-lang":        {"prefix": "hxa",   "inventory_path": "/Users/ghost/core/hexa-lang/state/proposals/inventory.json"},
+      "airgenome":        {"prefix": "agm",   "inventory_path": "/Users/ghost/core/airgenome/state/proposals/inventory.json"},
+      "n6-architecture":  {"prefix": "n6a",   "inventory_path": "/Users/ghost/core/n6-architecture/state/proposals/inventory.json"}
+    },
+    "created_by": "hexa-lang session proposal_inbox bootstrap (2026-04-23)",
+    "note": ".workspace member. SSH terminal 전문 — airgenome compute_filter 와는 별개."
+  }
+}
