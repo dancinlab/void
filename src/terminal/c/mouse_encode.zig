@@ -23,16 +23,16 @@ const MouseEncoderWrapper = struct {
     alloc: Allocator,
 };
 
-/// C: GhosttyMouseEncoder
+/// C: VoidMouseEncoder
 pub const Encoder = ?*MouseEncoderWrapper;
 
-/// C: GhosttyMouseTrackingMode
+/// C: VoidMouseTrackingMode
 pub const TrackingMode = terminal_mouse.Event;
 
-/// C: GhosttyMouseFormat
+/// C: VoidMouseFormat
 pub const Format = terminal_mouse.Format;
 
-/// C: GhosttyMouseEncoderSize
+/// C: VoidMouseEncoderSize
 pub const Size = extern struct {
     size: usize = @sizeOf(Size),
     screen_width: u32,
@@ -65,7 +65,7 @@ pub const Size = extern struct {
     }
 };
 
-/// C: GhosttyMouseEncoderOption
+/// C: VoidMouseEncoderOption
 pub const Option = enum(c_int) {
     event = 0,
     format = 1,

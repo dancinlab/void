@@ -12,7 +12,7 @@ const style_c = @import("style.zig");
 const terminal_c = @import("terminal.zig");
 const Result = @import("result.zig").Result;
 
-/// C: GhosttyGridRef
+/// C: VoidGridRef
 ///
 /// A sized struct that holds a reference to a position in the terminal grid.
 /// The ref points to a specific cell position within the terminal's

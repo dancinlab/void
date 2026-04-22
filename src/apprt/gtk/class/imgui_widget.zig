@@ -14,7 +14,7 @@ const gresource = @import("../build/gresource.zig");
 const key = @import("../key.zig");
 const Common = @import("../class.zig").Common;
 
-const log = std.log.scoped(.gtk_ghostty_imgui_widget);
+const log = std.log.scoped(.gtk_void_imgui_widget);
 
 /// A widget for embedding a Dear ImGui application.
 ///
@@ -26,7 +26,7 @@ pub const ImguiWidget = extern struct {
     parent_instance: Parent,
     pub const Parent = adw.Bin;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyImguiWidget",
+        .name = "VoidImguiWidget",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
@@ -229,7 +229,7 @@ pub const ImguiWidget = extern struct {
 
         // Setup some basic config
         const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
-        io.BackendPlatformName = "ghostty_gtk";
+        io.BackendPlatformName = "void_gtk";
 
         // Realize means that our OpenGL context is ready, so we can now
         // initialize the ImgUI OpenGL backend for our context.

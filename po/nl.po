@@ -1,12 +1,12 @@
-# Dutch translations for com.mitchellh.ghostty package.
-# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
-# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Dutch translations for com.mitchellh.void package.
+# Copyright (C) 2025 Mitchell Hashimoto, Void contributors
+# This file is distributed under the same license as the com.mitchellh.void package.
 # Nico Geesink <geesinknico@gmail.com>, 2025.
 # Merijntje Tak <merijntje@tak.io>, 2025.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.ghostty\n"
+"Project-Id-Version: com.mitchellh.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-02-18 20:59+0100\n"
@@ -18,9 +18,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: dist/linux/ghostty_nautilus.py:53
-msgid "Open in Ghostty"
-msgstr "Open in Ghostty"
+#: dist/linux/void_nautilus.py:53
+msgid "Open in Void"
+msgstr "Open in Void"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -82,14 +82,14 @@ msgstr "Herlaad configuratie"
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+"⚠️ You're running a debug build of Void! Performance will be degraded."
 msgstr ""
-"⚠️ Je draait een debugversie van Ghostty! Prestaties zullen minder zijn dan "
+"⚠️ Je draait een debugversie van Void! Prestaties zullen minder zijn dan "
 "normaal."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: terminalinspecteur"
+msgid "Void: Terminal Inspector"
+msgstr "Void: terminalinspecteur"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -240,8 +240,8 @@ msgid "Terminal Inspector"
 msgstr "Terminalinspecteur"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
-msgid "About Ghostty"
-msgstr "Over Ghostty"
+msgid "About Void"
+msgstr "Over Void"
 
 #: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
@@ -280,8 +280,8 @@ msgstr ""
 "lijkt op een commando dat uitgevoerd kan worden."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
-msgid "Quit Ghostty?"
-msgstr "Wil je Ghostty afsluiten?"
+msgid "Quit Void?"
+msgstr "Wil je Void afsluiten?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -352,5 +352,5 @@ msgid "Cleared clipboard"
 msgstr "Klembord geleegd"
 
 #: src/apprt/gtk/class/window.zig:1708
-msgid "Ghostty Developers"
-msgstr "Ghostty-ontwikkelaars"
+msgid "Void Developers"
+msgstr "Void-ontwikkelaars"

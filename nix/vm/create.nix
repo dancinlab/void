@@ -26,11 +26,11 @@ in
           overlay
         ];
 
-        users.groups.ghostty = {
+        users.groups.void = {
           gid = gid;
         };
 
-        users.users.ghostty = {
+        users.users.void = {
           uid = uid;
         };
 

@@ -15,7 +15,7 @@ const KeyEventWrapper = struct {
     alloc: Allocator,
 };
 
-/// C: GhosttyKeyEvent
+/// C: VoidKeyEvent
 pub const Event = ?*KeyEventWrapper;
 
 pub fn new(

@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <ghostty/vt.h>
+#include <void/vt.h>
 
 //! [build-info-query]
 void query_build_info() {
@@ -7,27 +7,27 @@ void query_build_info() {
   bool kitty_graphics = false;
   bool tmux_control_mode = false;
 
-  ghostty_build_info(GHOSTTY_BUILD_INFO_SIMD, &simd);
-  ghostty_build_info(GHOSTTY_BUILD_INFO_KITTY_GRAPHICS, &kitty_graphics);
-  ghostty_build_info(GHOSTTY_BUILD_INFO_TMUX_CONTROL_MODE, &tmux_control_mode);
+  void_build_info(VOID_BUILD_INFO_SIMD, &simd);
+  void_build_info(VOID_BUILD_INFO_KITTY_GRAPHICS, &kitty_graphics);
+  void_build_info(VOID_BUILD_INFO_TMUX_CONTROL_MODE, &tmux_control_mode);
 
   printf("SIMD: %s\n", simd ? "enabled" : "disabled");
   printf("Kitty graphics: %s\n", kitty_graphics ? "enabled" : "disabled");
   printf("Tmux control mode: %s\n", tmux_control_mode ? "enabled" : "disabled");
 
-  GhosttyString version_string = {0};
+  VoidString version_string = {0};
   size_t version_major = 0;
   size_t version_minor = 0;
   size_t version_patch = 0;
-  GhosttyString version_pre = {0};
-  GhosttyString version_build = {0};
+  VoidString version_pre = {0};
+  VoidString version_build = {0};
 
-  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_STRING, &version_string);
-  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_MAJOR, &version_major);
-  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_MINOR, &version_minor);
-  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_PATCH, &version_patch);
-  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_PRE, &version_pre);
-  ghostty_build_info(GHOSTTY_BUILD_INFO_VERSION_BUILD, &version_build);
+  void_build_info(VOID_BUILD_INFO_VERSION_STRING, &version_string);
+  void_build_info(VOID_BUILD_INFO_VERSION_MAJOR, &version_major);
+  void_build_info(VOID_BUILD_INFO_VERSION_MINOR, &version_minor);
+  void_build_info(VOID_BUILD_INFO_VERSION_PATCH, &version_patch);
+  void_build_info(VOID_BUILD_INFO_VERSION_PRE, &version_pre);
+  void_build_info(VOID_BUILD_INFO_VERSION_BUILD, &version_build);
 
   printf("Version: %.*s\n", (int)version_string.len, version_string.ptr);
   printf("Version major: %zu\n", version_major);

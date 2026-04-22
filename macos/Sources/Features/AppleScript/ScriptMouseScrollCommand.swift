@@ -1,12 +1,12 @@
 import AppKit
 
-/// Handler for the `send mouse scroll` AppleScript command defined in `Ghostty.sdef`.
+/// Handler for the `send mouse scroll` AppleScript command defined in `Void.sdef`.
 ///
 /// Cocoa scripting instantiates this class because the command's `<cocoa>` element
-/// specifies `class="GhosttyScriptMouseScrollCommand"`. The runtime calls
+/// specifies `class="VoidScriptMouseScrollCommand"`. The runtime calls
 /// `performDefaultImplementation()` to execute the command.
 @MainActor
-@objc(GhosttyScriptMouseScrollCommand)
+@objc(VoidScriptMouseScrollCommand)
 final class ScriptMouseScrollCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
         guard NSApp.validateScript(command: self) else { return nil }
@@ -43,7 +43,7 @@ final class ScriptMouseScrollCommand: NSScriptCommand {
 
         let precision = evaluatedArguments?["precision"] as? Bool ?? false
 
-        let momentum: Ghostty.Input.Momentum
+        let momentum: Void.Input.Momentum
         if let momentumCode = evaluatedArguments?["momentum"] as? UInt32 {
             switch momentumCode {
             case "SMno".fourCharCode: momentum = .none
@@ -59,7 +59,7 @@ final class ScriptMouseScrollCommand: NSScriptCommand {
             momentum = .none
         }
 
-        let scrollEvent = Ghostty.Input.MouseScrollEvent(
+        let scrollEvent = Void.Input.MouseScrollEvent(
             x: x,
             y: y,
             mods: .init(precision: precision, momentum: momentum)

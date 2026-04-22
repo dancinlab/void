@@ -3,7 +3,7 @@ const font = @import("../main.zig");
 
 /// SVG glyphs description table.
 ///
-/// This struct is focused purely on the operations we need for Ghostty,
+/// This struct is focused purely on the operations we need for Void,
 /// namely to be able to look up whether an glyph ID is present in the SVG
 /// table or not. This struct isn't meant to be a general purpose SVG table
 /// reader.

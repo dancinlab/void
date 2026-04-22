@@ -1,11 +1,11 @@
-# Latvian translations for com.mitchellh.ghostty package.
-# Copyright (C) 2026 "Mitchell Hashimoto, Ghostty contributors"
-# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Latvian translations for com.mitchellh.void package.
+# Copyright (C) 2026 "Mitchell Hashimoto, Void contributors"
+# This file is distributed under the same license as the com.mitchellh.void package.
 # Ēriks Remess <eriks@remess.lv>, 2026.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.ghostty\n"
+"Project-Id-Version: com.mitchellh.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-18 11:34+0200\n"
 "PO-Revision-Date: 2026-02-09 03:24+0200\n"
@@ -17,9 +17,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n!=0 ? 1 : 2);\n"
 
-#: dist/linux/ghostty_nautilus.py:53
-msgid "Open in Ghostty"
-msgstr "Atvērt ar Ghostty"
+#: dist/linux/void_nautilus.py:53
+msgid "Open in Void"
+msgstr "Atvērt ar Void"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -81,12 +81,12 @@ msgstr "Pārlādēt konfigurāciju"
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ Jūs izmantojat Ghostty atkļūdošanas būvējumu! Veiktspēja būs zemāka."
+"⚠️ You're running a debug build of Void! Performance will be degraded."
+msgstr "⚠️ Jūs izmantojat Void atkļūdošanas būvējumu! Veiktspēja būs zemāka."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Termināļa inspektors"
+msgid "Void: Terminal Inspector"
+msgstr "Void: Termināļa inspektors"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -236,8 +236,8 @@ msgid "Terminal Inspector"
 msgstr "Termināļa inspektors"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
-msgid "About Ghostty"
-msgstr "Par Ghostty"
+msgid "About Void"
+msgstr "Par Void"
 
 #: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
@@ -276,8 +276,8 @@ msgstr ""
 "izpildītas komandas."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
-msgid "Quit Ghostty?"
-msgstr "Iziet no Ghostty?"
+msgid "Quit Void?"
+msgstr "Iziet no Void?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -348,5 +348,5 @@ msgid "Cleared clipboard"
 msgstr "Starpliktuve notīrīta"
 
 #: src/apprt/gtk/class/window.zig:1708
-msgid "Ghostty Developers"
-msgstr "Ghostty izstrādātāji"
+msgid "Void Developers"
+msgstr "Void izstrādātāji"

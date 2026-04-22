@@ -1,11 +1,11 @@
-//! Fonts that can be embedded with Ghostty. Note they are only actually
+//! Fonts that can be embedded with Void. Note they are only actually
 //! embedded in the binary if they are referenced by the code, so fonts
 //! used for tests will not result in the final binary being larger.
 //!
 //! Be careful to ensure that any fonts you embed are licensed for
 //! redistribution and include their license as necessary.
 
-/// Default fonts that we prefer for Ghostty.
+/// Default fonts that we prefer for Void.
 pub const variable = @embedFile("jetbrains_mono_variable");
 pub const variable_italic = @embedFile("jetbrains_mono_variable_italic");
 

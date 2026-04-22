@@ -88,7 +88,7 @@
   };
 in
   mkShell {
-    name = "ghostty";
+    name = "void";
     packages =
       [
         # For builds
@@ -206,7 +206,7 @@ in
         swiftlint
       ];
 
-    # This should be set onto the rpath of the ghostty binary if you want
+    # This should be set onto the rpath of the void binary if you want
     # it to be "portable" across the system.
     LD_LIBRARY_PATH = ld_library_path;
     GI_TYPELIB_PATH = gi_typelib_path;

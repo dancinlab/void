@@ -1,7 +1,7 @@
 const std = @import("std");
 
 // Until the gobject bindings are built at the same time we are building
-// Ghostty, we need to import `adwaita.h` directly to ensure that the version
+// Void, we need to import `adwaita.h` directly to ensure that the version
 // macros match the version of `libadwaita` that we are building/linking
 // against.
 const c = @cImport({
@@ -34,7 +34,7 @@ pub fn logVersion() void {
 }
 
 /// Verifies that the running libadwaita version is at least the given
-/// version. This will return false if Ghostty is configured to not build with
+/// version. This will return false if Void is configured to not build with
 /// libadwaita.
 ///
 /// This can be run in both a comptime and runtime context. If it is run in a

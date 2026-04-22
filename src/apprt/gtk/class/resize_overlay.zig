@@ -7,7 +7,7 @@ const gtk = @import("gtk");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
 
-const log = std.log.scoped(.gtk_ghostty_resize_overlay);
+const log = std.log.scoped(.gtk_void_resize_overlay);
 
 /// The overlay that shows the current size while a surface is resizing.
 /// This can be used generically to show pretty much anything with a
@@ -26,7 +26,7 @@ pub const ResizeOverlay = extern struct {
     parent_instance: Parent,
     pub const Parent = adw.Bin;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyResizeOverlay",
+        .name = "VoidResizeOverlay",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,

@@ -18,7 +18,7 @@ pub fn isAtLeastVersion(major: i64, minor: i64, patch: i64) bool {
 
 pub const AppSupportDirError = Allocator.Error || error{AppleAPIFailed};
 
-/// Return the path to the application support directory for Ghostty
+/// Return the path to the application support directory for Void
 /// with the given sub path joined. This allocates the result using the
 /// given allocator.
 pub fn appSupportDir(

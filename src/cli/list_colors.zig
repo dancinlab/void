@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 const args = @import("args.zig");
 const x11_color = @import("../terminal/main.zig").x11_color;
 const vaxis = @import("vaxis");
@@ -23,7 +23,7 @@ pub const Options = struct {
 };
 
 /// The `list-colors` command is used to list all the named RGB colors in
-/// Ghostty.
+/// Void.
 ///
 /// Flags:
 ///
@@ -81,7 +81,7 @@ fn prettyPrint(alloc: Allocator, keys: [][]const u8) !u8 {
     var vx = try vaxis.init(alloc, .{});
     defer vx.deinit(alloc, tty.writer());
 
-    // We know we are ghostty, so let's enable mode 2027. Vaxis normally does this but you need an
+    // We know we are void, so let's enable mode 2027. Vaxis normally does this but you need an
     // event loop to auto-enable it.
     vx.caps.unicode = .unicode;
     try tty.writer().writeAll(vaxis.ctlseqs.unicode_set);

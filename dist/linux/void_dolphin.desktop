@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+ServiceTypes=KonqPopupMenu/Plugin
+MimeType=inode/directory
+Actions=RunVoidDir
+
+[Desktop Action RunVoidDir]
+Name=Open Void Here
+Icon=com.mitchellh.void
+Exec=void +new-window --working-directory=%F

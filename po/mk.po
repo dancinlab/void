@@ -1,12 +1,12 @@
-# Macedonian translations for com.mitchellh.ghostty package.
-# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
-# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Macedonian translations for com.mitchellh.void package.
+# Copyright (C) 2025 Mitchell Hashimoto, Void contributors
+# This file is distributed under the same license as the com.mitchellh.void package.
 # Andrej Daskalov <andrej.daskalov@gmail.com>, 2025.
 # Marija Gjorgjieva Gjondeva <mgjorgjieva2013@gmail.com>, 2025.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.ghostty\n"
+"Project-Id-Version: com.mitchellh.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-02-12 17:00+0100\n"
@@ -17,9 +17,9 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: dist/linux/ghostty_nautilus.py:53
-msgid "Open in Ghostty"
-msgstr "Отвори во Ghostty"
+#: dist/linux/void_nautilus.py:53
+msgid "Open in Void"
+msgstr "Отвори во Void"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -82,13 +82,13 @@ msgstr "Одново вчитај конфигурација"
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+"⚠️ You're running a debug build of Void! Performance will be degraded."
 msgstr ""
-"⚠️ Извршувате дебаг верзија на Ghostty! Перформансите ќе бидат намалени."
+"⚠️ Извршувате дебаг верзија на Void! Перформансите ќе бидат намалени."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Инспектор на терминал"
+msgid "Void: Terminal Inspector"
+msgstr "Void: Инспектор на терминал"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -239,8 +239,8 @@ msgid "Terminal Inspector"
 msgstr "Инспектор на терминал"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
-msgid "About Ghostty"
-msgstr "За Ghostty"
+msgid "About Void"
+msgstr "За Void"
 
 #: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
@@ -279,8 +279,8 @@ msgstr ""
 "изгледа како да ќе се извршат одредени команди."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
-msgid "Quit Ghostty?"
-msgstr "Излези од Ghostty?"
+msgid "Quit Void?"
+msgstr "Излези од Void?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -351,5 +351,5 @@ msgid "Cleared clipboard"
 msgstr "Исчистена привремена меморија"
 
 #: src/apprt/gtk/class/window.zig:1708
-msgid "Ghostty Developers"
-msgstr "Развивачи на Ghostty"
+msgid "Void Developers"
+msgstr "Развивачи на Void"

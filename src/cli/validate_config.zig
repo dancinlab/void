@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const args = @import("args.zig");
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 const Config = @import("../config.zig").Config;
 
 pub const Options = struct {
@@ -20,7 +20,7 @@ pub const Options = struct {
     }
 };
 
-/// The `validate-config` command is used to validate a Ghostty config file.
+/// The `validate-config` command is used to validate a Void config file.
 ///
 /// When executed without any arguments, this will load the config from the default
 /// location.

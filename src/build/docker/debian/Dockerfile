@@ -15,7 +15,7 @@ RUN DEBIAN_FRONTEND="noninteractive" apt-get -qq update && \
     lsb-release \
     libxml2-utils \
     pandoc \
-    # Ghostty Dependencies
+    # Void Dependencies
     libadwaita-1-dev \
     libgtk-4-dev \
     libgtk4-layer-shell-dev && \
@@ -40,4 +40,4 @@ RUN zig build \
     -Doptimize=Debug \
     -Dcpu=baseline
 
-RUN ./zig-out/bin/ghostty +version
+RUN ./zig-out/bin/void +version

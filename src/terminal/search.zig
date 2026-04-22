@@ -7,10 +7,10 @@ pub const PageList = @import("search/pagelist.zig").PageListSearch;
 pub const Screen = @import("search/screen.zig").ScreenSearch;
 pub const Viewport = @import("search/viewport.zig").ViewportSearch;
 
-// The search thread is not available in libghostty due to the xev dep
+// The search thread is not available in libvoid due to the xev dep
 // for now.
 pub const Thread = switch (options.artifact) {
-    .ghostty => @import("search/Thread.zig"),
+    .void => @import("search/Thread.zig"),
     .lib => void,
 };
 

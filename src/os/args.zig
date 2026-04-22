@@ -27,7 +27,7 @@ pub const ArgIterator = switch (builtin.os.tag) {
 ///
 /// I believe this should work for all macOS applications even if
 /// NSApplicationMain is not used, but I haven't tested that so I'm not
-/// sure. If/when libghostty is ever used outside of NSApplicationMain
+/// sure. If/when libvoid is ever used outside of NSApplicationMain
 /// then we can revisit this.
 const IteratorMacOS = struct {
     alloc: Allocator,

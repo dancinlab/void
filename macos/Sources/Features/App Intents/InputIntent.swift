@@ -32,11 +32,11 @@ struct InputTextIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw VoidIntentError.permissionDenied
         }
 
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw VoidIntentError.surfaceNotFound
         }
 
         surface.sendText(text)
@@ -54,7 +54,7 @@ struct KeyEventIntent: AppIntent {
         description: "The key to send to the terminal.",
         default: .enter
     )
-    var key: Ghostty.Input.Key
+    var key: Void.Input.Key
 
     @Parameter(
         title: "Modifier(s)",
@@ -68,7 +68,7 @@ struct KeyEventIntent: AppIntent {
         description: "A key press or release.",
         default: .press
     )
-    var action: Ghostty.Input.Action
+    var action: Void.Input.Action
 
     @Parameter(
         title: "Terminal",
@@ -84,22 +84,22 @@ struct KeyEventIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw VoidIntentError.permissionDenied
         }
 
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw VoidIntentError.surfaceNotFound
         }
 
-        // Convert KeyEventMods array to Ghostty.Input.Mods
-        let ghosttyMods = mods.reduce(Ghostty.Input.Mods()) { result, mod in
-            result.union(mod.ghosttyMod)
+        // Convert KeyEventMods array to Void.Input.Mods
+        let voidMods = mods.reduce(Void.Input.Mods()) { result, mod in
+            result.union(mod.voidMod)
         }
 
-        let keyEvent = Ghostty.Input.KeyEvent(
+        let keyEvent = Void.Input.KeyEvent(
             key: key,
             action: action,
-            mods: ghosttyMods
+            mods: voidMods
         )
         surface.sendKeyEvent(keyEvent)
 
@@ -118,14 +118,14 @@ struct MouseButtonIntent: AppIntent {
         description: "The mouse button to press or release.",
         default: .left
     )
-    var button: Ghostty.Input.MouseButton
+    var button: Void.Input.MouseButton
 
     @Parameter(
         title: "Action",
         description: "Whether to press or release the button.",
         default: .press
     )
-    var action: Ghostty.Input.MouseState
+    var action: Void.Input.MouseState
 
     @Parameter(
         title: "Modifier(s)",
@@ -148,22 +148,22 @@ struct MouseButtonIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw VoidIntentError.permissionDenied
         }
 
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw VoidIntentError.surfaceNotFound
         }
 
-        // Convert KeyEventMods array to Ghostty.Input.Mods
-        let ghosttyMods = mods.reduce(Ghostty.Input.Mods()) { result, mod in
-            result.union(mod.ghosttyMod)
+        // Convert KeyEventMods array to Void.Input.Mods
+        let voidMods = mods.reduce(Void.Input.Mods()) { result, mod in
+            result.union(mod.voidMod)
         }
 
-        let mouseEvent = Ghostty.Input.MouseButtonEvent(
+        let mouseEvent = Void.Input.MouseButtonEvent(
             action: action,
             button: button,
-            mods: ghosttyMods
+            mods: voidMods
         )
         surface.sendMouseButton(mouseEvent)
 
@@ -211,22 +211,22 @@ struct MousePosIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw VoidIntentError.permissionDenied
         }
 
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw VoidIntentError.surfaceNotFound
         }
 
-        // Convert KeyEventMods array to Ghostty.Input.Mods
-        let ghosttyMods = mods.reduce(Ghostty.Input.Mods()) { result, mod in
-            result.union(mod.ghosttyMod)
+        // Convert KeyEventMods array to Void.Input.Mods
+        let voidMods = mods.reduce(Void.Input.Mods()) { result, mod in
+            result.union(mod.voidMod)
         }
 
-        let mousePosEvent = Ghostty.Input.MousePosEvent(
+        let mousePosEvent = Void.Input.MousePosEvent(
             x: x,
             y: y,
-            mods: ghosttyMods
+            mods: voidMods
         )
         surface.sendMousePos(mousePosEvent)
 
@@ -263,9 +263,9 @@ struct MouseScrollIntent: AppIntent {
     @Parameter(
         title: "Momentum Phase",
         description: "The momentum phase for inertial scrolling.",
-        default: Ghostty.Input.Momentum.none
+        default: Void.Input.Momentum.none
     )
-    var momentum: Ghostty.Input.Momentum
+    var momentum: Void.Input.Momentum
 
     @Parameter(
         title: "Terminal",
@@ -281,14 +281,14 @@ struct MouseScrollIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw VoidIntentError.permissionDenied
         }
 
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw VoidIntentError.surfaceNotFound
         }
 
-        let scrollEvent = Ghostty.Input.MouseScrollEvent(
+        let scrollEvent = Void.Input.MouseScrollEvent(
             x: x,
             y: y,
             mods: .init(precision: precision, momentum: momentum)
@@ -316,7 +316,7 @@ enum KeyEventMods: String, AppEnum, CaseIterable {
         .command: "Command"
     ]
 
-    var ghosttyMod: Ghostty.Input.Mods {
+    var voidMod: Void.Input.Mods {
         switch self {
         case .shift: .shift
         case .control: .ctrl

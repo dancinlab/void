@@ -1,33 +1,33 @@
-name: ghostty
+name: void
 base: core24
 summary: A terminal emulator
 description: |
-  Ghostty is a fast, feature-rich, and cross-platform terminal emulator that
+  Void is a fast, feature-rich, and cross-platform terminal emulator that
   uses platform-native UI and GPU acceleration.
 grade: stable
 confinement: classic
 contact: https://github.com/ghostty-org/ghostty/discussions
 issues: https://github.com/ghostty-org/ghostty/issues
-website: https://ghostty.org
+website: https://void.org
 license: MIT
 icon: images/icons/icon_512.png
-adopt-info: ghostty
+adopt-info: void
 
 platforms:
   amd64:
   arm64:
 
 apps:
-  ghostty:
-    command: bin/ghostty
+  void:
+    command: bin/void
     command-chain: [app/launcher]
-    completer: share/bash-completion/completions/ghostty.bash
-    desktop: share/applications/com.mitchellh.ghostty.desktop
+    completer: share/bash-completion/completions/void.bash
+    desktop: share/applications/com.mitchellh.void.desktop
     #refresh-mode: ignore-running # Store rejects this, needs fix in review-tools
     environment:
-      PATH: /snap/ghostty/current/bin:/snap/ghostty/current/usr/bin:$PATH
+      PATH: /snap/void/current/bin:/snap/void/current/usr/bin:$PATH
       LC_ALL: C.UTF-8
-      GHOSTTY_RESOURCES_DIR: /snap/ghostty/current/share/ghostty
+      VOID_RESOURCES_DIR: /snap/void/current/share/void
 
 parts:
   launcher:
@@ -64,7 +64,7 @@ parts:
     prime:
       - -*
 
-  ghostty:
+  void:
     source: .
     after: [zig]
     plugin: nil
@@ -86,7 +86,7 @@ parts:
         -Dcpu=baseline \
         -fno-sys=gtk4-layer-shell
       cp -rp zig-out/* $CRAFT_PART_INSTALL/
-      sed -i 's|Icon=com.mitchellh.ghostty|Icon=${SNAP}/share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png|g' $CRAFT_PART_INSTALL/share/applications/com.mitchellh.ghostty.desktop
+      sed -i 's|Icon=com.mitchellh.void|Icon=${SNAP}/share/icons/hicolor/512x512/apps/com.mitchellh.void.png|g' $CRAFT_PART_INSTALL/share/applications/com.mitchellh.void.desktop
 
   libs:
     plugin: nil

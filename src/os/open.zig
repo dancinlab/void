@@ -14,7 +14,7 @@ const log = std.log.scoped(.@"os-open");
 ///
 /// This function is purposely simple for the sake of providing
 /// some portable way to open URLs. If you are implementing an
-/// apprt for Ghostty, you should consider doing something special-cased
+/// apprt for Void, you should consider doing something special-cased
 /// for your platform.
 pub fn open(
     alloc: Allocator,

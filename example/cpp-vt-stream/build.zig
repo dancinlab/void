@@ -16,16 +16,16 @@ pub fn build(b: *std.Build) void {
     });
     exe_mod.link_libcpp = true;
 
-    // You'll want to use a lazy dependency here so that ghostty is only
+    // You'll want to use a lazy dependency here so that void is only
     // downloaded if you actually need it.
-    if (b.lazyDependency("ghostty", .{
+    if (b.lazyDependency("void", .{
         // Setting simd to false will force a pure static build that
         // doesn't even require libc, but it has a significant performance
         // penalty. If your embedding app requires libc anyway, you should
         // always keep simd enabled.
         // .simd = false,
     })) |dep| {
-        exe_mod.linkLibrary(dep.artifact("ghostty-vt"));
+        exe_mod.linkLibrary(dep.artifact("void-vt"));
     }
 
     // Exe

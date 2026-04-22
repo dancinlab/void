@@ -6,7 +6,7 @@
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <objects>
-        <customObject id="-2" userLabel="File's Owner" customClass="AboutController" customModule="Ghostty" customModuleProvider="target">
+        <customObject id="-2" userLabel="File's Owner" customClass="AboutController" customModule="Void" customModuleProvider="target">
             <connections>
                 <outlet property="window" destination="QvC-M9-y7g" id="GLn-a3-1Hp"/>
             </connections>

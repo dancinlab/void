@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const args = @import("args.zig");
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 
 // Note that this options struct doesn't implement the `help` decl like other
 // actions. That is because the help command is special and wants to handle its
@@ -15,7 +15,7 @@ pub const Options = struct {
     }
 };
 
-/// The `help` command shows general help about Ghostty. Recognized as either
+/// The `help` command shows general help about Void. Recognized as either
 /// `-h, `--help`, or like other actions `+help`.
 ///
 /// You can also specify `--help` or `-h` along with any action such as
@@ -34,11 +34,11 @@ pub fn run(alloc: Allocator) !u8 {
     var stdout_writer = std.fs.File.stdout().writer(&buffer);
     const stdout = &stdout_writer.interface;
     try stdout.writeAll(
-        \\Usage: ghostty [+action] [options]
+        \\Usage: void [+action] [options]
         \\
-        \\Run the Ghostty terminal emulator or a specific helper action.
+        \\Run the Void terminal emulator or a specific helper action.
         \\
-        \\If no `+action` is specified, run the Ghostty terminal emulator.
+        \\If no `+action` is specified, run the Void terminal emulator.
         \\All configuration keys are available as command line options.
         \\To specify a configuration key, use the `--<key>=<value>` syntax
         \\where key and value are the same format you'd put into a configuration
@@ -50,11 +50,11 @@ pub fn run(alloc: Allocator) !u8 {
         \\
         \\A special command line argument `-e <command>` can be used to run
         \\the specific command inside the terminal emulator. For example,
-        \\`ghostty -e top` will run the `top` command inside the terminal.
+        \\`void -e top` will run the `top` command inside the terminal.
         \\
         \\On macOS, launching the terminal emulator from the CLI is not
-        \\supported and only actions are supported. Use `open -na Ghostty.app`
-        \\instead, or `open -na ghostty.app --args --foo=bar --baz=quz` to pass
+        \\supported and only actions are supported. Use `open -na Void.app`
+        \\instead, or `open -na void.app --args --foo=bar --baz=quz` to pass
         \\arguments.
         \\
         \\Available actions:

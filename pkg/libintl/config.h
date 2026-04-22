@@ -2353,7 +2353,7 @@
 #include "os2compat.h"
 #endif
 
-/* ADDED FOR GHOSTTY. This is needed to ensure that all gnulib-lib
+/* ADDED FOR VOID. This is needed to ensure that all gnulib-lib
  * source files have the locale_t type and all the LC_ constants.
  * It looks like some files do this and some don't so we just put it
  * here to ensure we always have it. This surely can't be the best or

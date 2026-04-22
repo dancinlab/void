@@ -15,7 +15,7 @@ macos/
 **/*.xcassets/
 
 # produced by Icon Composer on macOS
-images/Ghostty.icon/icon.json
+images/Void.icon/icon.json
 
 # website dev run
 website/.next
@@ -24,8 +24,8 @@ website/.next
 *.frag
 
 # fuzz corpus files
-test/fuzz-libghostty/corpus/
-test/fuzz-libghostty/afl-out/
+test/fuzz-libvoid/corpus/
+test/fuzz-libvoid/afl-out/
 
 # Swift example build outputs
 example/swift-vt-xcframework/.build/

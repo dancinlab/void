@@ -1,9 +1,9 @@
 # Doxyfile 1.13.2
 
 DOXYFILE_ENCODING      = UTF-8
-PROJECT_NAME           = "libghostty"
+PROJECT_NAME           = "libvoid"
 PROJECT_LOGO           = images/gnome/64.png
-INPUT                  = include/ghostty
+INPUT                  = include/void
 INPUT_ENCODING         = UTF-8
 RECURSIVE              = YES
 FILE_PATTERNS          = *.h
@@ -54,8 +54,8 @@ EXTRACT_LOCAL_CLASSES  = NO
 #---------------------------------------------------------------------------
 
 GENERATE_HTML          = YES
-HTML_OUTPUT            = zig-out/share/ghostty/doc/libghostty
-HTML_EXTRA_STYLESHEET  = dist/doxygen/ghostty.css
+HTML_OUTPUT            = zig-out/share/void/doc/libvoid
+HTML_EXTRA_STYLESHEET  = dist/doxygen/void.css
 HTML_EXTRA_FILES       = dist/doxygen/favicon.png \
                          dist/doxygen/mobile-nav.js
 HTML_COLORSTYLE        = DARK

@@ -6,7 +6,7 @@
     .dependencies = .{
         // google/highway
         .highway = .{
-            .url = "https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz",
+            .url = "https://deps.files.void.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz",
             .hash = "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE",
             .lazy = true,
         },

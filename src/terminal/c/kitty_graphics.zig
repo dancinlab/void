@@ -12,19 +12,19 @@ const terminal_c = @import("terminal.zig");
 const Terminal = @import("../Terminal.zig");
 const Result = @import("result.zig").Result;
 
-/// C: GhosttyKittyGraphics
+/// C: VoidKittyGraphics
 pub const KittyGraphics = if (build_options.kitty_graphics)
     *kitty_storage.ImageStorage
 else
     *anyopaque;
 
-/// C: GhosttyKittyGraphicsImage
+/// C: VoidKittyGraphicsImage
 pub const ImageHandle = if (build_options.kitty_graphics)
     ?*const Image
 else
     ?*const anyopaque;
 
-/// C: GhosttyKittyGraphicsPlacementIterator
+/// C: VoidKittyGraphicsPlacementIterator
 pub const PlacementIterator = if (build_options.kitty_graphics)
     ?*PlacementIteratorWrapper
 else
@@ -48,7 +48,7 @@ const PlacementIteratorWrapper = if (build_options.kitty_graphics)
 else
     void;
 
-/// C: GhosttyKittyGraphicsData
+/// C: VoidKittyGraphicsData
 pub const Data = enum(c_int) {
     invalid = 0,
     placement_iterator = 1,
@@ -61,7 +61,7 @@ pub const Data = enum(c_int) {
     }
 };
 
-/// C: GhosttyKittyGraphicsPlacementData
+/// C: VoidKittyGraphicsPlacementData
 pub const PlacementData = enum(c_int) {
     invalid = 0,
     image_id = 1,
@@ -133,7 +133,7 @@ fn getTyped(
     return .success;
 }
 
-/// C: GhosttyKittyPlacementLayer
+/// C: VoidKittyPlacementLayer
 pub const PlacementLayer = enum(c_int) {
     all = 0,
     below_bg = 1,
@@ -150,7 +150,7 @@ pub const PlacementLayer = enum(c_int) {
     }
 };
 
-/// C: GhosttyKittyGraphicsPlacementIteratorOption
+/// C: VoidKittyGraphicsPlacementIteratorOption
 pub const PlacementIteratorOption = enum(c_int) {
     layer = 0,
 
@@ -161,13 +161,13 @@ pub const PlacementIteratorOption = enum(c_int) {
     }
 };
 
-/// C: GhosttyKittyImageFormat
+/// C: VoidKittyImageFormat
 pub const ImageFormat = kitty_cmd.Transmission.Format;
 
-/// C: GhosttyKittyImageCompression
+/// C: VoidKittyImageCompression
 pub const ImageCompression = kitty_cmd.Transmission.Compression;
 
-/// C: GhosttyKittyGraphicsImageData
+/// C: VoidKittyGraphicsImageData
 pub const ImageData = enum(c_int) {
     invalid = 0,
     id = 1,
@@ -524,7 +524,7 @@ pub fn placement_source_rect(
     return .success;
 }
 
-/// C: GhosttyKittyGraphicsPlacementRenderInfo
+/// C: VoidKittyGraphicsPlacementRenderInfo
 pub const PlacementRenderInfo = extern struct {
     size: usize = @sizeOf(PlacementRenderInfo),
     pixel_width: u32 = 0,

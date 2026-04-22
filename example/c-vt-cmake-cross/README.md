@@ -1,7 +1,7 @@
 # c-vt-cmake-cross
 
-Demonstrates using `ghostty_vt_add_target()` to cross-compile
-libghostty-vt with static linking. The target OS is chosen automatically:
+Demonstrates using `void_vt_add_target()` to cross-compile
+libvoid-vt with static linking. The target OS is chosen automatically:
 
 | Host    | Target          |
 | ------- | --------------- |
@@ -15,7 +15,7 @@ Override with `-DZIG_TARGET=...` if needed.
 
 ```shell-session
 cd example/c-vt-cmake-cross
-cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=../..
+cmake -B build -DFETCHCONTENT_SOURCE_DIR_VOID=../..
 cmake --build build
 file build/c_vt_cmake_cross
 ```

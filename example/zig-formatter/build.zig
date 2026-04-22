@@ -13,10 +13,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    if (b.lazyDependency("ghostty", .{})) |dep| {
+    if (b.lazyDependency("void", .{})) |dep| {
         exe_mod.addImport(
-            "ghostty-vt",
-            dep.module("ghostty-vt"),
+            "void-vt",
+            dep.module("void-vt"),
         );
     }
 

@@ -14,7 +14,7 @@ const ParserWrapper = struct {
     alloc: Allocator,
 };
 
-/// C: GhosttySgrParser
+/// C: VoidSgrParser
 pub const Parser = ?*ParserWrapper;
 
 pub fn new(
@@ -66,7 +66,7 @@ pub fn setParams(
     parser.params_sep = .initEmpty();
     if (seps_) |seps| {
         if (len > @TypeOf(parser.params_sep).bit_length) {
-            log.warn("ghostty_sgr_set_params: separators length {} exceeds max supported length {}", .{
+            log.warn("void_sgr_set_params: separators length {} exceeds max supported length {}", .{
                 len,
                 @TypeOf(parser.params_sep).bit_length,
             });

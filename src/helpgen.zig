@@ -1,10 +1,10 @@
 //! This program is used to generate the help strings from the configuration
-//! file and CLI actions for Ghostty. These can then be used to generate
+//! file and CLI actions for Void. These can then be used to generate
 //! help, docs, website, etc.
 
 const std = @import("std");
 const Config = @import("config/Config.zig");
-const Action = @import("cli/ghostty.zig").Action;
+const Action = @import("cli/void.zig").Action;
 const KeybindAction = @import("input/Binding.zig").Action;
 
 pub fn main() !void {

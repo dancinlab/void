@@ -35,8 +35,8 @@ simd: bool = true,
 i18n: bool = true,
 wasm_shared: bool = true,
 
-/// Ghostty exe properties
-exe_entrypoint: ExeEntrypoint = .ghostty,
+/// Void exe properties
+exe_entrypoint: ExeEntrypoint = .void,
 version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
 lib_version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
 
@@ -62,7 +62,7 @@ emit_xcframework: bool = false,
 emit_webdata: bool = false,
 emit_unicode_table_gen: bool = false,
 
-/// True when Ghostty is being built as a dependency of another project
+/// True when Void is being built as a dependency of another project
 /// rather than as the root project.
 is_dep: bool = false,
 
@@ -106,7 +106,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         break :target result;
     };
 
-    // Detect if Ghostty is a dependency of another project.
+    // Detect if Void is a dependency of another project.
     // dep_prefix is non-empty when this build is running as a dependency.
     const is_dep = b.dep_prefix.len > 0;
 
@@ -228,7 +228,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     };
 
     //---------------------------------------------------------------
-    // Ghostty Exe Properties
+    // Void Exe Properties
 
     const version_string = b.option(
         []const u8,
@@ -243,7 +243,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     else version: {
         const app_version = try std.SemanticVersion.parse(appVersion);
 
-        // Is ghostty a dependency? If so, skip git detection.
+        // Is void a dependency? If so, skip git detection.
         if (is_dep) break :version .{
             .major = app_version.major,
             .minor = app_version.minor,
@@ -295,12 +295,12 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         };
     };
 
-    // libghostty-vt properties
+    // libvoid-vt properties
 
     const lib_version_string = b.option(
         []const u8,
         "lib-version-string",
-        "A specific version string to use for the build of libghostty-vt. " ++
+        "A specific version string to use for the build of libvoid-vt. " ++
             "If not specified, git will be used. This must be a semantic version.",
     );
 
@@ -353,7 +353,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     config.emit_lib_vt = b.option(
         bool,
         "emit-lib-vt",
-        "Set defaults for a libghostty-vt-only build (disables xcframework, macOS app, and docs).",
+        "Set defaults for a libvoid-vt-only build (disables xcframework, macOS app, and docs).",
     ) orelse false;
 
     config.emit_exe = b.option(
@@ -410,7 +410,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     config.emit_terminfo = b.option(
         bool,
         "emit-terminfo",
-        "Install Ghostty terminfo source file",
+        "Install Void terminfo source file",
     ) orelse switch (target.result.os.tag) {
         .windows => true,
         else => switch (optimize) {
@@ -422,7 +422,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     config.emit_termcap = b.option(
         bool,
         "emit-termcap",
-        "Install Ghostty termcap file",
+        "Install Void termcap file",
     ) orelse switch (optimize) {
         .Debug => true,
         .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
@@ -431,7 +431,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     config.emit_themes = b.option(
         bool,
         "emit-themes",
-        "Install bundled iTerm2-Color-Schemes Ghostty themes",
+        "Install bundled iTerm2-Color-Schemes Void themes",
     ) orelse true;
 
     config.emit_webdata = b.option(
@@ -560,7 +560,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
 }
 
 /// Returns the build options for the terminal module. This assumes a
-/// Ghostty executable being built. Callers should modify this as needed.
+/// Void executable being built. Callers should modify this as needed.
 pub fn terminalOptions(self: *const Config, artifact: TerminalBuildOptions.Artifact) TerminalBuildOptions {
     return .{
         .artifact = artifact,
@@ -568,7 +568,7 @@ pub fn terminalOptions(self: *const Config, artifact: TerminalBuildOptions.Artif
         .oniguruma = true,
         .c_abi = false,
         .version = switch (artifact) {
-            .ghostty => self.version,
+            .void => self.version,
             .lib => self.lib_version,
         },
         .slow_runtime_safety = switch (self.optimize) {
@@ -650,7 +650,7 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
 // `b.standardTargetOptions()` returns a more specific cpu like `apple_a15`.
 //
 // This is used to workaround compilation issues on macOS.
-// (see for example https://github.com/mitchellh/ghostty/issues/1640).
+// (see for example https://github.com/mitchellh/void/issues/1640).
 pub fn genericMacOSTarget(
     b: *std.Build,
     arch: ?std.Target.Cpu.Arch,
@@ -672,10 +672,10 @@ pub fn genericMacOSTarget(
 ///
 /// Therefore, main.zig uses this to switch between the different entrypoints.
 pub const ExeEntrypoint = enum {
-    ghostty,
+    void,
     helpgen,
-    mdgen_ghostty_1,
-    mdgen_ghostty_5,
+    mdgen_void_1,
+    mdgen_void_5,
     webgen_config,
     webgen_actions,
     webgen_commands,

@@ -1,6 +1,6 @@
 const std = @import("std");
 const args = @import("args.zig");
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 const Allocator = std.mem.Allocator;
 const helpgen_actions = @import("../input/helpgen_actions.zig");
 
@@ -21,7 +21,7 @@ pub const Options = struct {
 };
 
 /// The `list-actions` command is used to list all the available keybind
-/// actions for Ghostty. These are distinct from the CLI Actions which can
+/// actions for Void. These are distinct from the CLI Actions which can
 /// be listed via `+help`
 ///
 /// Flags:

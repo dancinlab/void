@@ -48,7 +48,7 @@ fn colorMap() ColorMap {
 /// This is the rgb.txt file from the X11 project. This was last sourced
 /// from this location: https://gitlab.freedesktop.org/xorg/app/rgb
 /// This data is licensed under the MIT/X11 license while this Zig file is
-/// licensed under the same license as Ghostty.
+/// licensed under the same license as Void.
 const data = @embedFile("res/rgb.txt");
 
 test {

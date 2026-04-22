@@ -1,25 +1,25 @@
-# Packaging Ghostty for Distribution
+# Packaging Void for Distribution
 
-Ghostty relies on downstream package maintainers to distribute Ghostty to
+Void relies on downstream package maintainers to distribute Void to
 end-users. This document provides guidance to package maintainers on how to
-package Ghostty for distribution.
+package Void for distribution.
 
 > [!IMPORTANT]
 >
-> This document is only accurate for the Ghostty source alongside it.
-> **Do not use this document for older or newer versions of Ghostty!** If
-> you are reading this document in a different version of Ghostty, please
+> This document is only accurate for the Void source alongside it.
+> **Do not use this document for older or newer versions of Void!** If
+> you are reading this document in a different version of Void, please
 > find the `PACKAGING.md` file alongside that version.
 
 ## Source Tarballs
 
 Source tarballs with stable checksums are available for tagged releases
-at `release.files.ghostty.org` in the following URL format where
+at `release.files.void.org` in the following URL format where
 `VERSION` is the version number with no prefix such as `1.0.0`:
 
 ```
-https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz
-https://release.files.ghostty.org/VERSION/ghostty-VERSION.tar.gz.minisig
+https://release.files.void.org/VERSION/void-VERSION.tar.gz
+https://release.files.void.org/VERSION/void-VERSION.tar.gz.minisig
 ```
 
 Signature files are signed with
@@ -32,40 +32,40 @@ RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV
 
 **Tip source tarballs** are available on the
 [GitHub releases page](https://github.com/ghostty-org/ghostty/releases/tag/tip).
-Use the `ghostty-source.tar.gz` asset and _not the GitHub auto-generated
+Use the `void-source.tar.gz` asset and _not the GitHub auto-generated
 source tarball_. These tarballs are generated for every commit to
 the `main` branch and are not associated with a specific version.
 
 > [!WARNING]
 >
 > Source tarballs are _not the same_ as a Git checkout. Source tarballs
-> contain some preprocessed files that allow building Ghostty with less
-> dependencies. If you are building Ghostty from a Git checkout, the
+> contain some preprocessed files that allow building Void with less
+> dependencies. If you are building Void from a Git checkout, the
 > steps below are the same but they may require additional dependencies
 > not listed here. See the `README.md` for more information on building
 > from a Git checkout.
 >
-> For everyone except Ghostty developers, please use the source tarballs.
+> For everyone except Void developers, please use the source tarballs.
 > We generate tip source tarballs for users following the development
 > branch.
 
 ## Zig Version
 
-[Zig](https://ziglang.org) is required to build Ghostty. Prior to Zig 1.0,
-Zig releases often have breaking changes. Ghostty requires specific Zig versions
-depending on the Ghostty version in order to build. To make things easier for
-package maintainers, Ghostty always uses some _released_ version of Zig.
+[Zig](https://ziglang.org) is required to build Void. Prior to Zig 1.0,
+Zig releases often have breaking changes. Void requires specific Zig versions
+depending on the Void version in order to build. To make things easier for
+package maintainers, Void always uses some _released_ version of Zig.
 
-To find the version of Zig required to build Ghostty, check the `required_zig`
+To find the version of Zig required to build Void, check the `required_zig`
 constant in `build.zig`. You don't need to know Zig to extract this information.
 This version will always be an official released version of Zig.
 
-For example, at the time of writing this document, Ghostty requires Zig 0.14.0.
+For example, at the time of writing this document, Void requires Zig 0.14.0.
 
-## Building Ghostty
+## Building Void
 
-The following is a standard example of how to build Ghostty _for system
-packages_. This is not the recommended way to build Ghostty for your
+The following is a standard example of how to build Void _for system
+packages_. This is not the recommended way to build Void for your
 own system. For that, see the primary README.
 
 1. First, we fetch our dependencies from the internet into a cached directory.
@@ -75,10 +75,10 @@ own system. For that, see the primary README.
 ZIG_GLOBAL_CACHE_DIR=/tmp/offline-cache ./nix/build-support/fetch-zig-cache.sh
 ```
 
-2. Next, we build Ghostty. This step requires no internet access:
+2. Next, we build Void. This step requires no internet access:
 
 ```sh
-DESTDIR=/tmp/ghostty \
+DESTDIR=/tmp/void \
 zig build \
   --prefix /usr \
   --system /tmp/offline-cache/p \
@@ -87,15 +87,15 @@ zig build \
 ```
 
 The build options are covered in the next section, but this will build
-and install Ghostty to `/tmp/ghostty` with the prefix `/usr` (i.e. the
-binary will be at `/tmp/ghostty/usr/bin/ghostty`). This style is common
+and install Void to `/tmp/void` with the prefix `/usr` (i.e. the
+binary will be at `/tmp/void/usr/bin/void`). This style is common
 for system packages which separate a build and install step, since the
-install step can then be done with a `mv` or `cp` command (from `/tmp/ghostty`
+install step can then be done with a `mv` or `cp` command (from `/tmp/void`
 to wherever the package manager expects it).
 
 ### Build Options
 
-Ghostty uses the Zig build system. You can see all available build options by
+Void uses the Zig build system. You can see all available build options by
 running `zig build --help`. The following are options that are particularly
 relevant to package maintainers:
 

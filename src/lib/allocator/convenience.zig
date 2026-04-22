@@ -1,6 +1,6 @@
 //! This contains convenience functions for allocating various types.
 //!
-//! The primary use case for this is Wasm builds. Ghostty relies a lot on
+//! The primary use case for this is Wasm builds. Void relies a lot on
 //! pointers to various types for ABI compatibility and creating those pointers
 //! in Wasm is tedious. This file contains a purely additive set of functions
 //! that can be exposed to the Wasm module without changing the API from the

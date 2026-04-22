@@ -1,7 +1,7 @@
 import AppKit
 
 class DockTilePlugin: NSObject, NSDockTilePlugIn {
-    // WARNING: An instance of this class is alive as long as Ghostty's icon is
+    // WARNING: An instance of this class is alive as long as Void's icon is
     // in the doc (running or not!), so keep any state and processing to a
     // minimum to respect resource usage.
 
@@ -10,30 +10,30 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
     // Separate defaults based on debug vs release builds so we can test icons
     // without messing up releases.
     #if DEBUG
-    private let ghosttyUserDefaults = UserDefaults(suiteName: "com.mitchellh.ghostty.debug")
+    private let voidUserDefaults = UserDefaults(suiteName: "com.mitchellh.void.debug")
     #else
-    private let ghosttyUserDefaults = UserDefaults(suiteName: "com.mitchellh.ghostty")
+    private let voidUserDefaults = UserDefaults(suiteName: "com.mitchellh.void")
     #endif
 
     private var iconChangeObserver: Any?
 
     /// The primary NSDockTilePlugin function.
     func setDockTile(_ dockTile: NSDockTile?) {
-        // If no dock tile or no access to Ghostty defaults, we can't do anything.
-        guard let dockTile, let ghosttyUserDefaults else {
+        // If no dock tile or no access to Void defaults, we can't do anything.
+        guard let dockTile, let voidUserDefaults else {
             iconChangeObserver = nil
             return
         }
 
         // Try to restore the previous icon on launch.
-        iconDidChange(ghosttyUserDefaults.appIcon, dockTile: dockTile)
+        iconDidChange(voidUserDefaults.appIcon, dockTile: dockTile)
 
         // Setup a new observer for when the icon changes so we can update. This message
-        // is sent by the primary Ghostty app.
+        // is sent by the primary Void app.
         iconChangeObserver = DistributedNotificationCenter
             .default()
-            .publisher(for: .ghosttyIconDidChange)
-            .map { [weak self] _ in self?.ghosttyUserDefaults?.appIcon }
+            .publisher(for: .voidIconDidChange)
+            .map { [weak self] _ in self?.voidUserDefaults?.appIcon }
             .receive(on: DispatchQueue.global())
             .sink { [weak self] newIcon in self?.iconDidChange(newIcon, dockTile: dockTile) }
     }
@@ -55,7 +55,7 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
             // Use the `Blueprint` icon to distinguish Debug from Release builds.
             appIcon = pluginBundle.image(forResource: "BlueprintImage")!
             #else
-            // Reset to Ghostty.icon
+            // Reset to Void.icon
             appIcon = nil
             #endif
         } else {

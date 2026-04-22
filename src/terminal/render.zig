@@ -19,7 +19,7 @@ const Terminal = @import("Terminal.zig");
 
 // Developer note: this is in src/terminal and not src/renderer because
 // the goal is that this remains generic to multiple renderers. This can
-// aid specifically with libghostty-vt with converting terminal state to
+// aid specifically with libvoid-vt with converting terminal state to
 // a renderable form.
 
 /// Contains the state required to render the screen, including optimizing
@@ -27,7 +27,7 @@ const Terminal = @import("Terminal.zig");
 ///
 /// Previously, our renderer would use `clone` to clone the screen within
 /// the viewport to perform rendering. This worked well enough that we kept
-/// it all the way up through the Ghostty 1.2.x series, but the clone time
+/// it all the way up through the Void 1.2.x series, but the clone time
 /// was repeatedly a bottleneck blocking IO.
 ///
 /// Rather than a generic clone that tries to clone all screen state per call

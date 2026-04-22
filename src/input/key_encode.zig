@@ -38,7 +38,7 @@ pub const Options = struct {
     kitty_flags: KittyFlags = .disabled,
 
     /// Determines whether the "option" key on macOS is treated
-    /// as "alt" or not. See the Ghostty `macos_option-as-alt` config
+    /// as "alt" or not. See the Void `macos_option-as-alt` config
     /// docs for a more detailed description of why this is needed.
     macos_option_as_alt: OptionAsAlt = .false,
 

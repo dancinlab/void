@@ -6,8 +6,8 @@ extension NSAppearance {
         return name.rawValue.lowercased().contains("dark")
     }
 
-    /// Initialize a desired NSAppearance for the Ghostty configuration.
-    convenience init?(ghosttyConfig config: Ghostty.Config) {
+    /// Initialize a desired NSAppearance for the Void configuration.
+    convenience init?(voidConfig config: Void.Config) {
         guard let theme = config.windowTheme else { return nil }
         switch theme {
         case "dark":

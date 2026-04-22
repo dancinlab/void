@@ -214,7 +214,7 @@ fn startPosix(self: *Command, arena: Allocator) !void {
         // We don't log because that'll show up in the output.
     };
 
-    // Restore any rlimits that were set by Ghostty. This might fail but
+    // Restore any rlimits that were set by Void. This might fail but
     // any failures are ignored (its best effort).
     global_state.rlimits.restore();
 

@@ -1,12 +1,12 @@
-# Kazakh translation for Ghostty.
-# Copyright (C) 2026 "Mitchell Hashimoto, Ghostty contributors"
-# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Kazakh translation for Void.
+# Copyright (C) 2026 "Mitchell Hashimoto, Void contributors"
+# This file is distributed under the same license as the com.mitchellh.void package.
 # Baurzhan Muftakhidinov <baurthefirst@gmail.com>, 2026.
 #
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.ghostty\n"
+"Project-Id-Version: com.mitchellh.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-03-04 21:16+0500\n"
@@ -18,9 +18,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: dist/linux/ghostty_nautilus.py:53
-msgid "Open in Ghostty"
-msgstr "Ghostty ішінде ашу"
+#: dist/linux/void_nautilus.py:53
+msgid "Open in Void"
+msgstr "Void ішінде ашу"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -81,14 +81,14 @@ msgstr "Конфигурацияны қайта жүктеу"
 
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
-msgid "⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+msgid "⚠️ You're running a debug build of Void! Performance will be degraded."
 msgstr ""
-"⚠️ Сіз Ghostty жөндеу құрастырылымын іске қосып тұрсыз! Өнімділік төмен болуы "
+"⚠️ Сіз Void жөндеу құрастырылымын іске қосып тұрсыз! Өнімділік төмен болуы "
 "мүмкін."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Терминал инспекторы"
+msgid "Void: Terminal Inspector"
+msgstr "Void: Терминал инспекторы"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -238,8 +238,8 @@ msgid "Terminal Inspector"
 msgstr "Терминал инспекторы"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
-msgid "About Ghostty"
-msgstr "Ghostty туралы"
+msgid "About Void"
+msgstr "Void туралы"
 
 #: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
@@ -278,8 +278,8 @@ msgstr ""
 "командалар орындалуы мүмкін сияқты."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
-msgid "Quit Ghostty?"
-msgstr "Ghostty-ден шығу керек пе?"
+msgid "Quit Void?"
+msgstr "Void-ден шығу керек пе?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -350,5 +350,5 @@ msgid "Cleared clipboard"
 msgstr "Алмасу буфері тазартылды"
 
 #: src/apprt/gtk/class/window.zig:1708
-msgid "Ghostty Developers"
-msgstr "Ghostty әзірлеушілері"
+msgid "Void Developers"
+msgstr "Void әзірлеушілері"

@@ -1,6 +1,6 @@
 const std = @import("std");
 const args = @import("args.zig");
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 const Config = @import("../config/Config.zig");
 const configpkg = @import("../config.zig");
 const themepkg = @import("../config/theme.zig");
@@ -67,7 +67,7 @@ const ThemeListElement = struct {
 };
 
 /// The `list-themes` command is used to preview or list all the available
-/// themes for Ghostty.
+/// themes for Void.
 ///
 /// If this command is run from a TTY, a TUI preview of the themes will be
 /// shown. While in the preview, `F1` will bring up a help screen and `ESC` will
@@ -80,19 +80,19 @@ const ThemeListElement = struct {
 ///
 /// Two different directories will be searched for themes.
 ///
-/// The first directory is the `themes` subdirectory of your Ghostty
-/// configuration directory. This is `$XDG_CONFIG_HOME/ghostty/themes` or
-/// `~/.config/ghostty/themes`.
+/// The first directory is the `themes` subdirectory of your Void
+/// configuration directory. This is `$XDG_CONFIG_HOME/void/themes` or
+/// `~/.config/void/themes`.
 ///
-/// The second directory is the `themes` subdirectory of the Ghostty resources
-/// directory. Ghostty ships with a multitude of themes that will be installed
+/// The second directory is the `themes` subdirectory of the Void resources
+/// directory. Void ships with a multitude of themes that will be installed
 /// into this directory. On macOS, this directory is the
-/// `Ghostty.app/Contents/Resources/ghostty/themes`. On Linux, this directory
-/// is the `share/ghostty/themes` (wherever you installed the Ghostty "share"
-/// directory). If you're running Ghostty from the source, this is the
-/// `zig-out/share/ghostty/themes` directory.
+/// `Void.app/Contents/Resources/void/themes`. On Linux, this directory
+/// is the `share/void/themes` (wherever you installed the Void "share"
+/// directory). If you're running Void from the source, this is the
+/// `zig-out/share/void/themes` directory.
 ///
-/// You can also set the `GHOSTTY_RESOURCES_DIR` environment variable to point
+/// You can also set the `VOID_RESOURCES_DIR` environment variable to point
 /// to the resources directory.
 ///
 /// Flags:
@@ -127,8 +127,8 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
 
     const resources_dir = global_state.resources_dir.app();
     if (resources_dir == null)
-        try stderr.print("Could not find the Ghostty resources directory. Please ensure " ++
-            "that Ghostty is installed correctly.\n", .{});
+        try stderr.print("Could not find the Void resources directory. Please ensure " ++
+            "that Void is installed correctly.\n", .{});
 
     var count: usize = 0;
 
@@ -202,7 +202,7 @@ fn resolveAutoThemePath(alloc: std.mem.Allocator) ![]u8 {
     defer alloc.free(main_cfg_path);
 
     const base_dir = std.fs.path.dirname(main_cfg_path) orelse return error.BadPathName;
-    return try std.fs.path.join(alloc, &.{ base_dir, "auto", "theme.ghostty" });
+    return try std.fs.path.join(alloc, &.{ base_dir, "auto", "theme.void" });
 }
 
 fn writeAutoThemeFile(alloc: std.mem.Allocator, theme_name: []const u8) !void {
@@ -300,7 +300,7 @@ const Preview = struct {
         const writer = self.tty.writer();
 
         try self.vx.enterAltScreen(writer);
-        try self.vx.setTitle(writer, "👻 Ghostty Theme Preview 👻");
+        try self.vx.setTitle(writer, "👻 Void Theme Preview 👻");
         try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
         try self.vx.setMouseMode(writer, true);
         if (self.vx.caps.color_scheme_updates)
@@ -834,20 +834,20 @@ const Preview = struct {
                 child.fill(.{ .style = self.ui_standard() });
 
                 const save_instructions = [_][]const u8{
-                    "To apply this theme, add the following line to your Ghostty configuration:",
+                    "To apply this theme, add the following line to your Void configuration:",
                     "",
                     try std.fmt.allocPrint(alloc, "theme = {s}", .{theme.theme}),
                     "",
                     "Save the configuration file and then reload it to apply the new theme.",
                     "",
                     "Or press 'w' to write an auto theme file to your system's preferred default config path.",
-                    "Then add the following line to your Ghostty configuration and reload:",
+                    "Then add the following line to your Void configuration and reload:",
                     "",
-                    "config-file = ?auto/theme.ghostty",
+                    "config-file = ?auto/theme.void",
                     "",
-                    "For more details on configuration and themes, visit the Ghostty documentation:",
+                    "For more details on configuration and themes, visit the Void documentation:",
                     "",
-                    "https://ghostty.org/docs/config/reference",
+                    "https://void.org/docs/config/reference",
                 };
 
                 for (save_instructions, 0..) |instruction, captured_i| {
@@ -1597,14 +1597,14 @@ const Preview = struct {
                 }
                 _ = child.print(
                     &.{
-                        .{ .text = "ghostty ", .style = color6 },
+                        .{ .text = "void ", .style = color6 },
                         .{ .text = "on ", .style = standard },
                         .{ .text = " main ", .style = color4 },
                         .{ .text = "[+] ", .style = color1 },
                         .{ .text = "via ", .style = standard },
                         .{ .text = " v0.13.0 ", .style = color3 },
                         .{ .text = "via ", .style = standard },
-                        .{ .text = "  impure (ghostty-env)", .style = color4 },
+                        .{ .text = "  impure (void-env)", .style = color4 },
                     },
                     .{
                         .row_offset = 22,

@@ -2,7 +2,7 @@ using Gtk 4.0;
 // This is unused but if we remove it we get a blueprint-compiler error.
 using Adw 1;
 
-template $GhosttyClipboardConfirmationDialog: $GhosttyDialog {
+template $VoidClipboardConfirmationDialog: $VoidDialog {
   styles [
     "clipboard-confirmation-dialog",
   ]
@@ -11,7 +11,7 @@ template $GhosttyClipboardConfirmationDialog: $GhosttyDialog {
   notify::request => $notify_request();
   heading: _("Authorize Clipboard Access");
   // Not localized because this is a placeholder users never see.
-  body: "If you see this text, there is a bug in Ghostty. Please report it.";
+  body: "If you see this text, there is a bug in Void. Please report it.";
 
   responses [
     cancel: _("Deny") suggested,

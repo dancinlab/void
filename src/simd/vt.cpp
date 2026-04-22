@@ -12,7 +12,7 @@
 #include <simd/vt.h>
 
 HWY_BEFORE_NAMESPACE();
-namespace ghostty {
+namespace void {
 namespace HWY_NAMESPACE {
 
 namespace hn = hwy::HWY_NAMESPACE;
@@ -283,13 +283,13 @@ size_t DecodeUTF8UntilControlSeq(const uint8_t* HWY_RESTRICT input,
 }
 
 }  // namespace HWY_NAMESPACE
-}  // namespace ghostty
+}  // namespace void
 HWY_AFTER_NAMESPACE();
 
 // HWY_ONCE is true for only one of the target passes
 #if HWY_ONCE
 
-namespace ghostty {
+namespace void {
 
 HWY_EXPORT(DecodeUTF8UntilControlSeq);
 
@@ -301,16 +301,16 @@ size_t DecodeUTF8UntilControlSeq(const uint8_t* HWY_RESTRICT input,
                                                          output_count);
 }
 
-}  // namespace ghostty
+}  // namespace void
 
 extern "C" {
 
-size_t ghostty_simd_decode_utf8_until_control_seq(const uint8_t* HWY_RESTRICT
+size_t void_simd_decode_utf8_until_control_seq(const uint8_t* HWY_RESTRICT
                                                       input,
                                                   size_t count,
                                                   char32_t* output,
                                                   size_t* output_count) {
-  return ghostty::DecodeUTF8UntilControlSeq(input, count, output, output_count);
+  return void::DecodeUTF8UntilControlSeq(input, count, output, output_count);
 }
 
 }  // extern "C"

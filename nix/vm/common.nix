@@ -12,7 +12,7 @@
     settings = {
       trusted-users = [
         "root"
-        "ghostty"
+        "void"
       ];
     };
     extraOptions = ''
@@ -22,12 +22,12 @@
 
   users.mutableUsers = false;
 
-  users.groups.ghostty = {};
+  users.groups.void = {};
 
-  users.users.ghostty = {
+  users.users.void = {
     isNormalUser = true;
-    description = "Ghostty";
-    group = "ghostty";
+    description = "Void";
+    group = "void";
     extraGroups = ["wheel"];
     hashedPassword = "";
   };
@@ -35,7 +35,7 @@
   environment.systemPackages = [
     pkgs.kitty
     pkgs.fish
-    pkgs.ghostty
+    pkgs.void
     pkgs.helix
     pkgs.neovim
     pkgs.xterm
@@ -53,7 +53,7 @@
   services.displayManager = {
     autoLogin = {
       enable = true;
-      user = "ghostty";
+      user = "void";
     };
   };
 

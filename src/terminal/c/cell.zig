@@ -7,10 +7,10 @@ const color = @import("../color.zig");
 const style_c = @import("style.zig");
 const Result = @import("result.zig").Result;
 
-/// C: GhosttyCell
+/// C: VoidCell
 pub const CCell = u64;
 
-/// C: GhosttyCellContentTag
+/// C: VoidCellContentTag
 pub const ContentTag = enum(c_int) {
     codepoint = 0,
     codepoint_grapheme = 1,
@@ -18,7 +18,7 @@ pub const ContentTag = enum(c_int) {
     bg_color_rgb = 3,
 };
 
-/// C: GhosttyCellWide
+/// C: VoidCellWide
 pub const Wide = enum(c_int) {
     narrow = 0,
     wide = 1,
@@ -26,14 +26,14 @@ pub const Wide = enum(c_int) {
     spacer_head = 3,
 };
 
-/// C: GhosttyCellSemanticContent
+/// C: VoidCellSemanticContent
 pub const SemanticContent = enum(c_int) {
     output = 0,
     input = 1,
     prompt = 2,
 };
 
-/// C: GhosttyCellData
+/// C: VoidCellData
 pub const CellData = enum(c_int) {
     invalid = 0,
 
@@ -42,11 +42,11 @@ pub const CellData = enum(c_int) {
     codepoint = 1,
 
     /// The content tag describing what kind of content is in the cell.
-    /// Output type: GhosttyCellContentTag *
+    /// Output type: VoidCellContentTag *
     content_tag = 2,
 
     /// The wide property of the cell.
-    /// Output type: GhosttyCellWide *
+    /// Output type: VoidCellWide *
     wide = 3,
 
     /// Whether the cell has text to render.
@@ -70,17 +70,17 @@ pub const CellData = enum(c_int) {
     protected = 8,
 
     /// The semantic content type of the cell (from OSC 133).
-    /// Output type: GhosttyCellSemanticContent *
+    /// Output type: VoidCellSemanticContent *
     semantic_content = 9,
 
     /// The palette index for the cell's background color.
     /// Only valid when content_tag is bg_color_palette.
-    /// Output type: GhosttyColorPaletteIndex *
+    /// Output type: VoidColorPaletteIndex *
     color_palette = 10,
 
     /// The RGB value for the cell's background color.
     /// Only valid when content_tag is bg_color_rgb.
-    /// Output type: GhosttyColorRgb *
+    /// Output type: VoidColorRgb *
     color_rgb = 11,
 
     /// Output type expected for querying the data of the given kind.

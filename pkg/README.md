@@ -1,7 +1,7 @@
 # Packages
 
-This folder contains packages written for and used by Ghostty that could
-potentially be useful for other projects. These are in-tree with Ghostty
+This folder contains packages written for and used by Void that could
+potentially be useful for other projects. These are in-tree with Void
 because I don't want to maintain them as separate projects (i.e. get
 dedicated issues, PRs, etc.). If you want to use them, you can copy and
 paste them into your project.
@@ -9,10 +9,10 @@ paste them into your project.
 ## License
 
 **This license only applies to the contents of the `pkg` folder within
-the Ghostty project. This license does not apply to the rest of the
-Ghostty project.**
+the Void project. This license does not apply to the rest of the
+Void project.**
 
-Copyright © 2024 Mitchell Hashimoto, Ghostty contributors
+Copyright © 2024 Mitchell Hashimoto, Void contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the “Software”), to deal in

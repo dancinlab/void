@@ -1,0 +1,65 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+set(_void_vt_libdir "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@")
+
+# Shared library target
+if(NOT TARGET void-vt::void-vt)
+    add_library(void-vt::void-vt SHARED IMPORTED)
+
+    if(WIN32)
+        set(_void_vt_shared_location "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_BINDIR@/@VOID_VT_REALNAME@")
+    else()
+        set(_void_vt_shared_location "${_void_vt_libdir}/@VOID_VT_REALNAME@")
+    endif()
+
+    set_target_properties(void-vt::void-vt PROPERTIES
+        IMPORTED_LOCATION "${_void_vt_shared_location}"
+        INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@"
+    )
+    unset(_void_vt_shared_location)
+
+    if(APPLE)
+        set_target_properties(void-vt::void-vt PROPERTIES
+            IMPORTED_SONAME "@rpath/@VOID_VT_SONAME@"
+            INTERFACE_LINK_DIRECTORIES "${_void_vt_libdir}"
+        )
+        # Ensure consumers can find the @rpath dylib at runtime
+        set_property(TARGET void-vt::void-vt APPEND PROPERTY
+            INTERFACE_LINK_OPTIONS "LINKER:-rpath,${_void_vt_libdir}"
+        )
+    elseif(WIN32)
+        set_target_properties(void-vt::void-vt PROPERTIES
+            IMPORTED_IMPLIB "${_void_vt_libdir}/@VOID_VT_IMPLIB@"
+        )
+    else()
+        set_target_properties(void-vt::void-vt PROPERTIES
+            IMPORTED_SONAME "@VOID_VT_SONAME@"
+        )
+    endif()
+endif()
+
+# Static library target
+#
+# Consumers must link transitive dependencies themselves. By default (with
+# SIMD enabled): libc, libc++ (or libstdc++ on Linux), highway, and
+# simdutf. Building with -Dsimd=false removes the C++ / highway / simdutf
+# dependencies.
+if(NOT TARGET void-vt::void-vt-static)
+    add_library(void-vt::void-vt-static STATIC IMPORTED)
+
+    set_target_properties(void-vt::void-vt-static PROPERTIES
+        IMPORTED_LOCATION "${_void_vt_libdir}/@VOID_VT_STATIC_REALNAME@"
+        INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@"
+    )
+    if(WIN32)
+        set_target_properties(void-vt::void-vt-static PROPERTIES
+            INTERFACE_LINK_LIBRARIES "ntdll;kernel32"
+        )
+    endif()
+endif()
+
+unset(_void_vt_libdir)
+
+check_required_components(void-vt)

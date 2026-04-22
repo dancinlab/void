@@ -1,9 +1,9 @@
 import Foundation
-@testable import Ghostty
-@testable import GhosttyKit
+@testable import Void
+@testable import VoidKit
 
 /// Create a temporary config file and delete it when this is deallocated
-class TemporaryConfig: Ghostty.Config {
+class TemporaryConfig: Void.Config {
     enum Error: Swift.Error {
         case failedToLoad
     }
@@ -13,7 +13,7 @@ class TemporaryConfig: Ghostty.Config {
     init(_ configText: String, finalize: Bool = true) throws {
         let temporaryFile = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("ghostty")
+            .appendingPathExtension("void")
         try configText.write(to: temporaryFile, atomically: true, encoding: .utf8)
         self.temporaryFile = temporaryFile
         super.init(config: Self.loadConfig(at: temporaryFile.path(), finalize: finalize))
@@ -29,14 +29,14 @@ class TemporaryConfig: Ghostty.Config {
         clone(config: cfg)
     }
 
-    var optionalAutoUpdateChannel: Ghostty.AutoUpdateChannel? {
+    var optionalAutoUpdateChannel: Void.AutoUpdateChannel? {
         guard let config = self.config else { return nil }
         var v: UnsafePointer<Int8>?
         let key = "auto-update-channel"
-        guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+        guard void_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
         guard let ptr = v else { return nil }
         let str = String(cString: ptr)
-        return Ghostty.AutoUpdateChannel(rawValue: str)
+        return Void.AutoUpdateChannel(rawValue: str)
     }
 
     deinit {

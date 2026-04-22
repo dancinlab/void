@@ -7,8 +7,8 @@ Adw.StatusPage error_page {
   description: _("Unable to acquire an OpenGL context for rendering.");
 
   child: LinkButton {
-    label: "https://ghostty.org/docs/help/gtk-opengl-context";
-    uri: "https://ghostty.org/docs/help/gtk-opengl-context";
+    label: "https://void.org/docs/help/gtk-opengl-context";
+    uri: "https://void.org/docs/help/gtk-opengl-context";
   };
 }
 
@@ -146,13 +146,13 @@ Overlay terminal_page {
   }
 
   [overlay]
-  $GhosttySurfaceChildExited child_exited_overlay {
+  $VoidSurfaceChildExited child_exited_overlay {
     visible: bind template.child-exited;
     close-request => $child_exited_close();
   }
 
   [overlay]
-  $GhosttyResizeOverlay resize_overlay {}
+  $VoidResizeOverlay resize_overlay {}
 
   [overlay]
   Label url_left {
@@ -186,7 +186,7 @@ Overlay terminal_page {
   }
 
   [overlay]
-  $GhosttySearchOverlay search_overlay {
+  $VoidSearchOverlay search_overlay {
     stop-search => $search_stop();
     search-changed => $search_changed();
     next-match => $search_next_match();
@@ -194,7 +194,7 @@ Overlay terminal_page {
   }
 
   [overlay]
-  $GhosttyKeyStateOverlay key_state_overlay {
+  $VoidKeyStateOverlay key_state_overlay {
     tables: bind template.key-table;
     sequence: bind template.key-sequence;
   }
@@ -225,7 +225,7 @@ Overlay terminal_page {
   }
 }
 
-template $GhosttySurface: Adw.Bin {
+template $VoidSurface: Adw.Bin {
   styles [
     "surface",
   ]

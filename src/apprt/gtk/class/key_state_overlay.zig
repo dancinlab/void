@@ -9,7 +9,7 @@ const gresource = @import("../build/gresource.zig");
 const Application = @import("application.zig").Application;
 const Common = @import("../class.zig").Common;
 
-const log = std.log.scoped(.gtk_ghostty_key_state_overlay);
+const log = std.log.scoped(.gtk_void_key_state_overlay);
 
 /// An overlay that displays the current key table stack and pending key sequence.
 /// This helps users understand what key bindings are active and what keys they've
@@ -19,7 +19,7 @@ pub const KeyStateOverlay = extern struct {
     parent_instance: Parent,
     pub const Parent = adw.Bin;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyKeyStateOverlay",
+        .name = "VoidKeyStateOverlay",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,

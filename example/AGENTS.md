@@ -1,4 +1,4 @@
-# Example Libghostty Projects
+# Example Libvoid Projects
 
 Each example is a standalone project with its own `build.zig`,
 `build.zig.zon`, `README.md`, and `src/main.c` (or `.zig`). Examples are
@@ -18,7 +18,7 @@ edits are needed when adding a new example.
 ## Doxygen Snippet Tags
 
 Example source files use Doxygen `@snippet` tags so the corresponding
-header in `include/ghostty/vt/` can reference them. Wrap the relevant
+header in `include/void/vt/` can reference them. Wrap the relevant
 code with `//! [snippet-name]` markers:
 
 ```c
@@ -30,10 +30,10 @@ int main() { ... }
 The header then uses `@snippet <dir>/src/main.c my-snippet` instead of
 inline `@code` blocks. Never duplicate example code inline in the
 headers — always use `@snippet`. When modifying example code, keep the
-snippet markers in sync with the headers in `include/ghostty/vt/`.
+snippet markers in sync with the headers in `include/void/vt/`.
 
 ## Conventions
 
 - Executable names use underscores: `c_vt_encode_focus` (not hyphens).
-- All C examples link `ghostty-vt` via `lazyDependency("ghostty", ...)`.
+- All C examples link `void-vt` via `lazyDependency("void", ...)`.
 - `build.zig` files follow a common template — keep them consistent.

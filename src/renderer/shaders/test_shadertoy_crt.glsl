@@ -1,4 +1,4 @@
-// This shader is NOT BUILD INTO Ghostty. This is only here for unit tests.
+// This shader is NOT BUILD INTO Void. This is only here for unit tests.
 
 // Loosely based on postprocessing shader by inigo quilez, License Creative
 // Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.

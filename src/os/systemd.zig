@@ -6,7 +6,7 @@ const log = std.log.scoped(.systemd);
 /// Returns true if the program was launched as a systemd service.
 ///
 /// On Linux, this returns true if the program was launched as a systemd
-/// service. It will return false if Ghostty was launched any other way.
+/// service. It will return false if Void was launched any other way.
 ///
 /// For other platforms and app runtimes, this returns false.
 pub fn launchedBySystemd() bool {
@@ -64,7 +64,7 @@ pub fn launchedBySystemd() bool {
     };
 }
 
-/// systemd notifications. Used by Ghostty to inform systemd of the state of the
+/// systemd notifications. Used by Void to inform systemd of the state of the
 /// process. Currently only used to notify systemd that we are ready and that
 /// configuration reloading has started.
 ///
@@ -76,7 +76,7 @@ pub fn launchedBySystemd() bool {
 /// on non-Linux systems (like FreeBSD) that will never support `systemd`.
 ///
 /// Linux systems that do not use `systemd` should not be impacted as they
-/// should never start Ghostty with the `NOTIFY_SOCKET` environment variable set
+/// should never start Void with the `NOTIFY_SOCKET` environment variable set
 /// and these functions essentially become a no-op.
 ///
 /// See `systemd`'s [Interface Portability and Stability Promise](https://systemd.io/PORTABILITY_AND_STABILITY/)

@@ -4,7 +4,7 @@
     .fingerprint = 0x34c1f71303690b3f,
     .minimum_zig_version = "0.15.1",
     .dependencies = .{
-        .ghostty = .{ .path = "../../" },
+        .void = .{ .path = "../../" },
     },
     .paths = .{
         "build.zig",

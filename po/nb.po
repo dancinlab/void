@@ -1,6 +1,6 @@
-# Norwegian Bokmal translations for com.mitchellh.ghostty package.
-# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
-# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Norwegian Bokmal translations for com.mitchellh.void package.
+# Copyright (C) 2025 Mitchell Hashimoto, Void contributors
+# This file is distributed under the same license as the com.mitchellh.void package.
 # Hanna Rose <me@hanna.lol>, 2025.
 # Uzair Aftab <uzaaft@outlook.com>, 2025.
 # Christoffer Tønnessen <christoffer@cto.gg>, 2025.
@@ -8,7 +8,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.ghostty\n"
+"Project-Id-Version: com.mitchellh.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-02-12 15:50+0000\n"
@@ -20,9 +20,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: dist/linux/ghostty_nautilus.py:53
-msgid "Open in Ghostty"
-msgstr "Åpne i Ghostty"
+#: dist/linux/void_nautilus.py:53
+msgid "Open in Void"
+msgstr "Åpne i Void"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -84,12 +84,12 @@ msgstr "Last konfigurasjon på nytt"
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ Du kjører et debug-bygg av Ghostty. Debug-bygg har redusert ytelse."
+"⚠️ You're running a debug build of Void! Performance will be degraded."
+msgstr "⚠️ Du kjører et debug-bygg av Void. Debug-bygg har redusert ytelse."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Terminalinspektør"
+msgid "Void: Terminal Inspector"
+msgstr "Void: Terminalinspektør"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -240,8 +240,8 @@ msgid "Terminal Inspector"
 msgstr "Terminalinspektør"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
-msgid "About Ghostty"
-msgstr "Om Ghostty"
+msgid "About Void"
+msgstr "Om Void"
 
 #: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
@@ -280,8 +280,8 @@ msgstr ""
 "om du mener det er trygt."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
-msgid "Quit Ghostty?"
-msgstr "Avslutt Ghostty?"
+msgid "Quit Void?"
+msgstr "Avslutt Void?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -352,5 +352,5 @@ msgid "Cleared clipboard"
 msgstr "Utklippstavle tømt"
 
 #: src/apprt/gtk/class/window.zig:1708
-msgid "Ghostty Developers"
-msgstr "Ghostty-utviklere"
+msgid "Void Developers"
+msgstr "Void-utviklere"

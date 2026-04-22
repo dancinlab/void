@@ -96,7 +96,7 @@ pub const DiagnosticList = struct {
     list: std.ArrayListUnmanaged(Diagnostic) = .{},
 
     /// Precomputed data for diagnostics. This is used specifically
-    /// when we build libghostty so that we can precompute the messages
+    /// when we build libvoid so that we can precompute the messages
     /// and return them via the C API without allocating memory at
     /// call time.
     precompute: Precompute = precompute_init,
@@ -106,7 +106,7 @@ pub const DiagnosticList = struct {
         // semantically analyzed and run.
         .exe, .wasm_module => builtin.is_test,
 
-        // We specifically want precompute for libghostty.
+        // We specifically want precompute for libvoid.
         .lib => true,
     };
 

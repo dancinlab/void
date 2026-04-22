@@ -6,7 +6,7 @@
 //! that represents a range of cells.
 
 // NOTE: The plan is for highlights to ultimately replace Selection
-// completely. Selection is deeply tied to various parts of the Ghostty
+// completely. Selection is deeply tied to various parts of the Void
 // internals so this may take some time.
 
 const std = @import("std");

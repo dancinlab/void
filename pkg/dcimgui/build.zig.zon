@@ -8,7 +8,7 @@
 
         .bindings = .{
             // https://github.com/dearimgui/dear_bindings
-            .url = "https://deps.files.ghostty.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz",
+            .url = "https://deps.files.void.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz",
             .hash = "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr",
             .lazy = true,
         },

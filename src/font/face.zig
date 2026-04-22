@@ -61,7 +61,7 @@ pub const DesiredSize = struct {
     pub const getGObjectType = switch (build_config.app_runtime) {
         .gtk => @import("gobject").ext.defineBoxed(
             DesiredSize,
-            .{ .name = "GhosttyFontDesiredSize" },
+            .{ .name = "VoidFontDesiredSize" },
         ),
 
         .none => void,

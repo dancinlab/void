@@ -9,7 +9,7 @@ const log = std.log.scoped(.io_writer);
 
 /// A queue used for storing messages that is periodically drained.
 /// Typically used by a multi-threaded application. The capacity is
-/// hardcoded to a value that empirically has made sense for Ghostty usage
+/// hardcoded to a value that empirically has made sense for Void usage
 /// but I'm open to changing it with good arguments.
 const Queue = BlockingQueue(termio.Message, 64);
 
@@ -23,7 +23,7 @@ pub const Mailbox = union(enum) {
     // ///
     // /// At the time of authoring this, the primary use case for this is
     // /// testing more than anything, but it probably will have a use case
-    // /// in libghostty eventually.
+    // /// in libvoid eventually.
     // unbounded: std.ArrayList(termio.Message),
 
     /// Write messages to a SPSC queue for multi-threaded applications.

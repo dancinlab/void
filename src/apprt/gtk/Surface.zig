@@ -22,7 +22,7 @@ pub fn gobj(self: *Self) *Surface {
 }
 
 pub fn core(self: *Self) *CoreSurface {
-    // This asserts the non-optional because libghostty should only
+    // This asserts the non-optional because libvoid should only
     // be calling this for initialized surfaces.
     return self.surface.core().?;
 }

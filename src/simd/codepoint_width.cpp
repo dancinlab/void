@@ -4,8 +4,8 @@
 #include <hwy/foreach_target.h>  // must come before highway.h
 #include <hwy/highway.h>
 
-#ifndef GHOSTTY_SIMD_CPW_HELPERS_
-#define GHOSTTY_SIMD_CPW_HELPERS_
+#ifndef VOID_SIMD_CPW_HELPERS_
+#define VOID_SIMD_CPW_HELPERS_
 
 #include <assert.h>
 #include <stddef.h>
@@ -31,10 +31,10 @@ constexpr T array_max(const T (&a)[N]) {
   return m;
 }
 
-#endif  // GHOSTTY_SIMD_CPW_HELPERS_
+#endif  // VOID_SIMD_CPW_HELPERS_
 
 HWY_BEFORE_NAMESPACE();
-namespace ghostty {
+namespace void {
 namespace HWY_NAMESPACE {
 
 namespace hn = hwy::HWY_NAMESPACE;
@@ -486,13 +486,13 @@ int8_t CodepointWidth(uint32_t input) {
 }
 
 }  // namespace HWY_NAMESPACE
-}  // namespace ghostty
+}  // namespace void
 HWY_AFTER_NAMESPACE();
 
 // HWY_ONCE is true for only one of the target passes
 #if HWY_ONCE
 
-namespace ghostty {
+namespace void {
 
 HWY_EXPORT(CodepointWidth);
 
@@ -500,12 +500,12 @@ int8_t CodepointWidth(uint32_t cp) {
   return HWY_DYNAMIC_DISPATCH(CodepointWidth)(cp);
 }
 
-}  // namespace ghostty
+}  // namespace void
 
 extern "C" {
 
-int8_t ghostty_simd_codepoint_width(uint32_t cp) {
-  return ghostty::CodepointWidth(cp);
+int8_t void_simd_codepoint_width(uint32_t cp) {
+  return void::CodepointWidth(cp);
 }
 
 }  // extern "C"

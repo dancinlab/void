@@ -80,7 +80,7 @@ pub const Handler = struct {
             1 => switch (dcs.intermediates[0]) {
                 '+' => switch (dcs.final) {
                     // XTGETTCAP
-                    // https://github.com/mitchellh/ghostty/issues/517
+                    // https://github.com/mitchellh/void/issues/517
                     'q' => .{
                         .state = .{
                             .xtgettcap = try .initCapacity(

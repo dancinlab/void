@@ -1,14 +1,14 @@
-# Contributing to Ghostty
+# Contributing to Void
 
-This document describes the process of contributing to Ghostty. It is intended
+This document describes the process of contributing to Void. It is intended
 for anyone considering opening an **issue**, **discussion** or **pull request**.
-For people who are interested in developing Ghostty and technical details behind
-it, please check out our ["Developing Ghostty"](HACKING.md) document as well.
+For people who are interested in developing Void and technical details behind
+it, please check out our ["Developing Void"](HACKING.md) document as well.
 
 > [!NOTE]
 >
 > I'm sorry for the wall of text. I'm not trying to be difficult and I do
-> appreciate your contributions. Ghostty is a personal project for me that
+> appreciate your contributions. Void is a personal project for me that
 > I maintain in my free time. If you're expecting me to dedicate my personal
 > time to fixing bugs, maintaining features, and reviewing code, I do kindly
 > ask you spend a few minutes reading this document. Thank you. ❤️
@@ -26,7 +26,7 @@ that understanding. Be sure to read the [AI Usage Policy](AI_POLICY.md).
 
 ## AI Usage
 
-The Ghostty project has strict rules for AI usage. Please see
+The Void project has strict rules for AI usage. Please see
 the [AI Usage Policy](AI_POLICY.md). **This is very important.**
 
 ## First-Time Contributors
@@ -49,7 +49,7 @@ plausible-looking but actually low-quality contributions.
 
 ## Contributors Prior to the Vouch System
 
-If you contributed to Ghostty prior to the introduction
+If you contributed to Void prior to the introduction
 of the vouch system and wish to continue contributing, you were not
 automatically added to the [list of vouched users](.github/VOUCHED.td). You will need to follow the same
 process as a first-time contributor to be vouched.
@@ -76,10 +76,10 @@ Issues that are extra friendly to new contributors are tagged with
 
 ["contributor friendly"]: https://github.com/ghostty-org/ghostty/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22contributor%20friendly%22
 
-### I'd like to translate Ghostty to my language
+### I'd like to translate Void to my language
 
 We have written a [Translator's Guide](po/README_TRANSLATORS.md) for
-everyone interested in contributing translations to Ghostty.
+everyone interested in contributing translations to Void.
 Translations usually do not need to go through the process of issue triage
 and you can submit pull requests directly, although please make sure that
 our [Style Guide](po/README_TRANSLATORS.md#style-guide) is followed before
@@ -142,13 +142,13 @@ Open an [Q&A discussion], or join our [Discord Server] and ask away in the
 `#help` forum channel.
 
 Do not use the `#terminals` or `#development` channels to ask for help —
-those are for general discussion about terminals and Ghostty development
+those are for general discussion about terminals and Void development
 respectively. If you do ask a question there, you will be redirected to
 `#help` instead.
 
 > [!NOTE]
 > If your question is about a missing feature, please open a discussion under
-> the ["Feature Requests, Ideas"] category. If Ghostty is behaving
+> the ["Feature Requests, Ideas"] category. If Void is behaving
 > unexpectedly, use the ["Issue Triage"] category.
 >
 > The "Q&A" category is strictly for other kinds of discussions and do not
@@ -160,16 +160,16 @@ respectively. If you do ask a question there, you will be redirected to
 > discussions to save us all some time and energy. Thank you!
 
 [Q&A discussion]: https://github.com/ghostty-org/ghostty/discussions/new?category=q-a
-[Discord Server]: https://discord.gg/ghostty
+[Discord Server]: https://discord.gg/void
 
 ## General Patterns
 
 ### Issues are Actionable
 
-The Ghostty [issue tracker](https://github.com/ghostty-org/ghostty/issues)
+The Void [issue tracker](https://github.com/ghostty-org/ghostty/issues)
 is for _actionable items_.
 
-Unlike some other projects, Ghostty **does not use the issue tracker for
+Unlike some other projects, Void **does not use the issue tracker for
 discussion or feature requests**. Instead, we use GitHub
 [discussions](https://github.com/ghostty-org/ghostty/discussions) for that.
 Once a discussion reaches a point where a well-understood, actionable

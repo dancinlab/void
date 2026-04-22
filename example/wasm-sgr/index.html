@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ghostty VT SGR Parser - WebAssembly Example</title>
+    <title>Void VT SGR Parser - WebAssembly Example</title>
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
@@ -87,8 +87,8 @@
     </style>
 </head>
 <body>
-    <h1>Ghostty VT SGR Parser - WebAssembly Example</h1>
-    <p>This example demonstrates parsing terminal SGR (Select Graphic Rendition) sequences using the Ghostty VT WebAssembly module.</p>
+    <h1>Void VT SGR Parser - WebAssembly Example</h1>
+    <p>This example demonstrates parsing terminal SGR (Select Graphic Rendition) sequences using the Void VT WebAssembly module.</p>
     
     <div class="status" id="status">Loading WebAssembly module...</div>
     
@@ -109,7 +109,7 @@
 
         async function loadWasm() {
             try {
-                const response = await fetch('../../zig-out/bin/ghostty-vt.wasm');
+                const response = await fetch('../../zig-out/bin/void-vt.wasm');
                 const wasmBytes = await response.arrayBuffer();
                 
                 const wasmModule = await WebAssembly.instantiate(wasmBytes, {
@@ -139,7 +139,7 @@
             return wasmMemory.buffer;
         }
 
-        // SGR attribute tag values from include/ghostty/vt/sgr.h
+        // SGR attribute tag values from include/void/vt/sgr.h
         const SGR_ATTR_TAGS = {
             UNSET: 0,
             UNKNOWN: 1,
@@ -245,30 +245,30 @@
                 }
                 
                 // Create SGR parser
-                const parserPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
-                const result = wasmInstance.exports.ghostty_sgr_new(0, parserPtrPtr);
+                const parserPtrPtr = wasmInstance.exports.void_wasm_alloc_opaque();
+                const result = wasmInstance.exports.void_sgr_new(0, parserPtrPtr);
                 
                 if (result !== 0) {
-                    throw new Error(`ghostty_sgr_new failed with result ${result}`);
+                    throw new Error(`void_sgr_new failed with result ${result}`);
                 }
                 
                 const parserPtr = new DataView(getBuffer()).getUint32(parserPtrPtr, true);
                 
                 // Allocate and set parameters
-                const paramsPtr = wasmInstance.exports.ghostty_wasm_alloc_u16_array(params.length);
+                const paramsPtr = wasmInstance.exports.void_wasm_alloc_u16_array(params.length);
                 const paramsView = new Uint16Array(getBuffer(), paramsPtr, params.length);
                 params.forEach((p, i) => paramsView[i] = p);
                 
                 // Allocate and set separators (or use null if empty)
                 let sepsPtr = 0;
                 if (separators.length > 0) {
-                    sepsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(separators.length);
+                    sepsPtr = wasmInstance.exports.void_wasm_alloc_u8_array(separators.length);
                     const sepsView = new Uint8Array(getBuffer(), sepsPtr, separators.length);
                     separators.forEach((s, i) => sepsView[i] = s.charCodeAt(0));
                 }
                 
                 // Set parameters in parser
-                const setResult = wasmInstance.exports.ghostty_sgr_set_params(
+                const setResult = wasmInstance.exports.void_sgr_set_params(
                     parserPtr,
                     paramsPtr,
                     sepsPtr,
@@ -276,7 +276,7 @@
                 );
                 
                 if (setResult !== 0) {
-                    throw new Error(`ghostty_sgr_set_params failed with result ${setResult}`);
+                    throw new Error(`void_sgr_set_params failed with result ${setResult}`);
                 }
                 
                 // Build output
@@ -289,17 +289,17 @@
                 output += 'm\n\n';
                 
                 // Iterate through attributes
-                const attrPtr = wasmInstance.exports.ghostty_wasm_alloc_sgr_attribute();
+                const attrPtr = wasmInstance.exports.void_wasm_alloc_sgr_attribute();
                 let count = 0;
                 
-                while (wasmInstance.exports.ghostty_sgr_next(parserPtr, attrPtr)) {
+                while (wasmInstance.exports.void_sgr_next(parserPtr, attrPtr)) {
                     count++;
                     
-                    // Use the new ghostty_sgr_attribute_tag getter function
-                    const tag = wasmInstance.exports.ghostty_sgr_attribute_tag(attrPtr);
+                    // Use the new void_sgr_attribute_tag getter function
+                    const tag = wasmInstance.exports.void_sgr_attribute_tag(attrPtr);
                     
-                    // Use ghostty_sgr_attribute_value to get a pointer to the value union
-                    const valuePtr = wasmInstance.exports.ghostty_sgr_attribute_value(attrPtr);
+                    // Use void_sgr_attribute_value to get a pointer to the value union
+                    const valuePtr = wasmInstance.exports.void_sgr_attribute_value(attrPtr);
                     
                     output += `Attribute ${count}: `;
                     
@@ -312,12 +312,12 @@
                         }
                         
                         case SGR_ATTR_TAGS.DIRECT_COLOR_FG: {
-                            // Use ghostty_color_rgb_get to extract RGB components
-                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            // Use void_color_rgb_get to extract RGB components
+                            const rPtr = wasmInstance.exports.void_wasm_alloc_u8();
+                            const gPtr = wasmInstance.exports.void_wasm_alloc_u8();
+                            const bPtr = wasmInstance.exports.void_wasm_alloc_u8();
                             
-                            wasmInstance.exports.ghostty_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
+                            wasmInstance.exports.void_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
                             
                             const r = new Uint8Array(getBuffer(), rPtr, 1)[0];
                             const g = new Uint8Array(getBuffer(), gPtr, 1)[0];
@@ -325,19 +325,19 @@
                             
                             output += `Foreground RGB = (${r}, ${g}, ${b})\n`;
                             
-                            wasmInstance.exports.ghostty_wasm_free_u8(rPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(gPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(bPtr);
+                            wasmInstance.exports.void_wasm_free_u8(rPtr);
+                            wasmInstance.exports.void_wasm_free_u8(gPtr);
+                            wasmInstance.exports.void_wasm_free_u8(bPtr);
                             break;
                         }
                         
                         case SGR_ATTR_TAGS.DIRECT_COLOR_BG: {
-                            // Use ghostty_color_rgb_get to extract RGB components
-                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            // Use void_color_rgb_get to extract RGB components
+                            const rPtr = wasmInstance.exports.void_wasm_alloc_u8();
+                            const gPtr = wasmInstance.exports.void_wasm_alloc_u8();
+                            const bPtr = wasmInstance.exports.void_wasm_alloc_u8();
                             
-                            wasmInstance.exports.ghostty_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
+                            wasmInstance.exports.void_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
                             
                             const r = new Uint8Array(getBuffer(), rPtr, 1)[0];
                             const g = new Uint8Array(getBuffer(), gPtr, 1)[0];
@@ -345,19 +345,19 @@
                             
                             output += `Background RGB = (${r}, ${g}, ${b})\n`;
                             
-                            wasmInstance.exports.ghostty_wasm_free_u8(rPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(gPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(bPtr);
+                            wasmInstance.exports.void_wasm_free_u8(rPtr);
+                            wasmInstance.exports.void_wasm_free_u8(gPtr);
+                            wasmInstance.exports.void_wasm_free_u8(bPtr);
                             break;
                         }
                         
                         case SGR_ATTR_TAGS.UNDERLINE_COLOR: {
-                            // Use ghostty_color_rgb_get to extract RGB components
-                            const rPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const gPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
-                            const bPtr = wasmInstance.exports.ghostty_wasm_alloc_u8();
+                            // Use void_color_rgb_get to extract RGB components
+                            const rPtr = wasmInstance.exports.void_wasm_alloc_u8();
+                            const gPtr = wasmInstance.exports.void_wasm_alloc_u8();
+                            const bPtr = wasmInstance.exports.void_wasm_alloc_u8();
                             
-                            wasmInstance.exports.ghostty_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
+                            wasmInstance.exports.void_color_rgb_get(valuePtr, rPtr, gPtr, bPtr);
                             
                             const r = new Uint8Array(getBuffer(), rPtr, 1)[0];
                             const g = new Uint8Array(getBuffer(), gPtr, 1)[0];
@@ -365,9 +365,9 @@
                             
                             output += `Underline color RGB = (${r}, ${g}, ${b})\n`;
                             
-                            wasmInstance.exports.ghostty_wasm_free_u8(rPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(gPtr);
-                            wasmInstance.exports.ghostty_wasm_free_u8(bPtr);
+                            wasmInstance.exports.void_wasm_free_u8(rPtr);
+                            wasmInstance.exports.void_wasm_free_u8(gPtr);
+                            wasmInstance.exports.void_wasm_free_u8(bPtr);
                             break;
                         }
                         
@@ -415,8 +415,8 @@
                 outputDiv.textContent = output;
                 
                 // Cleanup
-                wasmInstance.exports.ghostty_wasm_free_sgr_attribute(attrPtr);
-                wasmInstance.exports.ghostty_sgr_free(parserPtr);
+                wasmInstance.exports.void_wasm_free_sgr_attribute(attrPtr);
+                wasmInstance.exports.void_sgr_free(parserPtr);
                 
             } catch (e) {
                 console.error('Parse error:', e);

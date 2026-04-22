@@ -2,7 +2,7 @@
 //! extern structs for the current target.
 //!
 //! This is embedded in the binary as a const string and exposed via
-//! `ghostty_type_json` so that WASM (and other FFI) consumers can
+//! `void_type_json` so that WASM (and other FFI) consumers can
 //! build structs without hardcoding byte offsets.
 const std = @import("std");
 const lib = @import("../lib.zig");
@@ -19,30 +19,30 @@ const style_c = @import("style.zig");
 const mouse_encode = @import("mouse_encode.zig");
 const grid_ref = @import("grid_ref.zig");
 
-/// All C API structs and their Ghostty C names.
+/// All C API structs and their Void C names.
 pub const structs: std.StaticStringMap(StructInfo) = .initComptime(.{
-    .{ "GhosttyColorRgb", StructInfo.init(color.RGB.C) },
-    .{ "GhosttyDeviceAttributes", StructInfo.init(terminal.DeviceAttributes) },
-    .{ "GhosttyDeviceAttributesPrimary", StructInfo.init(terminal.DeviceAttributes.Primary) },
-    .{ "GhosttyDeviceAttributesSecondary", StructInfo.init(terminal.DeviceAttributes.Secondary) },
-    .{ "GhosttyDeviceAttributesTertiary", StructInfo.init(terminal.DeviceAttributes.Tertiary) },
-    .{ "GhosttyFormatterTerminalOptions", StructInfo.init(formatter.TerminalOptions) },
-    .{ "GhosttySelection", StructInfo.init(selection.CSelection) },
-    .{ "GhosttyFormatterTerminalExtra", StructInfo.init(formatter.TerminalOptions.Extra) },
-    .{ "GhosttyFormatterScreenExtra", StructInfo.init(formatter.ScreenOptions.Extra) },
-    .{ "GhosttyGridRef", StructInfo.init(grid_ref.CGridRef) },
-    .{ "GhosttyMouseEncoderSize", StructInfo.init(mouse_encode.Size) },
-    .{ "GhosttyMousePosition", StructInfo.init(mouse_event.Position) },
-    .{ "GhosttyPoint", StructInfo.init(point.Point.C) },
-    .{ "GhosttyPointCoordinate", StructInfo.init(point.Coordinate) },
-    .{ "GhosttyRenderStateColors", StructInfo.init(render.Colors) },
-    .{ "GhosttySizeReportSize", StructInfo.init(size_report.Size) },
-    .{ "GhosttyString", StructInfo.init(lib.String) },
-    .{ "GhosttyStyle", StructInfo.init(style_c.Style) },
-    .{ "GhosttyStyleColor", StructInfo.init(style_c.Color) },
-    .{ "GhosttyTerminalOptions", StructInfo.init(terminal.Options) },
-    .{ "GhosttyTerminalScrollbar", StructInfo.init(terminal.TerminalScrollbar) },
-    .{ "GhosttyTerminalScrollViewport", StructInfo.init(terminal.ScrollViewport) },
+    .{ "VoidColorRgb", StructInfo.init(color.RGB.C) },
+    .{ "VoidDeviceAttributes", StructInfo.init(terminal.DeviceAttributes) },
+    .{ "VoidDeviceAttributesPrimary", StructInfo.init(terminal.DeviceAttributes.Primary) },
+    .{ "VoidDeviceAttributesSecondary", StructInfo.init(terminal.DeviceAttributes.Secondary) },
+    .{ "VoidDeviceAttributesTertiary", StructInfo.init(terminal.DeviceAttributes.Tertiary) },
+    .{ "VoidFormatterTerminalOptions", StructInfo.init(formatter.TerminalOptions) },
+    .{ "VoidSelection", StructInfo.init(selection.CSelection) },
+    .{ "VoidFormatterTerminalExtra", StructInfo.init(formatter.TerminalOptions.Extra) },
+    .{ "VoidFormatterScreenExtra", StructInfo.init(formatter.ScreenOptions.Extra) },
+    .{ "VoidGridRef", StructInfo.init(grid_ref.CGridRef) },
+    .{ "VoidMouseEncoderSize", StructInfo.init(mouse_encode.Size) },
+    .{ "VoidMousePosition", StructInfo.init(mouse_event.Position) },
+    .{ "VoidPoint", StructInfo.init(point.Point.C) },
+    .{ "VoidPointCoordinate", StructInfo.init(point.Coordinate) },
+    .{ "VoidRenderStateColors", StructInfo.init(render.Colors) },
+    .{ "VoidSizeReportSize", StructInfo.init(size_report.Size) },
+    .{ "VoidString", StructInfo.init(lib.String) },
+    .{ "VoidStyle", StructInfo.init(style_c.Style) },
+    .{ "VoidStyleColor", StructInfo.init(style_c.Color) },
+    .{ "VoidTerminalOptions", StructInfo.init(terminal.Options) },
+    .{ "VoidTerminalScrollbar", StructInfo.init(terminal.TerminalScrollbar) },
+    .{ "VoidTerminalScrollViewport", StructInfo.init(terminal.ScrollViewport) },
 });
 
 /// The comptime-generated JSON string of all structs.
@@ -60,7 +60,7 @@ pub const json: [:0]const u8 = json: {
 
 /// Returns a pointer to the comptime-generated JSON string describing
 /// the layout of all C API extern structs, and writes its length to `len`.
-/// Exported as `ghostty_type_json` for FFI consumers.
+/// Exported as `void_type_json` for FFI consumers.
 pub fn get_json() callconv(lib.calling_conv) [*:0]const u8 {
     return json.ptr;
 }
@@ -180,11 +180,11 @@ test "json parses" {
     const root = parsed.value.object;
 
     // Verify we have all expected structs
-    try std.testing.expect(root.contains("GhosttyTerminalOptions"));
-    try std.testing.expect(root.contains("GhosttyFormatterTerminalOptions"));
+    try std.testing.expect(root.contains("VoidTerminalOptions"));
+    try std.testing.expect(root.contains("VoidFormatterTerminalOptions"));
 
-    // Verify GhosttyTerminalOptions fields
-    const term_opts = root.get("GhosttyTerminalOptions").?.object;
+    // Verify VoidTerminalOptions fields
+    const term_opts = root.get("VoidTerminalOptions").?.object;
     try std.testing.expect(term_opts.contains("size"));
     try std.testing.expect(term_opts.contains("align"));
     try std.testing.expect(term_opts.contains("fields"));

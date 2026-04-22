@@ -10,15 +10,15 @@ const Common = @import("../class.zig").Common;
 const Surface = @import("surface.zig").Surface;
 const ImguiWidget = @import("imgui_widget.zig").ImguiWidget;
 
-const log = std.log.scoped(.gtk_ghostty_inspector_widget);
+const log = std.log.scoped(.gtk_void_inspector_widget);
 
-/// Widget for displaying the Ghostty inspector.
+/// Widget for displaying the Void inspector.
 pub const InspectorWidget = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = ImguiWidget;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyInspectorWidget",
+        .name = "VoidInspectorWidget",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,

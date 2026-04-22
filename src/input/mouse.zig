@@ -10,7 +10,7 @@ pub const Action = enum(c_int) { press, release, motion };
 ///
 /// This is backed by a c_int so we can use this as-is for our embedding API.
 ///
-/// IMPORTANT: Any changes here update include/ghostty.h
+/// IMPORTANT: Any changes here update include/void.h
 pub const ButtonState = enum(c_int) {
     release,
     press,
@@ -25,7 +25,7 @@ pub const ButtonState = enum(c_int) {
 ///
 /// This is backed by a c_int so we can use this as-is for our embedding API.
 ///
-/// IMPORTANT: Any changes here update include/ghostty.h
+/// IMPORTANT: Any changes here update include/void.h
 pub const Button = enum(c_int) {
     const Self = @This();
 

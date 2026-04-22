@@ -9,7 +9,7 @@ pub const convenience = @import("allocator/convenience.zig");
 pub const ZigVTable = std.mem.Allocator.VTable;
 
 /// The VTable required by the C interface.
-/// C: GhosttyAllocatorVtable
+/// C: VoidAllocatorVtable
 pub const VTable = extern struct {
     alloc: *const fn (*anyopaque, len: usize, alignment: u8, ret_addr: usize) callconv(.c) ?[*]u8,
     resize: *const fn (*anyopaque, memory: [*]u8, memory_len: usize, alignment: u8, new_len: usize, ret_addr: usize) callconv(.c) bool,
@@ -40,7 +40,7 @@ pub fn default(c_alloc_: ?*const Allocator) std.mem.Allocator {
 }
 
 /// The Allocator interface for custom memory allocation strategies
-/// within C libghostty APIs.
+/// within C libvoid APIs.
 ///
 /// This -- purposely -- matches the Zig allocator interface. We do this
 /// for two reasons: (1) Zig's allocator interface is well proven in
@@ -48,7 +48,7 @@ pub fn default(c_alloc_: ?*const Allocator) std.mem.Allocator {
 /// easily convert C allocators to Zig allocators and vice versa, since
 /// we're written in Zig.
 ///
-/// C: GhosttyAllocator
+/// C: VoidAllocator
 pub const Allocator = extern struct {
     ctx: *anyopaque,
     vtable: *const VTable,

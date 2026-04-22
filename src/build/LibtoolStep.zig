@@ -62,7 +62,7 @@ fn normalizeArchive(
     // archive layout doesn't match what it expects. ranlib rewrites the
     // archive without flattening members through the filesystem, so we
     // normalize each source archive first. This is a Zig/toolchain
-    // interoperability workaround, not a Ghostty archive format change.
+    // interoperability workaround, not a Void archive format change.
     const run_step = RunStep.create(
         b,
         b.fmt("ranlib {s} #{d}", .{ step_name, index }),

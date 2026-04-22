@@ -11,7 +11,7 @@ const adw_version = @import("../adw_version.zig");
 const Common = @import("../class.zig").Common;
 const Dialog = @import("dialog.zig").Dialog;
 
-const log = std.log.scoped(.gtk_ghostty_clipboard_confirmation);
+const log = std.log.scoped(.gtk_void_clipboard_confirmation);
 
 /// Whether we're able to have the remember switch
 const can_remember = adw_version.supportsSwitchRow();
@@ -21,7 +21,7 @@ pub const ClipboardConfirmationDialog = extern struct {
     parent_instance: Parent,
     pub const Parent = Dialog;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyClipboardConfirmationDialog",
+        .name = "VoidClipboardConfirmationDialog",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,

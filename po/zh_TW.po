@@ -1,11 +1,11 @@
-# Traditional Chinese (Taiwan) translation for com.mitchellh.ghostty package.
+# Traditional Chinese (Taiwan) translation for com.mitchellh.void package.
 # Copyright (C) 2025 Mitchell Hashimoto
-# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# This file is distributed under the same license as the com.mitchellh.void package.
 # Peter Dave Hello <hsu@peterdavehello.org>, 2025.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.ghostty\n"
+"Project-Id-Version: com.mitchellh.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-02-18 13:58+0800\n"
@@ -17,9 +17,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: dist/linux/ghostty_nautilus.py:53
-msgid "Open in Ghostty"
-msgstr "在 Ghostty 中開啟"
+#: dist/linux/void_nautilus.py:53
+msgid "Open in Void"
+msgstr "在 Void 中開啟"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -79,12 +79,12 @@ msgstr "重新載入設定"
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ 您正在執行 Ghostty 的除錯版本！程式運作效能將會受到影響。"
+"⚠️ You're running a debug build of Void! Performance will be degraded."
+msgstr "⚠️ 您正在執行 Void 的除錯版本！程式運作效能將會受到影響。"
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty：終端機檢查工具"
+msgid "Void: Terminal Inspector"
+msgstr "Void：終端機檢查工具"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -234,8 +234,8 @@ msgid "Terminal Inspector"
 msgstr "終端機檢查工具"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
-msgid "About Ghostty"
-msgstr "關於 Ghostty"
+msgid "About Void"
+msgstr "關於 Void"
 
 #: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
@@ -268,8 +268,8 @@ msgid ""
 msgstr "將這段文字貼到終端機具有潛在風險，因為它看起來像是可能會被執行的命令。"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
-msgid "Quit Ghostty?"
-msgstr "要結束 Ghostty 嗎？"
+msgid "Quit Void?"
+msgstr "要結束 Void 嗎？"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -340,5 +340,5 @@ msgid "Cleared clipboard"
 msgstr "已清除剪貼簿"
 
 #: src/apprt/gtk/class/window.zig:1708
-msgid "Ghostty Developers"
-msgstr "Ghostty 開發者"
+msgid "Void Developers"
+msgstr "Void 開發者"

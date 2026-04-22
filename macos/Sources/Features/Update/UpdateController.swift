@@ -2,10 +2,10 @@ import Sparkle
 import Cocoa
 import Combine
 
-/// Standard controller for managing Sparkle updates in Ghostty.
+/// Standard controller for managing Sparkle updates in Void.
 ///
 /// This controller wraps SPUStandardUpdaterController to provide a simpler interface
-/// for managing updates with Ghostty's custom driver and delegate. It handles
+/// for managing updates with Void's custom driver and delegate. It handles
 /// initialization, starting the updater, and provides the check for updates action.
 class UpdateController {
     private(set) var updater: SPUUpdater

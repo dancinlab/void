@@ -17,7 +17,7 @@ pub fn alloc(
     return buf.ptr;
 }
 
-/// Free memory that was allocated by a libghostty-vt function.
+/// Free memory that was allocated by a libvoid-vt function.
 ///
 /// This must be used to free buffers returned by functions like
 /// `format_alloc`. Pass the same allocator (or NULL for the default)

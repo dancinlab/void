@@ -6,7 +6,7 @@ const Result = @import("result.zig").Result;
 
 const log = std.log.scoped(.build_info_c);
 
-/// C: GhosttyOptimizeMode
+/// C: VoidOptimizeMode
 pub const OptimizeMode = enum(c_int) {
     debug = 0,
     release_safe = 1,
@@ -14,7 +14,7 @@ pub const OptimizeMode = enum(c_int) {
     release_fast = 3,
 };
 
-/// C: GhosttyBuildInfo
+/// C: VoidBuildInfo
 pub const BuildInfo = enum(c_int) {
     invalid = 0,
     simd = 1,

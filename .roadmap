@@ -1,12 +1,12 @@
-# void /.roadmap — ghostty fork direction
+# void /.roadmap — void fork direction
 # Rewritten 2026-04-21 after pivot.
 
 # checkpoint
 - done [C0] project-init — hexa scaffold 2026-04-21
-- done [C1] fork-base   — ghostty → void rebrand 2026-04-21
+- done [C1] fork-base   — void → void rebrand 2026-04-21
 
 # scope
-# void = ghostty-based AI-native terminal emulator.
+# void = void-based AI-native terminal emulator.
 # - upstream = ghostty-org/ghostty (zig + swift)
 # - direction =
 #   (1) grid mode   : native tiling/pane grid as first-class (not plugin)
@@ -25,7 +25,7 @@
                       예: N=2→2×1, N=4→2×2, N=6→3×2, N=9→3×3.
                       셀 추가/삭제 시 전체 re-balance (수동 resize 없음, 균일 분할).
                       구현: src/datastruct/split_tree.zig (layout 모드 + re-balance) +
-                           **신규 렌더러** 필요 (기존 ghostty single-surface 렌더러는
+                           **신규 렌더러** 필요 (기존 void single-surface 렌더러는
                            N×M 타일링 분할 surface 를 상정하지 않음 — 패치가 아닌
                            새 renderer path 를 추가).
     - new-tab-open  : cmd+ctrl+1..9 = grid slot 1..9 에 '새 탭' spawn.
@@ -34,7 +34,7 @@
                       탭 증식). slot 내 탭 순환은 별도 키 (e.g. cmd+ctrl+shift+N) 로 분리.
                       cmd+ctrl+0       = 전체 broadcast (모든 셀 동시 입력)
                       cmd+G            = **grid mode ↔ tab mode 전환**
-                                         (tab mode = 기존 ghostty 단일 pane+탭,
+                                         (tab mode = 기존 void 단일 pane+탭,
                                           grid mode = N×M 분할, 둘이 서로 토글)
                       # cmd+G 탈취 후 Find Next/Prev 재할당
                       cmd+opt+return   = navigate_search next  (원 cmd+G)
@@ -45,14 +45,14 @@
     - keybinding 은 config 에서 rebind 가능 (하드코딩 X)
 - todo   [P2] stack-analysis
   eta 2026-05-05
-  why "grid 구현 전 ghostty renderer/apprt/terminal/font 내부 map — 실장 중 diff 최소화"
+  why "grid 구현 전 void renderer/apprt/terminal/font 내부 map — 실장 중 diff 최소화"
 - todo   [P3] ai-native IO protocol
   why "structured agent I/O channel alongside PTY — tool-call / token-stream aware"
 - todo   [P4] perf baseline
-  why "capture ghostty baseline benches, set void regression budgets"
+  why "capture void baseline benches, set void regression budgets"
 - todo   [P5] diverge / upstream strategy
-  why "decide which changes feed back to ghostty vs stay void-only"
+  why "decide which changes feed back to void vs stay void-only"
 
 # non-goals
-# - drop-in ghostty replacement (we will diverge in UX)
+# - drop-in void replacement (we will diverge in UX)
 # - being a shell (void drives shells, does not replace them)

@@ -19,7 +19,7 @@ pub fn formatToken(buf: *TokenBuffer, token: usize) [:0]const u8 {
     return std.fmt.bufPrintZ(buf, token_format, .{token}) catch unreachable;
 }
 
-/// Get the XDG portal request path for the current Ghostty instance.
+/// Get the XDG portal request path for the current Void instance.
 ///
 /// See https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Request.html
 /// for the protocol of the Request interface.

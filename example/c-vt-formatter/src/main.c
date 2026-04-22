@@ -2,18 +2,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ghostty/vt.h>
+#include <void/vt.h>
 
 int main() {
   // Create a terminal with a small grid
-  GhosttyTerminal terminal;
-  GhosttyTerminalOptions opts = {
+  VoidTerminal terminal;
+  VoidTerminalOptions opts = {
     .cols = 80,
     .rows = 24,
     .max_scrollback = 0,
   };
-  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, opts);
-  assert(result == GHOSTTY_SUCCESS);
+  VoidResult result = void_terminal_new(NULL, &terminal, opts);
+  assert(result == VOID_SUCCESS);
 
   // Write VT-encoded content into the terminal to exercise various
   // cursor movement and styling sequences.
@@ -31,24 +31,24 @@ int main() {
     "RIGHT->",                            // Near the right edge of row 1
   };
   for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
-    ghostty_terminal_vt_write(terminal, (const uint8_t *)commands[i],
+    void_terminal_vt_write(terminal, (const uint8_t *)commands[i],
                               strlen(commands[i]));
   }
 
   // Create a plain-text formatter for the terminal
-  GhosttyFormatterTerminalOptions fmt_opts = GHOSTTY_INIT_SIZED(GhosttyFormatterTerminalOptions);
-  fmt_opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN;
+  VoidFormatterTerminalOptions fmt_opts = VOID_INIT_SIZED(VoidFormatterTerminalOptions);
+  fmt_opts.emit = VOID_FORMATTER_FORMAT_PLAIN;
   fmt_opts.trim = true;
 
-  GhosttyFormatter formatter;
-  result = ghostty_formatter_terminal_new(NULL, &formatter, terminal, fmt_opts);
-  assert(result == GHOSTTY_SUCCESS);
+  VoidFormatter formatter;
+  result = void_formatter_terminal_new(NULL, &formatter, terminal, fmt_opts);
+  assert(result == VOID_SUCCESS);
 
   // Format into an allocated buffer
   uint8_t *buf = NULL;
   size_t len = 0;
-  result = ghostty_formatter_format_alloc(formatter, NULL, &buf, &len);
-  assert(result == GHOSTTY_SUCCESS);
+  result = void_formatter_format_alloc(formatter, NULL, &buf, &len);
+  assert(result == VOID_SUCCESS);
 
   // Print the formatted output
   printf("Formatted output (%zu bytes):\n", len);
@@ -56,8 +56,8 @@ int main() {
   printf("\n");
 
   // Clean up
-  ghostty_free(NULL, buf, len);
-  ghostty_formatter_free(formatter);
-  ghostty_terminal_free(terminal);
+  void_free(NULL, buf, len);
+  void_formatter_free(formatter);
+  void_terminal_free(terminal);
   return 0;
 }

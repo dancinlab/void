@@ -1,6 +1,6 @@
 using Gtk 4.0;
 
-template $GhosttyTab: Box {
+template $VoidTab: Box {
   styles [
     "tab",
   ]
@@ -8,10 +8,10 @@ template $GhosttyTab: Box {
   orientation: vertical;
   hexpand: true;
   vexpand: true;
-  title: bind $computed_title(template.config, split_tree.active-surface as <$GhosttySurface>.title, split_tree.active-surface as <$GhosttySurface>.title-override, template.title-override, split_tree.is-zoomed, split_tree.active-surface as <$GhosttySurface>.bell-ringing) as <string>;
-  tooltip: bind split_tree.active-surface as <$GhosttySurface>.pwd;
+  title: bind $computed_title(template.config, split_tree.active-surface as <$VoidSurface>.title, split_tree.active-surface as <$VoidSurface>.title-override, template.title-override, split_tree.is-zoomed, split_tree.active-surface as <$VoidSurface>.bell-ringing) as <string>;
+  tooltip: bind split_tree.active-surface as <$VoidSurface>.pwd;
 
-  $GhosttySplitTree split_tree {
+  $VoidSplitTree split_tree {
     notify::active-surface => $notify_active_surface();
     notify::tree => $notify_tree();
   }

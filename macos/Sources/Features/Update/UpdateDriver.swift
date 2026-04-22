@@ -66,7 +66,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
-        // We don't do anything with the release notes here because Ghostty
+        // We don't do anything with the release notes here because Void
         // doesn't use the release notes feature of Sparkle currently.
     }
 

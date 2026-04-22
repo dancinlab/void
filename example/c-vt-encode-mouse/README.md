@@ -1,6 +1,6 @@
-# Example: `ghostty-vt` C Mouse Encoding
+# Example: `void-vt` C Mouse Encoding
 
-This example demonstrates how to use the `ghostty-vt` C library to encode mouse
+This example demonstrates how to use the `void-vt` C library to encode mouse
 events into terminal escape sequences.
 
 This example specifically shows how to:

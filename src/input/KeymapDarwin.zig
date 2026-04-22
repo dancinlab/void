@@ -128,7 +128,7 @@ pub fn translate(
 ) !Translation {
     // On macOS we strip ctrl because UCKeyTranslate
     // converts to the masked values (i.e. ctrl+c becomes 3)
-    // and we don't want that behavior in Ghostty ever. This makes
+    // and we don't want that behavior in Void ever. This makes
     // this file not a general-purpose keymap implementation.
     const mods: Mods = mods: {
         var v = input_mods;

@@ -19,7 +19,7 @@ struct CommandEntity: AppEntity {
     var action: String
 
     /// The underlying data model
-    let command: Ghostty.Command
+    let command: Void.Command
 
     /// A command identifier is a composite key based on the terminal and action.
     struct ID: Hashable {
@@ -40,7 +40,7 @@ struct CommandEntity: AppEntity {
 
     static var defaultQuery = CommandQuery()
 
-    init(_ command: Ghostty.Command, for terminal: TerminalEntity) {
+    init(_ command: Void.Command, for terminal: TerminalEntity) {
         self.id = .init(terminalId: terminal.id, actionKey: command.actionKey)
         self.command = command
         self.title = command.title
@@ -91,7 +91,7 @@ struct CommandQuery: EntityQuery {
     @MainActor
     func entities(for identifiers: [CommandEntity.ID]) async throws -> [CommandEntity] {
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return [] }
-        let commands = appDelegate.ghostty.config.commandPaletteEntries
+        let commands = appDelegate.void.config.commandPaletteEntries
 
         // Extract unique terminal IDs to avoid fetching duplicates
         let terminalIds = Set(identifiers.map(\.terminalId))
@@ -119,6 +119,6 @@ struct CommandQuery: EntityQuery {
     func suggestedEntities() async throws -> [CommandEntity] {
         guard let appDelegate = NSApp.delegate as? AppDelegate,
               let terminal = commandPaletteIntent?.terminal else { return [] }
-        return appDelegate.ghostty.config.commandPaletteEntries.map { CommandEntity($0, for: terminal) }
+        return appDelegate.void.config.commandPaletteEntries.map { CommandEntity($0, for: terminal) }
     }
 }

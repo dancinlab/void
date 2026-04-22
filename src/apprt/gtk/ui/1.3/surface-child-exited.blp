@@ -1,7 +1,7 @@
 using Gtk 4.0;
 using Adw 1;
 
-template $GhosttySurfaceChildExited: Adw.Bin {
+template $VoidSurfaceChildExited: Adw.Bin {
   styles [
     "child-exited",
   ]
@@ -13,7 +13,7 @@ template $GhosttySurfaceChildExited: Adw.Bin {
       button-clicked => $clicked();
       revealed: true;
       // Not localized on purpose because it should never be seen.
-      title: "This is a bug in Ghostty. Please report it.";
+      title: "This is a bug in Void. Please report it.";
       button-label: _("Close");
       halign: fill;
       valign: end;

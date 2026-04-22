@@ -38,18 +38,18 @@ Adw.Dialog dialog {
 
             filter: Gtk.AnyFilter {
               Gtk.StringFilter {
-                expression: expr item as <$GhosttyCommand>.title;
+                expression: expr item as <$VoidCommand>.title;
                 search: bind search.text;
               }
 
               Gtk.StringFilter {
-                expression: expr item as <$GhosttyCommand>.action-key;
+                expression: expr item as <$VoidCommand>.action-key;
                 search: bind search.text;
               }
             };
 
             model: Gio.ListStore source {
-              item-type: typeof<$GhosttyCommand>;
+              item-type: typeof<$VoidCommand>;
             };
           };
         };
@@ -63,7 +63,7 @@ Adw.Dialog dialog {
             child: Gtk.Box {
               orientation: horizontal;
               spacing: 10;
-              tooltip-text: bind template.item as <$GhosttyCommand>.description;
+              tooltip-text: bind template.item as <$VoidCommand>.description;
 
               Gtk.Box {
                 orientation: vertical;
@@ -79,7 +79,7 @@ Adw.Dialog dialog {
                     "title",
                   ]
 
-                  label: bind template.item as <$GhosttyCommand>.title;
+                  label: bind template.item as <$VoidCommand>.title;
                 }
 
                 Gtk.Label {
@@ -93,12 +93,12 @@ Adw.Dialog dialog {
                     "monospace",
                   ]
 
-                  label: bind template.item as <$GhosttyCommand>.action-key;
+                  label: bind template.item as <$VoidCommand>.action-key;
                 }
               }
 
               Gtk.ShortcutLabel {
-                accelerator: bind template.item as <$GhosttyCommand>.action;
+                accelerator: bind template.item as <$VoidCommand>.action;
                 valign: center;
               }
             };

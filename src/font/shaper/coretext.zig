@@ -34,7 +34,7 @@ const log = std.log.scoped(.font_shaper);
 ///     https://github.com/harfbuzz/harfbuzz/discussions/4525)
 ///
 ///   - Hyphens (U+2010) can be synthesized by CoreText but not by HarfBuzz.
-///     See: https://github.com/mitchellh/ghostty/issues/1643
+///     See: https://github.com/mitchellh/void/issues/1643
 ///
 pub const Shaper = struct {
     /// The allocated used for the feature list, font cache, and cell buf.
@@ -176,8 +176,8 @@ pub const Shaper = struct {
         // rendering will be very wrong so we need to explicitly force
         // LTR no matter what.
         //
-        // See: https://github.com/mitchellh/ghostty/issues/1737
-        // See: https://github.com/mitchellh/ghostty/issues/1442
+        // See: https://github.com/mitchellh/void/issues/1737
+        // See: https://github.com/mitchellh/void/issues/1442
         //
         // We used to do this by setting the writing direction attribute
         // on the attributed string we used, but it seems like that will
@@ -525,7 +525,7 @@ pub const Shaper = struct {
             // This is EXCEPTIONALLY rare. Only happens for languages with
             // complex shaping which we don't even really support properly
             // right now, so are very unlikely to be used heavily by users
-            // of Ghostty.
+            // of Void.
             @branchHint(.cold);
             std.mem.sort(
                 font.shape.Cell,
@@ -1176,7 +1176,7 @@ test "shape monaspace ligs" {
     }
 }
 
-// https://github.com/mitchellh/ghostty/issues/1708
+// https://github.com/mitchellh/void/issues/1708
 test "shape left-replaced lig in last run" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1214,7 +1214,7 @@ test "shape left-replaced lig in last run" {
     }
 }
 
-// https://github.com/mitchellh/ghostty/issues/1708
+// https://github.com/mitchellh/void/issues/1708
 test "shape left-replaced lig in early run" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1249,7 +1249,7 @@ test "shape left-replaced lig in early run" {
     }
 }
 
-// https://github.com/mitchellh/ghostty/issues/1664
+// https://github.com/mitchellh/void/issues/1664
 test "shape U+3C9 with JB Mono" {
     const testing = std.testing;
     const alloc = testing.allocator;

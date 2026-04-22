@@ -3,12 +3,12 @@ const OptionAsAlt = @import("config.zig").OptionAsAlt;
 
 /// Keyboard layouts.
 ///
-/// These aren't heavily used in Ghostty and having a fully comprehensive
+/// These aren't heavily used in Void and having a fully comprehensive
 /// list is not important. We only need to distinguish between a few
 /// different layouts for some nice-to-have features, such as setting a default
 /// value for "macos-option-as-alt".
 pub const Layout = enum {
-    // Unknown, unmapped layout. Ghostty should not make any assumptions
+    // Unknown, unmapped layout. Void should not make any assumptions
     // about the layout of the keyboard.
     unknown,
 

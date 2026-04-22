@@ -149,10 +149,10 @@ test "cache directory paths" {
         {
             const cache_path = try cache(alloc, .{
                 .home = mock_home,
-                .subdir = "ghostty",
+                .subdir = "void",
             });
             defer alloc.free(cache_path);
-            const expected = try std.fs.path.join(alloc, &.{ mock_home, ".cache", "ghostty" });
+            const expected = try std.fs.path.join(alloc, &.{ mock_home, ".cache", "void" });
             defer alloc.free(expected);
             try testing.expectEqualStrings(expected, cache_path);
         }
@@ -176,7 +176,7 @@ test "fallback when xdg env empty" {
         _ = env_os.setenv("HOME", home);
         std.testing.allocator.free(home);
     }
-    const temp_home = "/tmp/ghostty-test-home";
+    const temp_home = "/tmp/void-test-home";
     _ = env_os.setenv("HOME", temp_home);
 
     const DirCase = struct {
@@ -240,7 +240,7 @@ test "fallback when xdg env empty and subdir" {
         std.testing.allocator.free(home);
     }
 
-    const temp_home = "/tmp/ghostty-test-home";
+    const temp_home = "/tmp/void-test-home";
     _ = env.setenv("HOME", temp_home);
 
     const DirCase = struct {
@@ -273,13 +273,13 @@ test "fallback when xdg env empty and subdir" {
         const expected = try std.fs.path.join(alloc, &[_][]const u8{
             temp_home,
             case.default_subdir,
-            "ghostty",
+            "void",
         });
         defer alloc.free(expected);
 
         // Test with empty string - should fallback to home
         _ = env.setenv(case.name, "");
-        const actual = try case.func(alloc, .{ .subdir = "ghostty" });
+        const actual = try case.func(alloc, .{ .subdir = "void" });
         defer alloc.free(actual);
 
         try std.testing.expectEqualStrings(expected, actual);

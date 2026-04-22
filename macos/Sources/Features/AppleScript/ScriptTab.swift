@@ -5,7 +5,7 @@ import AppKit
 /// `ScriptWindow.tabs` vends these objects so AppleScript can traverse
 /// `window -> tab` without knowing anything about AppKit controllers.
 @MainActor
-@objc(GhosttyScriptTab)
+@objc(VoidScriptTab)
 final class ScriptTab: NSObject {
     /// Stable identifier used by AppleScript `tab id "..."` references.
     private let stableID: String

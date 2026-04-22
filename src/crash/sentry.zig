@@ -42,7 +42,7 @@ pub threadlocal var thread_state: ?ThreadState = null;
 /// This should only be called from one thread, and deinit should be called
 /// from the same thread that calls init to avoid data races.
 ///
-/// PRIVACY NOTE: I want to make it very clear that Ghostty by default does
+/// PRIVACY NOTE: I want to make it very clear that Void by default does
 /// NOT send any data over the network. We use the Sentry native SDK to collect
 /// crash reports and logs, but we only store them locally (see Transport).
 /// It is up to the user to grab the logs and manually send them to us
@@ -127,7 +127,7 @@ fn initThread(gpa: Allocator) !void {
 
         break :cache_dir try internal_os.xdg.cache(
             alloc,
-            .{ .subdir = "ghostty/sentry" },
+            .{ .subdir = "void/sentry" },
         );
     };
     sentry.c.sentry_options_set_database_path_n(
@@ -294,7 +294,7 @@ pub const Transport = struct {
         // Build our final path and write to it.
         const path = try std.fs.path.join(alloc, &.{
             dir.path,
-            try std.fmt.allocPrint(alloc, "{s}.ghosttycrash", .{uuid.string()}),
+            try std.fmt.allocPrint(alloc, "{s}.voidcrash", .{uuid.string()}),
         });
         const file = try std.fs.cwd().createFile(path, .{});
         defer file.close();

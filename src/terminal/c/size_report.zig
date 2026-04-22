@@ -3,10 +3,10 @@ const lib = @import("../lib.zig");
 const terminal_size_report = @import("../size_report.zig");
 const Result = @import("result.zig").Result;
 
-/// C: GhosttySizeReportStyle
+/// C: VoidSizeReportStyle
 pub const Style = terminal_size_report.Style;
 
-/// C: GhosttySizeReportSize
+/// C: VoidSizeReportSize
 pub const Size = terminal_size_report.Size;
 
 pub fn encode(

@@ -5,7 +5,7 @@
     .paths = .{""},
     .dependencies = .{
         .fontconfig = .{
-            .url = "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz",
+            .url = "https://deps.files.void.org/fontconfig-2.14.2.tar.gz",
             .hash = "N-V-__8AAIrfdwARSa-zMmxWwFuwpXf1T3asIN7s5jqi9c1v",
             .lazy = true,
         },

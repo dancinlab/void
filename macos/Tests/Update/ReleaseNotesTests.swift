@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import Ghostty
+@testable import Void
 
 struct ReleaseNotesTests {
     /// Test tagged release (semantic version)
@@ -12,7 +12,7 @@ struct ReleaseNotesTests {
 
         #expect(notes != nil)
         if case .tagged(let url) = notes {
-            #expect(url.absoluteString == "https://ghostty.org/docs/install/release-notes/1-2-3")
+            #expect(url.absoluteString == "https://void.org/docs/install/release-notes/1-2-3")
             #expect(notes?.label == "View Release Notes")
         } else {
             Issue.record("Expected tagged case")

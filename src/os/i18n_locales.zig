@@ -4,7 +4,7 @@
 
 /// Supported locales for the application. This must be kept up to date
 /// with the translations available in the `po/` directory; this is used
-/// by our build process as well as runtime libghostty APIs.
+/// by our build process as well as runtime libvoid APIs.
 ///
 /// The order also matters. For incomplete locale information (i.e. only
 /// a language code available), the first match is used. For example, if
@@ -22,7 +22,7 @@
 ///   3. Most preferred locale for a language without a country code.
 ///
 /// Note for "most common" locales, this is subjective and based on
-/// the perceived userbase of Ghostty, which may not be representative
+/// the perceived userbase of Void, which may not be representative
 /// of general populations or global language distribution. Also note
 /// that ordering may be weird when we first merge a new locale since
 /// we don't have a good way to determine this. We can always reorder

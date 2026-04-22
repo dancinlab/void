@@ -1,12 +1,12 @@
 import AppKit
 
-/// Handler for the `send key` AppleScript command defined in `Ghostty.sdef`.
+/// Handler for the `send key` AppleScript command defined in `Void.sdef`.
 ///
 /// Cocoa scripting instantiates this class because the command's `<cocoa>` element
-/// specifies `class="GhosttyScriptKeyEventCommand"`. The runtime calls
+/// specifies `class="VoidScriptKeyEventCommand"`. The runtime calls
 /// `performDefaultImplementation()` to execute the command.
 @MainActor
-@objc(GhosttyScriptKeyEventCommand)
+@objc(VoidScriptKeyEventCommand)
 final class ScriptKeyEventCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
         guard NSApp.validateScript(command: self) else { return nil }
@@ -35,13 +35,13 @@ final class ScriptKeyEventCommand: NSScriptCommand {
             return nil
         }
 
-        guard let key = Ghostty.Input.Key(rawValue: keyName) else {
+        guard let key = Void.Input.Key(rawValue: keyName) else {
             scriptErrorNumber = errAECoercionFail
             scriptErrorString = "Unknown key name: \(keyName)"
             return nil
         }
 
-        let action: Ghostty.Input.Action
+        let action: Void.Input.Action
         if let actionCode = evaluatedArguments?["action"] as? UInt32 {
             switch actionCode {
             case "GIpr".fourCharCode: action = .press
@@ -52,9 +52,9 @@ final class ScriptKeyEventCommand: NSScriptCommand {
             action = .press
         }
 
-        let mods: Ghostty.Input.Mods
+        let mods: Void.Input.Mods
         if let modsString = evaluatedArguments?["modifiers"] as? String {
-            guard let parsed = Ghostty.Input.Mods(scriptModifiers: modsString) else {
+            guard let parsed = Void.Input.Mods(scriptModifiers: modsString) else {
                 scriptErrorNumber = errAECoercionFail
                 scriptErrorString = "Unknown modifier in: \(modsString)"
                 return nil
@@ -64,7 +64,7 @@ final class ScriptKeyEventCommand: NSScriptCommand {
             mods = []
         }
 
-        let keyEvent = Ghostty.Input.KeyEvent(
+        let keyEvent = Void.Input.KeyEvent(
             key: key,
             action: action,
             mods: mods

@@ -59,7 +59,7 @@
     # Our supported systems are the same supported systems as the Zig binaries.
     platforms = lib.attrNames zig.packages;
 
-    # It's not always possible to build Ghostty with Nix for each system,
+    # It's not always possible to build Void with Nix for each system,
     # one such example being macOS due to missing Swift 6 and xcodebuild
     # support in the Nix ecosystem. Therefore for things like package outputs
     # we need to limit the attributes we expose.
@@ -100,24 +100,24 @@
             # Deps are needed for environmental setup on macOS
             deps = pkgs.callPackage ./build.zig.zon.nix {};
 
-            libghostty-vt-debug = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "Debug");
-            libghostty-vt-releasesafe = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "ReleaseSafe");
-            libghostty-vt-releasefast = pkgs.callPackage ./nix/libghostty-vt.nix (mkPkgArgs "ReleaseFast");
-            libghostty-vt-debug-no-simd = pkgs.callPackage ./nix/libghostty-vt.nix ((mkPkgArgs "Debug") // {simd = false;});
-            libghostty-vt-releasesafe-no-simd = pkgs.callPackage ./nix/libghostty-vt.nix ((mkPkgArgs "ReleaseSafe") // {simd = false;});
-            libghostty-vt-releasefast-no-simd = pkgs.callPackage ./nix/libghostty-vt.nix ((mkPkgArgs "ReleaseFast") // {simd = false;});
+            libvoid-vt-debug = pkgs.callPackage ./nix/libvoid-vt.nix (mkPkgArgs "Debug");
+            libvoid-vt-releasesafe = pkgs.callPackage ./nix/libvoid-vt.nix (mkPkgArgs "ReleaseSafe");
+            libvoid-vt-releasefast = pkgs.callPackage ./nix/libvoid-vt.nix (mkPkgArgs "ReleaseFast");
+            libvoid-vt-debug-no-simd = pkgs.callPackage ./nix/libvoid-vt.nix ((mkPkgArgs "Debug") // {simd = false;});
+            libvoid-vt-releasesafe-no-simd = pkgs.callPackage ./nix/libvoid-vt.nix ((mkPkgArgs "ReleaseSafe") // {simd = false;});
+            libvoid-vt-releasefast-no-simd = pkgs.callPackage ./nix/libvoid-vt.nix ((mkPkgArgs "ReleaseFast") // {simd = false;});
 
-            libghostty-vt = libghostty-vt-releasefast;
+            libvoid-vt = libvoid-vt-releasefast;
           })
         )
         (
           forBuildablePlatforms (pkgs: rec {
-            ghostty-debug = pkgs.callPackage ./nix/package.nix (mkPkgArgs "Debug");
-            ghostty-releasesafe = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseSafe");
-            ghostty-releasefast = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast");
+            void-debug = pkgs.callPackage ./nix/package.nix (mkPkgArgs "Debug");
+            void-releasesafe = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseSafe");
+            void-releasefast = pkgs.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast");
 
-            ghostty = ghostty-releasefast;
-            default = ghostty;
+            void = void-releasefast;
+            default = void;
           })
         )
       ];
@@ -131,7 +131,7 @@
           inherit module nixpkgs;
           overlay = self.overlays.debug;
         };
-        program = pkgs.writeShellScript "run-ghostty-vm" ''
+        program = pkgs.writeShellScript "run-void-vm" ''
           SHARED_DIR=$(pwd)
           export SHARED_DIR
 
@@ -160,16 +160,16 @@
     overlays = {
       default = self.overlays.releasefast;
       releasefast = final: prev: {
-        ghostty = final.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast");
+        void = final.callPackage ./nix/package.nix (mkPkgArgs "ReleaseFast");
       };
       debug = final: prev: {
-        ghostty = final.callPackage ./nix/package.nix (mkPkgArgs "Debug");
+        void = final.callPackage ./nix/package.nix (mkPkgArgs "Debug");
       };
     };
   };
 
   nixConfig = {
-    extra-substituters = ["https://ghostty.cachix.org"];
-    extra-trusted-public-keys = ["ghostty.cachix.org-1:QB389yTa6gTyneehvqG58y0WnHjQOqgnA+wBnpWWxns="];
+    extra-substituters = ["https://void.cachix.org"];
+    extra-trusted-public-keys = ["void.cachix.org-1:QB389yTa6gTyneehvqG58y0WnHjQOqgnA+wBnpWWxns="];
   };
 }

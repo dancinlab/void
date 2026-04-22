@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
 const args = @import("args.zig");
 const Allocator = std.mem.Allocator;
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 const configpkg = @import("../config.zig");
 const internal_os = @import("../os/main.zig");
 const Config = configpkg.Config;
@@ -20,19 +20,19 @@ pub const Options = struct {
     }
 };
 
-/// The `edit-config` command opens the Ghostty configuration file in the
+/// The `edit-config` command opens the Void configuration file in the
 /// editor specified by the `$VISUAL` or `$EDITOR` environment variables.
 ///
 /// IMPORTANT: This command will not reload the configuration after
 /// editing. You will need to manually reload the configuration using the
-/// application menu, configured keybind, or by restarting Ghostty. We
-/// plan to auto-reload in the future, but Ghostty isn't capable of
+/// application menu, configured keybind, or by restarting Void. We
+/// plan to auto-reload in the future, but Void isn't capable of
 /// this yet.
 ///
 /// The filepath opened is the default user-specific configuration
-/// file, which is typically located at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
+/// file, which is typically located at `$XDG_CONFIG_HOME/void/config.void`.
 /// On macOS, this may also be located at
-/// `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`.
+/// `~/Library/Application Support/com.mitchellh.void/config.void`.
 /// On macOS, whichever path exists and is non-empty will be prioritized,
 /// prioritizing the Application Support directory if neither are
 /// non-empty.
@@ -79,7 +79,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     // We don't currently support Windows because we use the exec syscall.
     if (comptime builtin.os.tag == .windows) {
         try stderr.print(
-            \\The `ghostty +edit-config` command is not supported on Windows.
+            \\The `void +edit-config` command is not supported on Windows.
             \\Please edit the configuration file manually at the following path:
             \\
             \\{s}
@@ -113,7 +113,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
     if (editor.len == 0) {
         try stderr.print(
             \\The $EDITOR or $VISUAL environment variable is not set or is empty.
-            \\This environment variable is required to edit the Ghostty configuration
+            \\This environment variable is required to edit the Void configuration
             \\via this CLI command.
             \\
             \\Please set the environment variable to your preferred terminal
@@ -154,7 +154,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
 
     // We require libc because we want to use std.c.environ for envp
     // and not have to build that ourselves. We can remove this
-    // limitation later but Ghostty already heavily requires libc
+    // limitation later but Void already heavily requires libc
     // so this is not a big deal.
     comptime assert(builtin.link_libc);
 

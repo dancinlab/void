@@ -29,20 +29,20 @@ struct GetTerminalDetailsIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String?> {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw VoidIntentError.permissionDenied
         }
 
         switch detail {
         case .title: return .result(value: terminal.title)
         case .workingDirectory: return .result(value: terminal.workingDirectory)
         case .allContents:
-            guard let view = terminal.surfaceView else { throw GhosttyIntentError.surfaceNotFound }
+            guard let view = terminal.surfaceView else { throw VoidIntentError.surfaceNotFound }
             return .result(value: view.cachedScreenContents.get())
         case .selectedText:
-            guard let view = terminal.surfaceView else { throw GhosttyIntentError.surfaceNotFound }
+            guard let view = terminal.surfaceView else { throw VoidIntentError.surfaceNotFound }
             return .result(value: view.accessibilitySelectedText())
         case .visibleText:
-            guard let view = terminal.surfaceView else { throw GhosttyIntentError.surfaceNotFound }
+            guard let view = terminal.surfaceView else { throw VoidIntentError.surfaceNotFound }
             return .result(value: view.cachedVisibleContents.get())
         }
     }

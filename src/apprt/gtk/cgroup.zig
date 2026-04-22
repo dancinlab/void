@@ -17,7 +17,7 @@ pub const Options = struct {
 };
 
 pub fn fmtScope(buf: []u8, pid: u32) [:0]const u8 {
-    const fmt = "app-ghostty-surface-transient-{}.scope";
+    const fmt = "app-void-surface-transient-{}.scope";
 
     assert(buf.len >= fmt.len - 2 + std.math.log10_int(@as(usize, std.math.maxInt(@TypeOf(pid)))) + 1);
 

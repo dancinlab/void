@@ -11,14 +11,14 @@ const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Config = @import("config.zig").Config;
 
-const log = std.log.scoped(.gtk_ghostty_global_shortcuts);
+const log = std.log.scoped(.gtk_void_global_shortcuts);
 
 pub const GlobalShortcuts = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = gobject.Object;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyGlobalShortcuts",
+        .name = "VoidGlobalShortcuts",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
@@ -459,7 +459,7 @@ pub const GlobalShortcuts = extern struct {
         );
     }
 
-    /// Get the XDG portal request path for the current Ghostty instance.
+    /// Get the XDG portal request path for the current Void instance.
     ///
     /// If this sounds like nonsense, see `request` for an explanation as to
     /// why we need to do this.
@@ -623,11 +623,11 @@ const Token = [16]u8;
 
 /// Generate a random token suitable for use in requests.
 fn generateToken(buf: *Token) [:0]const u8 {
-    // u28 takes up 7 bytes in hex, 8 bytes for "ghostty_" and 1 byte for NUL
+    // u28 takes up 7 bytes in hex, 8 bytes for "void_" and 1 byte for NUL
     // 7 + 8 + 1 = 16
     return std.fmt.bufPrintZ(
         buf,
-        "ghostty_{x:0<7}",
+        "void_{x:0<7}",
         .{std.crypto.random.int(u28)},
     ) catch unreachable;
 }

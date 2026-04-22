@@ -1,4 +1,4 @@
-//! Build logic for Ghostty. A single "build.zig" file became far too complex
+//! Build logic for Void. A single "build.zig" file became far too complex
 //! and spaghetti, so this package extracts the build logic into smaller,
 //! more manageable pieces.
 
@@ -7,19 +7,19 @@ pub const Config = @import("Config.zig");
 pub const GitVersion = @import("GitVersion.zig");
 
 // Artifacts
-pub const GhosttyBench = @import("GhosttyBench.zig");
-pub const GhosttyDist = @import("GhosttyDist.zig");
-pub const GhosttyDocs = @import("GhosttyDocs.zig");
-pub const GhosttyExe = @import("GhosttyExe.zig");
-pub const GhosttyFrameData = @import("GhosttyFrameData.zig");
-pub const GhosttyLib = @import("GhosttyLib.zig");
-pub const GhosttyLibVt = @import("GhosttyLibVt.zig");
-pub const GhosttyResources = @import("GhosttyResources.zig");
-pub const GhosttyI18n = @import("GhosttyI18n.zig");
-pub const GhosttyXcodebuild = @import("GhosttyXcodebuild.zig");
-pub const GhosttyXCFramework = @import("GhosttyXCFramework.zig");
-pub const GhosttyWebdata = @import("GhosttyWebdata.zig");
-pub const GhosttyZig = @import("GhosttyZig.zig");
+pub const VoidBench = @import("VoidBench.zig");
+pub const VoidDist = @import("VoidDist.zig");
+pub const VoidDocs = @import("VoidDocs.zig");
+pub const VoidExe = @import("VoidExe.zig");
+pub const VoidFrameData = @import("VoidFrameData.zig");
+pub const VoidLib = @import("VoidLib.zig");
+pub const VoidLibVt = @import("VoidLibVt.zig");
+pub const VoidResources = @import("VoidResources.zig");
+pub const VoidI18n = @import("VoidI18n.zig");
+pub const VoidXcodebuild = @import("VoidXcodebuild.zig");
+pub const VoidXCFramework = @import("VoidXCFramework.zig");
+pub const VoidWebdata = @import("VoidWebdata.zig");
+pub const VoidZig = @import("VoidZig.zig");
 pub const HelpStrings = @import("HelpStrings.zig");
 pub const SharedDeps = @import("SharedDeps.zig");
 pub const UnicodeTables = @import("UnicodeTables.zig");

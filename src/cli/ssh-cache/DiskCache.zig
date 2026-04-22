@@ -27,7 +27,7 @@ pub const Error = error{ CacheIsLocked, HostnameIsInvalid };
 
 /// Returns the default path for the cache for a given program.
 ///
-/// On all platforms, this is `${XDG_STATE_HOME}/ghostty/ssh_cache`.
+/// On all platforms, this is `${XDG_STATE_HOME}/void/ssh_cache`.
 ///
 /// The returned value is allocated and must be freed by the caller.
 pub fn defaultPath(
@@ -118,7 +118,7 @@ pub fn add(
     const result: AddResult = if (!gop.found_existing) add: {
         const hostname_copy = try alloc.dupe(u8, hostname);
         errdefer alloc.free(hostname_copy);
-        const terminfo_copy = try alloc.dupe(u8, "xterm-ghostty");
+        const terminfo_copy = try alloc.dupe(u8, "xterm-void");
         errdefer alloc.free(terminfo_copy);
 
         gop.key_ptr.* = hostname_copy;
@@ -400,7 +400,7 @@ test "disk cache default path" {
     const testing = std.testing;
     const alloc = std.testing.allocator;
 
-    const path = try DiskCache.defaultPath(alloc, "ghostty");
+    const path = try DiskCache.defaultPath(alloc, "void");
     defer alloc.free(path);
     try testing.expect(path.len > 0);
 }

@@ -1,7 +1,7 @@
 const std = @import("std");
 const options = @import("build_options");
 
-extern "c" fn ghostty_simd_index_of(
+extern "c" fn void_simd_index_of(
     needle: u8,
     input: [*]const u8,
     count: usize,
@@ -9,7 +9,7 @@ extern "c" fn ghostty_simd_index_of(
 
 pub fn indexOf(input: []const u8, needle: u8) ?usize {
     if (comptime options.simd) {
-        const result = ghostty_simd_index_of(needle, input.ptr, input.len);
+        const result = void_simd_index_of(needle, input.ptr, input.len);
         return if (result == input.len) null else result;
     }
 

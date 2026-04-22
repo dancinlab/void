@@ -174,9 +174,9 @@ test "xtgettcap map" {
 
     const src: Source = .{
         .names = &.{
-            "ghostty",
-            "xterm-ghostty",
-            "Ghostty",
+            "void",
+            "xterm-void",
+            "Void",
         },
 
         .capabilities = &.{
@@ -215,9 +215,9 @@ test "xtgettcap map" {
 test "encode" {
     const src: Source = .{
         .names = &.{
-            "ghostty",
-            "xterm-ghostty",
-            "Ghostty",
+            "void",
+            "xterm-void",
+            "Void",
         },
 
         .capabilities = &.{
@@ -234,7 +234,7 @@ test "encode" {
     try src.encode(&writer);
 
     const expected =
-        "ghostty|xterm-ghostty|Ghostty,\n" ++
+        "void|xterm-void|Void,\n" ++
         "\tam,\n" ++
         "\tccc@,\n" ++
         "\tcolors#256,\n" ++

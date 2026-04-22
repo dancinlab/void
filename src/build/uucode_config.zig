@@ -20,7 +20,7 @@ fn computeWidth(
     _ = backing;
     _ = tracking;
 
-    // This condition is needed as Ghostty currently has a singular concept for
+    // This condition is needed as Void currently has a singular concept for
     // the `width` of a code point, while `uucode` splits the concept into
     // `wcwidth_standalone` and `wcwidth_zero_in_grapheme`. The two cases where
     // we want to use the `wcwidth_standalone` despite the code point occupying
@@ -28,7 +28,7 @@ fn computeWidth(
     // modifiers and prepend code points. For emoji modifiers we want to
     // support displaying them in isolation as color patches, and if prepend
     // characters were to be width 0 they would disappear from the output with
-    // Ghostty's current width 0 handling. Future work will take advantage of
+    // Void's current width 0 handling. Future work will take advantage of
     // the new uucode `wcwidth_standalone` vs `wcwidth_zero_in_grapheme` split.
     if (data.wcwidth_zero_in_grapheme and !data.is_emoji_modifier and data.grapheme_break_no_control != .prepend) {
         data.width = 0;

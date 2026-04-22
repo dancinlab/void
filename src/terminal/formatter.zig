@@ -169,7 +169,7 @@ pub const TerminalFormatter = struct {
         palette: bool,
 
         /// Emit terminal modes that differ from their defaults using CSI h/l
-        /// sequences. Defaults are according to the Ghostty defaults which
+        /// sequences. Defaults are according to the Void defaults which
         /// are generally match most terminal defaults. This will include
         /// things like current screen, bracketed mode, mouse event reporting,
         /// etc.

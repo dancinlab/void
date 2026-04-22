@@ -1,12 +1,12 @@
-# Example: `ghostty-vt` Static Linking
+# Example: `void-vt` Static Linking
 
-This contains a simple example of how to statically link the `ghostty-vt`
-C library with a C program using the `ghostty-vt-static` artifact. It is
+This contains a simple example of how to statically link the `void-vt`
+C library with a C program using the `void-vt-static` artifact. It is
 otherwise identical to the `c-vt` example.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source
-tree, but Ghostty emits a standard C library that can be used with any
+tree, but Void emits a standard C library that can be used with any
 C tooling.
 
 ## Usage

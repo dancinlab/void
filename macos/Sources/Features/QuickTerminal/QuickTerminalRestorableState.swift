@@ -4,7 +4,7 @@ struct QuickTerminalRestorableState: TerminalRestorable {
     static var version: Int { 1 }
 
     let focusedSurface: String?
-    let surfaceTree: SplitTree<Ghostty.SurfaceView>
+    let surfaceTree: SplitTree<Void.SurfaceView>
     let screenStateEntries: QuickTerminalScreenStateCache.Entries
 
     init(from controller: QuickTerminalController) {
@@ -18,9 +18,9 @@ struct QuickTerminalRestorableState: TerminalRestorable {
         self = other
     }
 
-    var baseConfig: Ghostty.SurfaceConfiguration? {
-        var config = Ghostty.SurfaceConfiguration()
-        config.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
+    var baseConfig: Void.SurfaceConfiguration? {
+        var config = Void.SurfaceConfiguration()
+        config.environmentVariables["VOID_QUICK_TERMINAL"] = "1"
         return config
     }
 }

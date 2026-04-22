@@ -1,6 +1,6 @@
-# Example: `ghostty-vt` C Key Encoding
+# Example: `void-vt` C Key Encoding
 
-This example demonstrates how to use the `ghostty-vt` C library to encode key
+This example demonstrates how to use the `void-vt` C library to encode key
 events into terminal escape sequences.
 
 This example specifically shows how to:

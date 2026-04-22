@@ -1,14 +1,14 @@
-# Portuguese translations for com.mitchellh.ghostty package
-# Traduções em português brasileiro para o pacote com.mitchellh.ghostty.
-# Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
-# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# Portuguese translations for com.mitchellh.void package
+# Traduções em português brasileiro para o pacote com.mitchellh.void.
+# Copyright (C) 2025 Mitchell Hashimoto, Void contributors
+# This file is distributed under the same license as the com.mitchellh.void package.
 # Gustavo Peres <gsodevel@gmail.com>, 2025.
 # Guilherme Tiscoski <github@guilhermetiscoski.com>, 2025.
 # Nilton Perim Neto <niltonperimneto@gmail.com>, 2025.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.ghostty\n"
+"Project-Id-Version: com.mitchellh.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-05 10:23+0800\n"
 "PO-Revision-Date: 2026-02-18 10:50-0300\n"
@@ -21,9 +21,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: dist/linux/ghostty_nautilus.py:53
-msgid "Open in Ghostty"
-msgstr "Abrir no Ghostty"
+#: dist/linux/void_nautilus.py:53
+msgid "Open in Void"
+msgstr "Abrir no Void"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -85,13 +85,13 @@ msgstr "Recarregar configuração"
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
+"⚠️ You're running a debug build of Void! Performance will be degraded."
 msgstr ""
-"⚠️ Você está rodando uma build de debug do Ghostty! O desempenho será afetado."
+"⚠️ Você está rodando uma build de debug do Void! O desempenho será afetado."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Inspetor do terminal"
+msgid "Void: Terminal Inspector"
+msgstr "Void: Inspetor do terminal"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -242,8 +242,8 @@ msgid "Terminal Inspector"
 msgstr "Inspetor de terminal"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
-msgid "About Ghostty"
-msgstr "Sobre o Ghostty"
+msgid "About Void"
+msgstr "Sobre o Void"
 
 #: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
@@ -282,8 +282,8 @@ msgstr ""
 "comandos podem ser executados."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
-msgid "Quit Ghostty?"
-msgstr "Fechar Ghostty?"
+msgid "Quit Void?"
+msgstr "Fechar Void?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -354,5 +354,5 @@ msgid "Cleared clipboard"
 msgstr "Área de transferência limpa"
 
 #: src/apprt/gtk/class/window.zig:1708
-msgid "Ghostty Developers"
-msgstr "Desenvolvedores do Ghostty"
+msgid "Void Developers"
+msgstr "Desenvolvedores do Void"

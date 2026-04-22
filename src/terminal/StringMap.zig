@@ -26,7 +26,7 @@ pub fn deinit(self: StringMap, alloc: Allocator) void {
 }
 
 /// Returns an iterator that yields the next match of the given regex.
-/// Requires Ghostty to be compiled with regex support.
+/// Requires Void to be compiled with regex support.
 pub const searchIterator = if (build_options.oniguruma)
     searchIteratorOni
 else

@@ -17,14 +17,14 @@ const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
 const TitleDialog = @import("title_dialog.zig").TitleDialog;
 
-const log = std.log.scoped(.gtk_ghostty_window);
+const log = std.log.scoped(.gtk_void_window);
 
 pub const Tab = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = gtk.Box;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyTab",
+        .name = "VoidTab",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
@@ -301,7 +301,7 @@ pub const Tab = extern struct {
     }
 
     /// Returns true if this tab needs confirmation before quitting based
-    /// on the various Ghostty configurations.
+    /// on the various Void configurations.
     pub fn getNeedsConfirmQuit(self: *Self) bool {
         const tree = self.getSplitTree();
         return tree.getNeedsConfirmQuit();
@@ -494,7 +494,7 @@ pub const Tab = extern struct {
         // otherwise the overridden title if it exists, otherwise
         // the terminal title if it exists, otherwise a default string.
         const plain = plain: {
-            const default = "Ghostty";
+            const default = "Void";
             const config_title: ?[*:0]const u8 = title: {
                 const config = config_ orelse break :title null;
                 break :title config.get().title orelse null;

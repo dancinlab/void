@@ -1,7 +1,7 @@
 //! This file contains a binary helper that builds our gresource XML
 //! file that we can then use with `glib-compile-resources`.
 //!
-//! This binary is expected to be run from the Ghostty source root.
+//! This binary is expected to be run from the Void source root.
 //! Litmus test: `src/apprt/gtk` should exist relative to the pwd.
 
 const std = @import("std");

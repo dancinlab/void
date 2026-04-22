@@ -1,24 +1,24 @@
-# This is the configuration file for Ghostty.
+# This is the configuration file for Void.
 #
 # This template file has been automatically created at the following
-# path since Ghostty couldn't find any existing config files on your system:
+# path since Void couldn't find any existing config files on your system:
 #
 #   {[path]s}
 #
-# The template does not set any default options, since Ghostty ships
+# The template does not set any default options, since Void ships
 # with sensible defaults for all options.
-# Note that you should not paste the output of `ghostty +show-config
+# Note that you should not paste the output of `void +show-config
 # --default` into your config: some default options actually conflict with each other
 # when explicitly set in a configuration file. Instead, only set the
 # options you actually need.
 #
-# Run `ghostty +show-config --default --docs` to view a list of
+# Run `void +show-config --default --docs` to view a list of
 # all available config options and their default values.
 #
 # Additionally, each config option is also explained in detail
-# on Ghostty's website, at https://ghostty.org/docs/config.
+# on Void's website, at https://void.org/docs/config.
 #
-# Ghostty can reload the configuration while running by using the menu
+# Void can reload the configuration while running by using the menu
 # options or the bound key (default: Command + Shift + comma on macOS and
 # Control + Shift + comma on other platforms). Not all config options can be
 # reloaded while running; some only apply to new windows and others may require

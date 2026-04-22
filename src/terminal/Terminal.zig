@@ -195,9 +195,9 @@ pub const Options = struct {
     /// The total storage limit for Kitty images in bytes. Has no effect
     /// if kitty images are disabled at build-time.
     kitty_image_storage_limit: usize = switch (build_options.artifact) {
-        .ghostty => 320 * 1000 * 1000, // 320MB
+        .void => 320 * 1000 * 1000, // 320MB
 
-        // libghostty we start with a much lower limit since this is an
+        // libvoid we start with a much lower limit since this is an
         // embedded library and we want to be more conservative with memory
         // usage by default.
         .lib => 10 * 1000 * 1000, // 10MB
@@ -1236,7 +1236,7 @@ pub fn semanticPrompt(
             // nested more deeply). If no aid is specified, treat as an
             // aid whose value is the empty string.
 
-            // Ghostty:
+            // Void:
             // We don't currently do explicit command tracking in any way
             // so there is no need to terminate prior commands. We just
             // perform the `A` action.
@@ -3313,7 +3313,7 @@ test "Terminal: zero-width character at start" {
     try testing.expect(!t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
 }
 
-// https://github.com/mitchellh/ghostty/issues/1400
+// https://github.com/mitchellh/void/issues/1400
 test "Terminal: print single very long line" {
     var t = try init(testing.allocator, .{ .rows = 5, .cols = 5 });
     defer t.deinit(testing.allocator);
@@ -3566,7 +3566,7 @@ test "Terminal: print multicodepoint grapheme, disabled mode 2027" {
     var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
     defer t.deinit(testing.allocator);
 
-    // https://github.com/mitchellh/ghostty/issues/289
+    // https://github.com/mitchellh/void/issues/289
     // This is: 👨‍👩‍👧 (which may or may not render correctly)
     try t.print(0x1F468);
     try t.print(0x200D);
@@ -3680,7 +3680,7 @@ test "Terminal: print invalid VS16 non-grapheme" {
     var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
     defer t.deinit(testing.allocator);
 
-    // https://github.com/mitchellh/ghostty/issues/1482
+    // https://github.com/mitchellh/void/issues/1482
     try t.print('x');
     try t.print(0xFE0F);
 
@@ -3726,7 +3726,7 @@ test "Terminal: print multicodepoint grapheme, mode 2027" {
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
-    // https://github.com/mitchellh/ghostty/issues/289
+    // https://github.com/mitchellh/void/issues/289
     // This is: 👨‍👩‍👧 (which may or may not render correctly)
     try t.print(0x1F468);
     try t.print(0x200D);
@@ -3900,7 +3900,7 @@ test "Terminal: multicodepoint grapheme marks dirty on every codepoint" {
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
-    // https://github.com/mitchellh/ghostty/issues/289
+    // https://github.com/mitchellh/void/issues/289
     // This is: 👨‍👩‍👧 (which may or may not render correctly)
     try t.print(0x1F468);
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
@@ -4334,7 +4334,7 @@ test "Terminal: print invalid VS16 grapheme" {
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
-    // https://github.com/mitchellh/ghostty/issues/1482
+    // https://github.com/mitchellh/void/issues/1482
     try t.print('x');
     try t.print(0xFE0F); // invalid VS16
 
@@ -4366,7 +4366,7 @@ test "Terminal: print invalid VS16 with second char" {
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
-    // https://github.com/mitchellh/ghostty/issues/1482
+    // https://github.com/mitchellh/void/issues/1482
     try t.print('x');
     try t.print(0xFE0F);
     try t.print('y');
@@ -4568,7 +4568,7 @@ test "Terminal: print invalid VS16 with second char (combining)" {
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
-    // https://github.com/mitchellh/ghostty/issues/1482
+    // https://github.com/mitchellh/void/issues/1482
     try t.print('n');
     try t.print(0xFE0F); // invalid VS16
     try t.print(0x0303); // combining tilde
@@ -4633,7 +4633,7 @@ test "Terminal: overwrite multicodepoint grapheme clears grapheme data" {
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
-    // https://github.com/mitchellh/ghostty/issues/289
+    // https://github.com/mitchellh/void/issues/289
     // This is: 👨‍👩‍👧 (which may or may not render correctly)
     try t.print(0x1F468);
     try t.print(0x200D);
@@ -4673,7 +4673,7 @@ test "Terminal: overwrite multicodepoint grapheme tail clears grapheme data" {
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
-    // https://github.com/mitchellh/ghostty/issues/289
+    // https://github.com/mitchellh/void/issues/289
     // This is: 👨‍👩‍👧 (which may or may not render correctly)
     try t.print(0x1F468);
     try t.print(0x200D);
@@ -12560,7 +12560,7 @@ test "Terminal: fullReset status display" {
     try testing.expect(t.status_display == .main);
 }
 
-// https://github.com/mitchellh/ghostty/issues/1607
+// https://github.com/mitchellh/void/issues/1607
 test "Terminal: fullReset clears alt screen kitty keyboard state" {
     var t = try init(testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
@@ -12601,7 +12601,7 @@ test "Terminal: fullReset tracked pins" {
     try testing.expect(t.screens.active.pages.pinIsValid(p.*));
 }
 
-// https://github.com/mitchellh/ghostty/issues/272
+// https://github.com/mitchellh/void/issues/272
 // This is also tested in depth in screen resize tests but I want to keep
 // this test around to ensure we don't regress at multiple layers.
 test "Terminal: resize less cols with wide char then print" {
@@ -12616,7 +12616,7 @@ test "Terminal: resize less cols with wide char then print" {
     try t.print('😀'); // 0x1F600
 }
 
-// https://github.com/mitchellh/ghostty/issues/723
+// https://github.com/mitchellh/void/issues/723
 // This was found via fuzzing so its highly specific.
 test "Terminal: resize with left and right margin set" {
     const alloc = testing.allocator;
@@ -12635,7 +12635,7 @@ test "Terminal: resize with left and right margin set" {
     try t.resize(alloc, cols, rows);
 }
 
-// https://github.com/mitchellh/ghostty/issues/1343
+// https://github.com/mitchellh/void/issues/1343
 test "Terminal: resize with wraparound off" {
     const alloc = testing.allocator;
     const cols = 4;

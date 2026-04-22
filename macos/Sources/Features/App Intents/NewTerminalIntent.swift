@@ -1,6 +1,6 @@
 import AppKit
 import AppIntents
-import GhosttyKit
+import VoidKit
 
 /// App intent that allows creating a new terminal window or tab.
 ///
@@ -56,19 +56,19 @@ struct NewTerminalIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<TerminalEntity?> {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw VoidIntentError.permissionDenied
         }
         guard let appDelegate = NSApp.delegate as? AppDelegate else {
-            throw GhosttyIntentError.appUnavailable
+            throw VoidIntentError.appUnavailable
         }
-        let ghostty = appDelegate.ghostty
+        let void = appDelegate.void
 
-        var config = Ghostty.SurfaceConfiguration()
+        var config = Void.SurfaceConfiguration()
 
         // We don't run command as "command" and instead use "initialInput" so
         // that we can get all the login scripts to setup things like PATH.
         if let command {
-            config.initialInput = "\(Ghostty.Shell.quote(command)); exit\n"
+            config.initialInput = "\(Void.Shell.quote(command)); exit\n"
         }
 
         // If we were given a working directory then open that directory
@@ -87,10 +87,10 @@ struct NewTerminalIntent: AppIntent {
         }
 
         // Determine if we have a parent and get it
-        let parent: Ghostty.SurfaceView?
+        let parent: Void.SurfaceView?
         if let parentParam = self.parent {
             guard let view = parentParam.surfaceView else {
-                throw GhosttyIntentError.surfaceNotFound
+                throw VoidIntentError.surfaceNotFound
             }
 
             parent = view
@@ -108,7 +108,7 @@ struct NewTerminalIntent: AppIntent {
         switch location {
         case .window:
             let newController = TerminalController.newWindow(
-                ghostty,
+                void,
                 withBaseConfig: config,
                 withParent: parent?.window)
             if let view = newController.surfaceTree.root?.leftmostLeaf() {
@@ -117,7 +117,7 @@ struct NewTerminalIntent: AppIntent {
 
         case .tab:
             let newController = TerminalController.newTab(
-                ghostty,
+                void,
                 from: parent?.window,
                 withBaseConfig: config)
             if let view = newController?.surfaceTree.root?.leftmostLeaf() {
@@ -127,7 +127,7 @@ struct NewTerminalIntent: AppIntent {
         case .splitLeft, .splitRight, .splitUp, .splitDown:
             guard let parent,
                   let controller = parent.window?.windowController as? BaseTerminalController else {
-                throw GhosttyIntentError.surfaceNotFound
+                throw VoidIntentError.surfaceNotFound
             }
 
             if let view = controller.newSplit(
@@ -153,7 +153,7 @@ enum NewTerminalLocation: String {
     case splitUp = "split:up"
     case splitDown = "split:down"
 
-    var splitDirection: SplitTree<Ghostty.SurfaceView>.NewDirection? {
+    var splitDirection: SplitTree<Void.SurfaceView>.NewDirection? {
         switch self {
         case .splitLeft: return .left
         case .splitRight: return .right

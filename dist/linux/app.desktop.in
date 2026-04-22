@@ -3,9 +3,9 @@ Version=1.0
 Name=@NAME@
 Type=Application
 Comment=A terminal emulator
-TryExec=@GHOSTTY@
-Exec=@GHOSTTY@ --gtk-single-instance=true
-Icon=com.mitchellh.ghostty
+TryExec=@VOID@
+Exec=@VOID@ --gtk-single-instance=true
+Icon=com.mitchellh.void
 Categories=System;TerminalEmulator;
 Keywords=terminal;tty;pty;
 StartupNotify=true
@@ -23,4 +23,4 @@ X-KDE-Shortcuts=Ctrl+Alt+T
 
 [Desktop Action new-window]
 Name=New Window
-Exec=@GHOSTTY@ --gtk-single-instance=true
+Exec=@VOID@ --gtk-single-instance=true

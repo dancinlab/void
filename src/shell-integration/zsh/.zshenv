@@ -17,17 +17,17 @@
 
 # This script is sourced automatically by zsh when ZDOTDIR is set to this
 # directory. It therefore assumes it's running within our shell integration
-# environment and should not be sourced manually (unlike ghostty-integration).
+# environment and should not be sourced manually (unlike void-integration).
 #
 # This file can get sourced with aliases enabled. To avoid alias expansion
 # we quote everything that can be quoted. Some aliases will still break us
 # though.
 
-# Restore the original ZDOTDIR value if GHOSTTY_ZSH_ZDOTDIR is set.
+# Restore the original ZDOTDIR value if VOID_ZSH_ZDOTDIR is set.
 # Otherwise, unset the ZDOTDIR that was set during shell injection.
-if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
-    'builtin' 'export' ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
-    'builtin' 'unset' 'GHOSTTY_ZSH_ZDOTDIR'
+if [[ -n "${VOID_ZSH_ZDOTDIR+X}" ]]; then
+    'builtin' 'export' ZDOTDIR="$VOID_ZSH_ZDOTDIR"
+    'builtin' 'unset' 'VOID_ZSH_ZDOTDIR'
 else
     'builtin' 'unset' 'ZDOTDIR'
 fi
@@ -36,26 +36,26 @@ fi
 {
     # Zsh treats unset ZDOTDIR as if it was HOME. We do the same.
     #
-    # Source the user's .zshenv before sourcing ghostty-integration because the
-    # former might set fpath and other things without which ghostty-integration
+    # Source the user's .zshenv before sourcing void-integration because the
+    # former might set fpath and other things without which void-integration
     # won't work.
     #
     # Use typeset in case we are in a function with warn_create_global in
     # effect. Unlikely but better safe than sorry.
-    'builtin' 'typeset' _ghostty_file=${ZDOTDIR-$HOME}"/.zshenv"
+    'builtin' 'typeset' _void_file=${ZDOTDIR-$HOME}"/.zshenv"
     # Zsh ignores unreadable rc files. We do the same.
     # Zsh ignores rc files that are directories, and so does source.
-    [[ ! -r "$_ghostty_file" ]] || 'builtin' 'source' '--' "$_ghostty_file"
+    [[ ! -r "$_void_file" ]] || 'builtin' 'source' '--' "$_void_file"
 } always {
     if [[ -o 'interactive' ]]; then
         # ${(%):-%x} is the path to the current file.
         # On top of it we add :A:h to get the directory.
-        'builtin' 'typeset' _ghostty_file="${${(%):-%x}:A:h}"/ghostty-integration
-        if [[ -r "$_ghostty_file" ]]; then
-            'builtin' 'autoload' '-Uz' '--' "$_ghostty_file"
-            "${_ghostty_file:t}"
-            'builtin' 'unfunction' '--' "${_ghostty_file:t}"
+        'builtin' 'typeset' _void_file="${${(%):-%x}:A:h}"/void-integration
+        if [[ -r "$_void_file" ]]; then
+            'builtin' 'autoload' '-Uz' '--' "$_void_file"
+            "${_void_file:t}"
+            'builtin' 'unfunction' '--' "${_void_file:t}"
         fi
     fi
-    'builtin' 'unset' '_ghostty_file'
+    'builtin' 'unset' '_void_file'
 }

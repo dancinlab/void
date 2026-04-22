@@ -1,5 +1,5 @@
 const std = @import("std");
-const ghostty_vt = @import("ghostty-vt");
+const void_vt = @import("void-vt");
 
 pub fn main() !void {
     // Use a debug allocator so we get leak checking. You probably want
@@ -9,7 +9,7 @@ pub fn main() !void {
     const alloc = gpa.allocator();
 
     // Initialize a terminal.
-    var t: ghostty_vt.Terminal = try .init(alloc, .{
+    var t: void_vt.Terminal = try .init(alloc, .{
         .cols = 6,
         .rows = 40,
     });

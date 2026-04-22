@@ -11,14 +11,14 @@ const ext = @import("../ext.zig");
 const Common = @import("../class.zig").Common;
 const Dialog = @import("dialog.zig").Dialog;
 
-const log = std.log.scoped(.gtk_ghostty_title_dialog);
+const log = std.log.scoped(.gtk_void_title_dialog);
 
 pub const TitleDialog = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = adw.AlertDialog;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyTitleDialog",
+        .name = "VoidTitleDialog",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
@@ -229,6 +229,6 @@ pub const Target = enum(c_int) {
 
     pub const getGObjectType = gobject.ext.defineEnum(
         Target,
-        .{ .name = "GhosttyTitleDialogTarget" },
+        .{ .name = "VoidTitleDialogTarget" },
     );
 };

@@ -18,14 +18,14 @@ const Surface = @import("surface.zig").Surface;
 const Tab = @import("tab.zig").Tab;
 const Config = @import("config.zig").Config;
 
-const log = std.log.scoped(.gtk_ghostty_command_palette);
+const log = std.log.scoped(.gtk_void_command_palette);
 
 pub const CommandPalette = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = adw.Bin;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyCommandPalette",
+        .name = "VoidCommandPalette",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
@@ -428,7 +428,7 @@ const Command = extern struct {
     parent: Parent,
 
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyCommand",
+        .name = "VoidCommand",
         .instanceInit = &init,
         .classInit = Class.init,
         .parent_class = &Class.parent,
@@ -582,7 +582,7 @@ const Command = extern struct {
         const priv = self.private();
         priv.data = .{
             .jump = .{
-                // TODO: Replace with surface id whenever Ghostty adds one
+                // TODO: Replace with surface id whenever Void adds one
                 .sort_key = @intFromPtr(surface),
             },
         };

@@ -12,12 +12,12 @@ const renderer = @import("renderer.zig");
 const apprt = @import("apprt.zig");
 
 /// We export the xev backend we want to use so that the rest of
-/// Ghostty can import this once and have access to the proper
+/// Void can import this once and have access to the proper
 /// backend.
 pub const xev = @import("xev").Dynamic;
 
 /// Global process state. This is initialized in main() for exe artifacts
-/// and by ghostty_init() for lib artifacts. This should ONLY be used by
+/// and by void_init() for lib artifacts. This should ONLY be used by
 /// the C API. The Zig API should NOT use any global state and should
 /// rely on allocators being passed in as parameters.
 pub var state: GlobalState = undefined;
@@ -30,7 +30,7 @@ pub const GlobalState = struct {
 
     gpa: ?GPA,
     alloc: std.mem.Allocator,
-    action: ?cli.ghostty.Action,
+    action: ?cli.void.Action,
     logging: Logging,
     rlimits: ResourceLimits = .{},
 
@@ -97,7 +97,7 @@ pub const GlobalState = struct {
 
         // We first try to parse any action that we may be executing.
         self.action = try cli.action.detectArgs(
-            cli.ghostty.Action,
+            cli.void.Action,
             self.alloc,
         );
 
@@ -111,7 +111,7 @@ pub const GlobalState = struct {
         // maybe once for logging) so for now this is an easy way to do
         // this. Env vars are useful for logging too because they are
         // easy to set.
-        if ((try internal_os.getenv(self.alloc, "GHOSTTY_LOG"))) |v| {
+        if ((try internal_os.getenv(self.alloc, "VOID_LOG"))) |v| {
             defer v.deinit(self.alloc);
             self.logging = cli.args.parsePackedStruct(Logging, v.value) catch .{};
         }
@@ -126,8 +126,8 @@ pub const GlobalState = struct {
         };
 
         // Output some debug information right away
-        std.log.info("ghostty version={s}", .{build_config.version_string});
-        std.log.info("ghostty build optimize={s}", .{build_config.mode_string});
+        std.log.info("void version={s}", .{build_config.version_string});
+        std.log.info("void build optimize={s}", .{build_config.mode_string});
         std.log.info("runtime={}", .{build_config.app_runtime});
         std.log.info("font_backend={}", .{build_config.font_backend});
         if (comptime build_config.font_backend.hasHarfbuzz()) {

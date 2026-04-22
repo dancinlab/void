@@ -37,7 +37,7 @@ pub const Mode = enum {
     /// and establishes a baseline for the other modes.
     noop,
 
-    /// Ghostty's table-based approach.
+    /// Void's table-based approach.
     table,
 };
 

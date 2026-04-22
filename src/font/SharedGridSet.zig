@@ -453,7 +453,7 @@ const ReffedGrid = struct {
 };
 
 /// This is the configuration required to create a key without having
-/// to keep the full Ghostty configuration around.
+/// to keep the full Void configuration around.
 pub const DerivedConfig = struct {
     arena: ArenaAllocator,
 

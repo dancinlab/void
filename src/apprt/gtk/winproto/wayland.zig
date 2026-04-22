@@ -1,4 +1,4 @@
-//! Wayland protocol implementation for the Ghostty GTK apprt.
+//! Wayland protocol implementation for the Void GTK apprt.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 

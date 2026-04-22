@@ -44,7 +44,7 @@ pub const StringList = struct {
     pub const getGObjectType = gobject.ext.defineBoxed(
         StringList,
         .{
-            .name = "GhosttyStringList",
+            .name = "VoidStringList",
             .funcs = .{
                 .copy = &struct {
                     fn copy(self: *StringList) callconv(.c) *StringList {

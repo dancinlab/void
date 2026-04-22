@@ -7,14 +7,14 @@ const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
 const Dialog = @import("dialog.zig").Dialog;
 
-const log = std.log.scoped(.gtk_ghostty_config_errors_dialog);
+const log = std.log.scoped(.gtk_void_config_errors_dialog);
 
 pub const ConfigErrorsDialog = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = Dialog;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyConfigErrorsDialog",
+        .name = "VoidConfigErrorsDialog",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,

@@ -25,7 +25,7 @@ pub fn launchedFromDesktop() bool {
             // app bundle (i.e. via open) then we still treat it as if it
             // was launched from the desktop.
             if (build_config.artifact == .lib) lib: {
-                const env = "GHOSTTY_MAC_LAUNCH_SOURCE";
+                const env = "VOID_MAC_LAUNCH_SOURCE";
                 const source = posix.getenv(env) orelse break :lib;
 
                 // Source can be "app", "cli", or "zig_run". We assume
@@ -42,7 +42,7 @@ pub fn launchedFromDesktop() bool {
         // we match the PID and assume that if we do, we were launched from
         // the desktop file. Pid comparing catches the scenario where
         // another terminal was launched from a desktop file and then launches
-        // Ghostty and Ghostty inherits the env.
+        // Void and Void inherits the env.
         .linux, .freebsd => ul: {
             const gio_pid_str = posix.getenv("GIO_LAUNCHED_DESKTOP_FILE_PID") orelse
                 break :ul false;

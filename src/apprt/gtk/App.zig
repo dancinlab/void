@@ -1,4 +1,4 @@
-/// This is the main entrypoint to the apprt for Ghostty. Ghostty will
+/// This is the main entrypoint to the apprt for Void. Void will
 /// initialize this in main to start the application..
 const App = @This();
 
@@ -70,11 +70,11 @@ pub fn performAction(
     return try self.app.performAction(target, action, value);
 }
 
-/// Send the given IPC to a running Ghostty. Returns `true` if the action was
+/// Send the given IPC to a running Void. Returns `true` if the action was
 /// able to be performed, `false` otherwise.
 ///
 /// Note that this is a static function. Since this is called from a CLI app (or
-/// some other process that is not Ghostty) there is no full-featured apprt App
+/// some other process that is not Void) there is no full-featured apprt App
 /// to use.
 pub fn performIpc(
     alloc: Allocator,

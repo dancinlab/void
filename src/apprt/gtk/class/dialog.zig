@@ -6,7 +6,7 @@ const gtk = @import("gtk");
 const adw_version = @import("../adw_version.zig");
 const Common = @import("../class.zig").Common;
 
-const log = std.log.scoped(.gtk_ghostty_dialog);
+const log = std.log.scoped(.gtk_void_dialog);
 
 /// Dialog is a simple abstraction over the `adw.AlertDialog` and
 /// `adw.MessageDialog` widgets, chosen at comptime based on the linked
@@ -24,7 +24,7 @@ pub const Dialog = extern struct {
         adw.MessageDialog;
 
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyDialog",
+        .name = "VoidDialog",
         .classInit = &Class.init,
         .parent_class = &Class.parent,
     });

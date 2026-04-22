@@ -1,4 +1,4 @@
-// tool/install-to-applications.hexa — copy void Ghostty.app into /Applications.
+// tool/install-to-applications.hexa — copy void Void.app into /Applications.
 // @allow-bare-exec
 //
 // Why this exists:
@@ -29,8 +29,8 @@ fn run_or_die(cmd: string) {
 fn main() {
     let pkg_raw = to_string(exec("printenv HX_PKG_DIR 2>/dev/null")).trim()
     let pkg_dir = if pkg_raw != "" { pkg_raw } else { to_string(exec("pwd")).trim() }
-    let src = pkg_dir + "/macos/build/ReleaseLocal/Ghostty.app"
-    let dst = "/Applications/Ghostty.app"
+    let src = pkg_dir + "/macos/build/ReleaseLocal/Void.app"
+    let dst = "/Applications/Void.app"
 
     if !exists_dir(src) {
         eprintln("error: " + src + " not found.")

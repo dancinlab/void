@@ -38,7 +38,7 @@ pub const Flags = packed struct {
     all: bool = false,
 
     /// True if this binding is global. Global bindings should work system-wide
-    /// and not just while Ghostty is focused. This may not work on all platforms.
+    /// and not just while Void is focused. This may not work on all platforms.
     /// See the keybind config documentation for more information.
     global: bool = false,
 
@@ -52,7 +52,7 @@ pub const Flags = packed struct {
 
     /// Converts this to a C-compatible value.
     ///
-    /// Sync with ghostty.h for enums.
+    /// Sync with void.h for enums.
     pub fn cval(self: Flags) C {
         const Backing = @typeInfo(Flags).@"struct".backing_integer.?;
         return @as(Backing, @bitCast(self));
@@ -303,14 +303,14 @@ pub fn lessThan(_: void, lhs: Binding, rhs: Binding) bool {
 pub const Action = union(enum) {
     /// Ignore this key combination.
     ///
-    /// Ghostty will not process this combination nor forward it to the child
+    /// Void will not process this combination nor forward it to the child
     /// process within the terminal, but it may still be processed by the OS or
     /// other applications.
     ignore,
 
     /// Unbind a previously bound key binding.
     ///
-    /// This cannot unbind bindings that were not bound by Ghostty or the user
+    /// This cannot unbind bindings that were not bound by Void or the user
     /// (e.g. bindings set by the OS or some other application).
     unbind,
 
@@ -566,7 +566,7 @@ pub const Action = union(enum) {
     ///
     /// This is only supported on Linux and when the system's libadwaita
     /// version is 1.4 or newer. The current libadwaita version can be
-    /// found by running `ghostty +version`.
+    /// found by running `void +version`.
     toggle_tab_overview,
 
     /// Change the title of the current focused surface via a pop-up prompt.
@@ -731,7 +731,7 @@ pub const Action = union(enum) {
     /// when entering passwords or other sensitive information.
     ///
     /// This applies to the entire application, not just the focused terminal.
-    /// You must manually untoggle it or quit Ghostty entirely to disable it.
+    /// You must manually untoggle it or quit Void entirely to disable it.
     ///
     /// Only implemented on macOS, as this uses a built-in system API.
     toggle_secure_input,
@@ -754,7 +754,7 @@ pub const Action = union(enum) {
     /// to filter the actions, and the ability to then execute the action.
     ///
     /// This requires libadwaita 1.5 or newer on Linux. The current libadwaita
-    /// version can be found by running `ghostty +version`.
+    /// version can be found by running `void +version`.
     toggle_command_palette,
 
     /// Toggle the quick terminal.
@@ -795,7 +795,7 @@ pub const Action = union(enum) {
     ///
     ///     If you do not have this plugin enabled, open System Settings > Apps
     ///     & Windows > Window Management > Desktop Effects, and enable the
-    ///     plugin in the plugin list. Ghostty would then need to be restarted
+    ///     plugin in the plugin list. Void would then need to be restarted
     ///     fully for this to take effect.
     ///
     ///   - Quick terminal tabs are only supported on Linux and not on macOS.
@@ -810,7 +810,7 @@ pub const Action = union(enum) {
     toggle_quick_terminal,
 
     /// Show or hide all windows. If all windows become shown, we also ensure
-    /// Ghostty becomes focused. When hiding all windows, focus is yielded
+    /// Void becomes focused. When hiding all windows, focus is yielded
     /// to the next application as determined by the OS.
     ///
     /// Note: When the focused surface is fullscreen, this method does nothing.
@@ -837,7 +837,7 @@ pub const Action = union(enum) {
     /// if possible. This can undo actions such as closing tabs or
     /// windows.
     ///
-    /// Not every action in Ghostty can be undone or redone. The list
+    /// Not every action in Void can be undone or redone. The list
     /// of actions support undo/redo is currently limited to:
     ///
     ///   - New window, close window
@@ -907,10 +907,10 @@ pub const Action = union(enum) {
     /// this will report performable as false.
     deactivate_all_key_tables,
 
-    /// Quit Ghostty.
+    /// Quit Void.
     quit,
 
-    /// Crash Ghostty in the desired thread for the focused surface.
+    /// Crash Void in the desired thread for the focused surface.
     ///
     /// WARNING: This is a hard crash (panic) and data can be lost.
     ///
@@ -940,7 +940,7 @@ pub const Action = union(enum) {
     pub const getGObjectType = switch (build_config.app_runtime) {
         .gtk => @import("gobject").ext.defineBoxed(
             Action,
-            .{ .name = "GhosttyBindingAction" },
+            .{ .name = "VoidBindingAction" },
         ),
 
         .none => void,
@@ -1097,7 +1097,7 @@ pub const Action = union(enum) {
 
         pub fn parse(param: []const u8) !WriteScreen {
             // If we don't have a `,`, default to the plain format. This is
-            // also very important for backwards compatibility before Ghostty
+            // also very important for backwards compatibility before Void
             // 1.3 which didn't support output formats.
             const idx = std.mem.indexOfScalar(u8, param, ',') orelse return .{
                 .action = try Binding.Action.parseEnum(
@@ -1620,7 +1620,7 @@ pub const Action = union(enum) {
 /// Trigger is the associated key state that can trigger an action.
 /// This is an extern struct because this is also used in the C API.
 ///
-/// This must be kept in sync with include/ghostty.h ghostty_input_trigger_s
+/// This must be kept in sync with include/void.h void_input_trigger_s
 pub const Trigger = struct {
     /// The key that has to be pressed for a binding to take action.
     key: Trigger.Key = .{ .physical = .unidentified },
@@ -1637,7 +1637,7 @@ pub const Trigger = struct {
 
         /// This is used for binding to keys that produce a certain unicode
         /// codepoint. This is useful for binding to keys that don't have a
-        /// registered keycode with Ghostty.
+        /// registered keycode with Void.
         unicode: u21,
 
         /// A catch-all key that matches any key press that is otherwise
@@ -1752,7 +1752,7 @@ pub const Trigger = struct {
             }
 
             // If we're still unset then we look for backwards compatible
-            // keys with Ghostty 1.1.x. We do this last so its least likely
+            // keys with Void 1.1.x. We do this last so its least likely
             // to impact performance for modern users.
             if (backwards_compatible_keys.get(part)) |old_key| {
                 result.key = old_key;
@@ -1766,8 +1766,8 @@ pub const Trigger = struct {
         return result;
     }
 
-    /// The values that are backwards compatible with Ghostty 1.1.x.
-    /// Ghostty 1.2+ doesn't support these anymore since we moved to
+    /// The values that are backwards compatible with Void 1.1.x.
+    /// Void 1.2+ doesn't support these anymore since we moved to
     /// W3C key codes.
     const backwards_compatible_keys = std.StaticStringMap(Key).initComptime(.{
         .{ "zero", Key{ .unicode = '0' } },
@@ -3037,7 +3037,7 @@ test "parse: text action equals sign" {
     }
 }
 
-// For Ghostty 1.2+ we changed our key names to match the W3C and removed
+// For Void 1.2+ we changed our key names to match the W3C and removed
 // `physical:`. This tests the backwards compatibility with the old format.
 // Note that our backwards compatibility isn't 100% perfect since triggers
 // like `a` now map to unicode instead of "translated" (which was also

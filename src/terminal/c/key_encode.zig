@@ -19,7 +19,7 @@ const KeyEncoderWrapper = struct {
     alloc: Allocator,
 };
 
-/// C: GhosttyKeyEncoder
+/// C: VoidKeyEncoder
 pub const Encoder = ?*KeyEncoderWrapper;
 
 pub fn new(
@@ -43,7 +43,7 @@ pub fn free(encoder_: Encoder) callconv(lib.calling_conv) void {
     alloc.destroy(wrapper);
 }
 
-/// C: GhosttyKeyEncoderOption
+/// C: VoidKeyEncoderOption
 pub const Option = enum(c_int) {
     cursor_key_application = 0,
     keypad_key_application = 1,

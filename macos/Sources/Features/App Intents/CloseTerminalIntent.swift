@@ -1,6 +1,6 @@
 import AppKit
 import AppIntents
-import GhosttyKit
+import VoidKit
 
 struct CloseTerminalIntent: AppIntent {
     static var title: LocalizedStringResource = "Close Terminal"
@@ -20,11 +20,11 @@ struct CloseTerminalIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw VoidIntentError.permissionDenied
         }
 
         guard let surfaceView = terminal.surfaceView else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw VoidIntentError.surfaceNotFound
         }
 
         guard let controller = surfaceView.window?.windowController as? BaseTerminalController else {

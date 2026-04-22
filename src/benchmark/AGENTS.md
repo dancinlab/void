@@ -2,13 +2,13 @@
 
 The benchmark tools are split into two roles:
 
-- `ghostty-gen` generates synthetic input data.
-- `ghostty-bench` consumes existing input data and runs a benchmark.
+- `void-gen` generates synthetic input data.
+- `void-bench` consumes existing input data and runs a benchmark.
 
 ## Workflow
 
 - For timing comparisons, generate data first and benchmark it later.
-- Do not pipe `ghostty-gen` directly into `ghostty-bench` when comparing
+- Do not pipe `void-gen` directly into `void-bench` when comparing
   performance. That mixes generation cost into the measurement and makes
   branch-to-branch comparisons noisy.
 - Reuse the exact same generated files when comparing revisions.
@@ -20,8 +20,8 @@ The benchmark tools are split into two roles:
 ## Running Benchmarks
 
 - Prefer `hyperfine` to compare benchmark timings.
-- Benchmark the `ghostty-bench` command line, not the generator.
-- Use `ghostty-bench ... --data <path>` with pre-generated files.
+- Benchmark the `void-bench` command line, not the generator.
+- Use `void-bench ... --data <path>` with pre-generated files.
 - Run multiple warmups and repeated measurements so branch comparisons are
   based on medians instead of single runs.
 - When comparing branches, keep all benchmark inputs and CLI flags the same,
@@ -40,9 +40,9 @@ The benchmark tools are split into two roles:
 ## Comparing Branches
 
 - When comparing branches, switch to that branch, build the binary, then
-  rename it e.g. `zig-out/bin/ghostty-bench` to `zig-out/bin/ghostty-bench-branch1`.
+  rename it e.g. `zig-out/bin/void-bench` to `zig-out/bin/void-bench-branch1`.
   Replace branch1 with something better.
 - Then switch to the other branch, build it, and rename it to
-  `zig-out/bin/ghostty-bench-branch2`. Replace branch2 with something better.
+  `zig-out/bin/void-bench-branch2`. Replace branch2 with something better.
 - Then run all the benchmarks with `hyperfine` comparing the N binaries
   we want to.

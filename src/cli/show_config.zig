@@ -1,7 +1,7 @@
 const std = @import("std");
 const args = @import("args.zig");
 const Allocator = std.mem.Allocator;
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 const configpkg = @import("../config.zig");
 const Config = configpkg.Config;
 const Pager = @import("Pager.zig");
@@ -32,7 +32,7 @@ pub const Options = struct {
     }
 };
 
-/// The `show-config` command shows the current configuration in a valid Ghostty
+/// The `show-config` command shows the current configuration in a valid Void
 /// configuration file format.
 ///
 /// When executed without any arguments this will output the current
@@ -40,7 +40,7 @@ pub const Options = struct {
 /// using the default configuration this will output nothing.
 ///
 /// If you are a new user and want to see all available options with
-/// documentation, run `ghostty +show-config --default --docs`.
+/// documentation, run `void +show-config --default --docs`.
 ///
 /// The output is not in any specific order, but the order should be consistent
 /// between runs. The output is not guaranteed to be exactly match the input

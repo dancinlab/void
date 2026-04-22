@@ -18,5 +18,5 @@ pub const Enum = lib.Enum;
 pub const TaggedUnion = lib.TaggedUnion;
 pub const Struct = lib.Struct;
 pub const String = lib.String;
-pub const checkGhosttyHEnum = lib.checkGhosttyHEnum;
+pub const checkVoidHEnum = lib.checkVoidHEnum;
 pub const structSizedFieldFits = lib.structSizedFieldFits;

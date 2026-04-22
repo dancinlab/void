@@ -1,6 +1,6 @@
 //! The Inspector is a development tool to debug the terminal. This is
 //! useful for terminal application developers as well as people potentially
-//! debugging issues in Ghostty itself.
+//! debugging issues in Void itself.
 const Inspector = @This();
 
 const std = @import("std");
@@ -15,7 +15,7 @@ const inspector = @import("main.zig");
 const widgets = @import("widgets.zig");
 
 /// Mouse state that we track in addition to normal mouse states that
-/// Ghostty always knows about.
+/// Void always knows about.
 mouse: widgets.surface.Mouse = .{},
 
 // ImGui state

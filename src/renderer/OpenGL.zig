@@ -142,7 +142,7 @@ fn prepareContext(getProcAddress: anytype) !void {
         (major == MIN_VERSION_MAJOR and minor < MIN_VERSION_MINOR))
     {
         log.warn(
-            "OpenGL version is too old. Ghostty requires OpenGL {d}.{d}",
+            "OpenGL version is too old. Void requires OpenGL {d}.{d}",
             .{ MIN_VERSION_MAJOR, MIN_VERSION_MINOR },
         );
         return error.OpenGLOutdated;
@@ -170,8 +170,8 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         => try prepareContext(null),
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
+            // TODO(mitchellh): this does nothing today to allow libvoid
+            // to compile for OpenGL targets but libvoid is strictly
             // broken for rendering on this platforms.
         },
     }
@@ -209,8 +209,8 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         },
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
+            // TODO(mitchellh): this does nothing today to allow libvoid
+            // to compile for OpenGL targets but libvoid is strictly
             // broken for rendering on this platforms.
         },
     }

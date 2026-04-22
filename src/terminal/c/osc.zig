@@ -6,10 +6,10 @@ const Result = @import("result.zig").Result;
 
 const log = std.log.scoped(.osc);
 
-/// C: GhosttyOscParser
+/// C: VoidOscParser
 pub const Parser = ?*osc.Parser;
 
-/// C: GhosttyOscCommand
+/// C: VoidOscCommand
 pub const Command = ?*osc.Command;
 
 pub fn new(
@@ -49,7 +49,7 @@ pub fn commandType(command_: Command) callconv(lib.calling_conv) osc.Command.Key
     return command.*;
 }
 
-/// C: GhosttyOscCommandData
+/// C: VoidOscCommandData
 pub const CommandData = enum(c_int) {
     invalid = 0,
     change_window_title_str = 1,

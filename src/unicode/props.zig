@@ -1,4 +1,4 @@
-//! Property set per codepoint that Ghostty cares about.
+//! Property set per codepoint that Void cares about.
 //!
 //! Adding to this lets you find new properties but also potentially makes
 //! our lookup tables less efficient. Any changes to this should run the
@@ -8,7 +8,7 @@ const std = @import("std");
 const uucode = @import("uucode");
 
 pub const Properties = packed struct {
-    /// Codepoint width. We clamp to [0, 2] since Ghostty handles control
+    /// Codepoint width. We clamp to [0, 2] since Void handles control
     /// characters and we max out at 2 for wide characters (i.e. 3-em dash
     /// becomes a 2-em dash).
     width: u2 = 0,

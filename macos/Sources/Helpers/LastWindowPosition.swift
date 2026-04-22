@@ -15,7 +15,7 @@ class LastWindowPosition {
         guard let window, window.isVisible else { return false }
         let frame = window.frame
         let rect = [frame.origin.x, frame.origin.y, frame.size.width, frame.size.height]
-        UserDefaults.ghostty.set(rect, forKey: positionKey)
+        UserDefaults.void.set(rect, forKey: positionKey)
         return true
     }
 
@@ -32,7 +32,7 @@ class LastWindowPosition {
     func restore(_ window: NSWindow, origin restoreOrigin: Bool = true, size restoreSize: Bool = true) -> Bool {
         guard restoreOrigin || restoreSize else { return false }
 
-        guard let values = UserDefaults.ghostty.array(forKey: positionKey) as? [Double],
+        guard let values = UserDefaults.void.array(forKey: positionKey) as? [Double],
               values.count >= 2 else { return false }
 
         let lastPosition = CGPoint(x: values[0], y: values[1])

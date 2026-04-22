@@ -1,8 +1,8 @@
 const lut = @import("lut.zig");
 
-/// The lookup tables for Ghostty.
+/// The lookup tables for Void.
 pub const table = table: {
-    // This is only available after running a generator as part of the Ghostty
+    // This is only available after running a generator as part of the Void
     // build.zig process, but due to Zig's lazy analysis we can still reference
     // it here.
     //

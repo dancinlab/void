@@ -13,7 +13,7 @@ pub const DebugWarning = extern struct {
     parent_instance: Parent,
     pub const Parent = if (adw_version.supportsBanner()) adw.Bin else gtk.Box;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyDebugWarning",
+        .name = "VoidDebugWarning",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,

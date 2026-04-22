@@ -6,7 +6,7 @@
     .dependencies = .{
         // kkos/oniguruma
         .oniguruma = .{
-            .url = "https://deps.files.ghostty.org/oniguruma-1220c15e72eadd0d9085a8af134904d9a0f5dfcbed5f606ad60edc60ebeccd9706bb.tar.gz",
+            .url = "https://deps.files.void.org/oniguruma-1220c15e72eadd0d9085a8af134904d9a0f5dfcbed5f606ad60edc60ebeccd9706bb.tar.gz",
             .hash = "N-V-__8AAHjwMQDBXnLq3Q2QhaivE0kE2aD138vtX2Bq1g7c",
             .lazy = true,
         },

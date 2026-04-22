@@ -9,7 +9,7 @@ pub fn resourcesDir(alloc: Allocator) !internal_os.ResourcesDir {
         // Only consult Flatpak runtime data for host case.
         if (internal_os.isFlatpak()) {
             var result: internal_os.ResourcesDir = .{
-                .app_path = try alloc.dupe(u8, "/app/share/ghostty"),
+                .app_path = try alloc.dupe(u8, "/app/share/void"),
             };
             errdefer alloc.free(result.app_path.?);
 
@@ -20,7 +20,7 @@ pub fn resourcesDir(alloc: Allocator) !internal_os.ResourcesDir {
             const app_dir = std.mem.span(keyfile.getString("Instance", "app-path", null)) orelse return result;
             defer glib.free(app_dir.ptr);
 
-            result.host_path = try std.fs.path.join(alloc, &[_][]const u8{ app_dir, "share", "ghostty" });
+            result.host_path = try std.fs.path.join(alloc, &[_][]const u8{ app_dir, "share", "void" });
             return result;
         }
     }

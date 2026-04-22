@@ -1,6 +1,6 @@
-# Example: `ghostty-vt` SGR Parser
+# Example: `void-vt` SGR Parser
 
-This contains a simple example of how to use the `ghostty-vt` SGR parser
+This contains a simple example of how to use the `void-vt` SGR parser
 to parse terminal styling sequences and extract text attributes.
 
 This example demonstrates parsing a complex SGR sequence from Kakoune that
@@ -9,7 +9,7 @@ color with mixed semicolon and colon separators.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source
-tree, but Ghostty emits a standard C library that can be used with any
+tree, but Void emits a standard C library that can be used with any
 C tooling.
 
 ## Usage

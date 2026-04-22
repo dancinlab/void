@@ -101,7 +101,7 @@ pub fn build(b: *std.Build) !void {
             .files = &.{
                 // These provide the runtime target selection used by
                 // HWY_DYNAMIC_DISPATCH. The benchmark, timer, print, and
-                // aligned allocator support files are unused by Ghostty.
+                // aligned allocator support files are unused by Void.
                 "hwy/per_target.cc",
                 "hwy/targets.cc",
             },

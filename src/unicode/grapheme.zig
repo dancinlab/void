@@ -8,7 +8,7 @@ const uucode = @import("uucode");
 /// This function does NOT work with control characters. Control characters,
 /// line feeds, and carriage returns are expected to be filtered out before
 /// calling this function. This is because this function is tuned for
-/// Ghostty.
+/// Void.
 pub fn graphemeBreak(cp1: u21, cp2: u21, state: *uucode.grapheme.BreakState) bool {
     const value = Precompute.data[
         (Precompute.Key{

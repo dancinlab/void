@@ -1,9 +1,9 @@
-//! This is the public API of the ghostty-vt Zig module.
+//! This is the public API of the void-vt Zig module.
 //!
 //! WARNING: The API is not guaranteed to be stable.
 //!
 //! The functionality is extremely stable, since it is extracted
-//! directly from Ghostty which has been used in real world scenarios
+//! directly from Void which has been used in real world scenarios
 //! by thousands of users for years. However, the API itself (functions,
 //! types, etc.) may change without warning. We're working on stabilizing
 //! this in the future.
@@ -16,7 +16,7 @@ const builtin = @import("builtin");
 // is separate because (1) we need our root file to be in `src/`
 // so we can access other directories and (2) we may want to withhold
 // parts of `terminal` that are not ready for public consumption
-// or are too Ghostty-internal.
+// or are too Void-internal.
 const terminal = @import("terminal/main.zig");
 
 /// System interface for the terminal package.
@@ -26,7 +26,7 @@ const terminal = @import("terminal/main.zig");
 /// provide or override default behaviors. These must be set at startup
 /// before any terminal functionality is used.
 ///
-/// This lets libghostty-vt have no runtime dependencies on external
+/// This lets libvoid-vt have no runtime dependencies on external
 /// libraries, while still allowing rich functionality that may require
 /// external libraries (e.g. image decoding or regular expresssions).
 ///
@@ -94,7 +94,7 @@ pub const EraseLine = terminal.EraseLine;
 pub const TabClear = terminal.TabClear;
 pub const Attribute = terminal.Attribute;
 
-/// Terminal-specific input encoding is also part of libghostty-vt.
+/// Terminal-specific input encoding is also part of libvoid-vt.
 pub const input = struct {
     // We have to be careful to only import targeted files within
     // the input package because the full package brings in too many
@@ -137,151 +137,151 @@ comptime {
     // we want to reference the C API so that it gets exported.
     if (@import("root") == lib) {
         const c = terminal.c_api;
-        @export(&c.key_event_new, .{ .name = "ghostty_key_event_new" });
-        @export(&c.key_event_free, .{ .name = "ghostty_key_event_free" });
-        @export(&c.key_event_set_action, .{ .name = "ghostty_key_event_set_action" });
-        @export(&c.key_event_get_action, .{ .name = "ghostty_key_event_get_action" });
-        @export(&c.key_event_set_key, .{ .name = "ghostty_key_event_set_key" });
-        @export(&c.key_event_get_key, .{ .name = "ghostty_key_event_get_key" });
-        @export(&c.key_event_set_mods, .{ .name = "ghostty_key_event_set_mods" });
-        @export(&c.key_event_get_mods, .{ .name = "ghostty_key_event_get_mods" });
-        @export(&c.key_event_set_consumed_mods, .{ .name = "ghostty_key_event_set_consumed_mods" });
-        @export(&c.key_event_get_consumed_mods, .{ .name = "ghostty_key_event_get_consumed_mods" });
-        @export(&c.key_event_set_composing, .{ .name = "ghostty_key_event_set_composing" });
-        @export(&c.key_event_get_composing, .{ .name = "ghostty_key_event_get_composing" });
-        @export(&c.key_event_set_utf8, .{ .name = "ghostty_key_event_set_utf8" });
-        @export(&c.key_event_get_utf8, .{ .name = "ghostty_key_event_get_utf8" });
-        @export(&c.key_event_set_unshifted_codepoint, .{ .name = "ghostty_key_event_set_unshifted_codepoint" });
-        @export(&c.key_event_get_unshifted_codepoint, .{ .name = "ghostty_key_event_get_unshifted_codepoint" });
-        @export(&c.key_encoder_new, .{ .name = "ghostty_key_encoder_new" });
-        @export(&c.key_encoder_free, .{ .name = "ghostty_key_encoder_free" });
-        @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
-        @export(&c.key_encoder_setopt_from_terminal, .{ .name = "ghostty_key_encoder_setopt_from_terminal" });
-        @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
-        @export(&c.mouse_event_new, .{ .name = "ghostty_mouse_event_new" });
-        @export(&c.mouse_event_free, .{ .name = "ghostty_mouse_event_free" });
-        @export(&c.mouse_event_set_action, .{ .name = "ghostty_mouse_event_set_action" });
-        @export(&c.mouse_event_get_action, .{ .name = "ghostty_mouse_event_get_action" });
-        @export(&c.mouse_event_set_button, .{ .name = "ghostty_mouse_event_set_button" });
-        @export(&c.mouse_event_clear_button, .{ .name = "ghostty_mouse_event_clear_button" });
-        @export(&c.mouse_event_get_button, .{ .name = "ghostty_mouse_event_get_button" });
-        @export(&c.mouse_event_set_mods, .{ .name = "ghostty_mouse_event_set_mods" });
-        @export(&c.mouse_event_get_mods, .{ .name = "ghostty_mouse_event_get_mods" });
-        @export(&c.mouse_event_set_position, .{ .name = "ghostty_mouse_event_set_position" });
-        @export(&c.mouse_event_get_position, .{ .name = "ghostty_mouse_event_get_position" });
-        @export(&c.mouse_encoder_new, .{ .name = "ghostty_mouse_encoder_new" });
-        @export(&c.mouse_encoder_free, .{ .name = "ghostty_mouse_encoder_free" });
-        @export(&c.mouse_encoder_setopt, .{ .name = "ghostty_mouse_encoder_setopt" });
-        @export(&c.mouse_encoder_setopt_from_terminal, .{ .name = "ghostty_mouse_encoder_setopt_from_terminal" });
-        @export(&c.mouse_encoder_reset, .{ .name = "ghostty_mouse_encoder_reset" });
-        @export(&c.mouse_encoder_encode, .{ .name = "ghostty_mouse_encoder_encode" });
-        @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
-        @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
-        @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
-        @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
-        @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
-        @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
-        @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
-        @export(&c.focus_encode, .{ .name = "ghostty_focus_encode" });
-        @export(&c.mode_report_encode, .{ .name = "ghostty_mode_report_encode" });
-        @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
-        @export(&c.paste_encode, .{ .name = "ghostty_paste_encode" });
-        @export(&c.size_report_encode, .{ .name = "ghostty_size_report_encode" });
-        @export(&c.style_default, .{ .name = "ghostty_style_default" });
-        @export(&c.style_is_default, .{ .name = "ghostty_style_is_default" });
-        @export(&c.sys_log_stderr, .{ .name = "ghostty_sys_log_stderr" });
-        @export(&c.sys_set, .{ .name = "ghostty_sys_set" });
-        @export(&c.cell_get, .{ .name = "ghostty_cell_get" });
-        @export(&c.cell_get_multi, .{ .name = "ghostty_cell_get_multi" });
-        @export(&c.row_get, .{ .name = "ghostty_row_get" });
-        @export(&c.row_get_multi, .{ .name = "ghostty_row_get_multi" });
-        @export(&c.color_rgb_get, .{ .name = "ghostty_color_rgb_get" });
-        @export(&c.sgr_new, .{ .name = "ghostty_sgr_new" });
-        @export(&c.sgr_free, .{ .name = "ghostty_sgr_free" });
-        @export(&c.sgr_reset, .{ .name = "ghostty_sgr_reset" });
-        @export(&c.sgr_set_params, .{ .name = "ghostty_sgr_set_params" });
-        @export(&c.sgr_next, .{ .name = "ghostty_sgr_next" });
-        @export(&c.sgr_unknown_full, .{ .name = "ghostty_sgr_unknown_full" });
-        @export(&c.sgr_unknown_partial, .{ .name = "ghostty_sgr_unknown_partial" });
-        @export(&c.sgr_attribute_tag, .{ .name = "ghostty_sgr_attribute_tag" });
-        @export(&c.sgr_attribute_value, .{ .name = "ghostty_sgr_attribute_value" });
-        @export(&c.formatter_terminal_new, .{ .name = "ghostty_formatter_terminal_new" });
-        @export(&c.formatter_format_buf, .{ .name = "ghostty_formatter_format_buf" });
-        @export(&c.formatter_format_alloc, .{ .name = "ghostty_formatter_format_alloc" });
-        @export(&c.formatter_free, .{ .name = "ghostty_formatter_free" });
-        @export(&c.render_state_new, .{ .name = "ghostty_render_state_new" });
-        @export(&c.render_state_update, .{ .name = "ghostty_render_state_update" });
-        @export(&c.render_state_get, .{ .name = "ghostty_render_state_get" });
-        @export(&c.render_state_get_multi, .{ .name = "ghostty_render_state_get_multi" });
-        @export(&c.render_state_set, .{ .name = "ghostty_render_state_set" });
-        @export(&c.render_state_colors_get, .{ .name = "ghostty_render_state_colors_get" });
-        @export(&c.render_state_row_iterator_new, .{ .name = "ghostty_render_state_row_iterator_new" });
-        @export(&c.render_state_row_iterator_next, .{ .name = "ghostty_render_state_row_iterator_next" });
-        @export(&c.render_state_row_get, .{ .name = "ghostty_render_state_row_get" });
-        @export(&c.render_state_row_get_multi, .{ .name = "ghostty_render_state_row_get_multi" });
-        @export(&c.render_state_row_set, .{ .name = "ghostty_render_state_row_set" });
-        @export(&c.render_state_row_iterator_free, .{ .name = "ghostty_render_state_row_iterator_free" });
-        @export(&c.render_state_row_cells_new, .{ .name = "ghostty_render_state_row_cells_new" });
-        @export(&c.render_state_row_cells_next, .{ .name = "ghostty_render_state_row_cells_next" });
-        @export(&c.render_state_row_cells_select, .{ .name = "ghostty_render_state_row_cells_select" });
-        @export(&c.render_state_row_cells_get, .{ .name = "ghostty_render_state_row_cells_get" });
-        @export(&c.render_state_row_cells_get_multi, .{ .name = "ghostty_render_state_row_cells_get_multi" });
-        @export(&c.render_state_row_cells_free, .{ .name = "ghostty_render_state_row_cells_free" });
-        @export(&c.render_state_free, .{ .name = "ghostty_render_state_free" });
-        @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
-        @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
-        @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
-        @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
-        @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
-        @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
-        @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
-        @export(&c.terminal_mode_get, .{ .name = "ghostty_terminal_mode_get" });
-        @export(&c.terminal_mode_set, .{ .name = "ghostty_terminal_mode_set" });
-        @export(&c.terminal_get, .{ .name = "ghostty_terminal_get" });
-        @export(&c.terminal_get_multi, .{ .name = "ghostty_terminal_get_multi" });
-        @export(&c.terminal_grid_ref, .{ .name = "ghostty_terminal_grid_ref" });
-        @export(&c.terminal_point_from_grid_ref, .{ .name = "ghostty_terminal_point_from_grid_ref" });
-        @export(&c.kitty_graphics_get, .{ .name = "ghostty_kitty_graphics_get" });
-        @export(&c.kitty_graphics_image, .{ .name = "ghostty_kitty_graphics_image" });
-        @export(&c.kitty_graphics_image_get, .{ .name = "ghostty_kitty_graphics_image_get" });
-        @export(&c.kitty_graphics_image_get_multi, .{ .name = "ghostty_kitty_graphics_image_get_multi" });
-        @export(&c.kitty_graphics_placement_iterator_new, .{ .name = "ghostty_kitty_graphics_placement_iterator_new" });
-        @export(&c.kitty_graphics_placement_iterator_free, .{ .name = "ghostty_kitty_graphics_placement_iterator_free" });
-        @export(&c.kitty_graphics_placement_iterator_set, .{ .name = "ghostty_kitty_graphics_placement_iterator_set" });
-        @export(&c.kitty_graphics_placement_next, .{ .name = "ghostty_kitty_graphics_placement_next" });
-        @export(&c.kitty_graphics_placement_get, .{ .name = "ghostty_kitty_graphics_placement_get" });
-        @export(&c.kitty_graphics_placement_get_multi, .{ .name = "ghostty_kitty_graphics_placement_get_multi" });
-        @export(&c.kitty_graphics_placement_rect, .{ .name = "ghostty_kitty_graphics_placement_rect" });
-        @export(&c.kitty_graphics_placement_pixel_size, .{ .name = "ghostty_kitty_graphics_placement_pixel_size" });
-        @export(&c.kitty_graphics_placement_grid_size, .{ .name = "ghostty_kitty_graphics_placement_grid_size" });
-        @export(&c.kitty_graphics_placement_viewport_pos, .{ .name = "ghostty_kitty_graphics_placement_viewport_pos" });
-        @export(&c.kitty_graphics_placement_source_rect, .{ .name = "ghostty_kitty_graphics_placement_source_rect" });
-        @export(&c.kitty_graphics_placement_render_info, .{ .name = "ghostty_kitty_graphics_placement_render_info" });
-        @export(&c.grid_ref_cell, .{ .name = "ghostty_grid_ref_cell" });
-        @export(&c.grid_ref_row, .{ .name = "ghostty_grid_ref_row" });
-        @export(&c.grid_ref_graphemes, .{ .name = "ghostty_grid_ref_graphemes" });
-        @export(&c.grid_ref_hyperlink_uri, .{ .name = "ghostty_grid_ref_hyperlink_uri" });
-        @export(&c.grid_ref_style, .{ .name = "ghostty_grid_ref_style" });
-        @export(&c.build_info, .{ .name = "ghostty_build_info" });
-        @export(&c.type_json, .{ .name = "ghostty_type_json" });
-        @export(&c.alloc_alloc, .{ .name = "ghostty_alloc" });
-        @export(&c.alloc_free, .{ .name = "ghostty_free" });
+        @export(&c.key_event_new, .{ .name = "void_key_event_new" });
+        @export(&c.key_event_free, .{ .name = "void_key_event_free" });
+        @export(&c.key_event_set_action, .{ .name = "void_key_event_set_action" });
+        @export(&c.key_event_get_action, .{ .name = "void_key_event_get_action" });
+        @export(&c.key_event_set_key, .{ .name = "void_key_event_set_key" });
+        @export(&c.key_event_get_key, .{ .name = "void_key_event_get_key" });
+        @export(&c.key_event_set_mods, .{ .name = "void_key_event_set_mods" });
+        @export(&c.key_event_get_mods, .{ .name = "void_key_event_get_mods" });
+        @export(&c.key_event_set_consumed_mods, .{ .name = "void_key_event_set_consumed_mods" });
+        @export(&c.key_event_get_consumed_mods, .{ .name = "void_key_event_get_consumed_mods" });
+        @export(&c.key_event_set_composing, .{ .name = "void_key_event_set_composing" });
+        @export(&c.key_event_get_composing, .{ .name = "void_key_event_get_composing" });
+        @export(&c.key_event_set_utf8, .{ .name = "void_key_event_set_utf8" });
+        @export(&c.key_event_get_utf8, .{ .name = "void_key_event_get_utf8" });
+        @export(&c.key_event_set_unshifted_codepoint, .{ .name = "void_key_event_set_unshifted_codepoint" });
+        @export(&c.key_event_get_unshifted_codepoint, .{ .name = "void_key_event_get_unshifted_codepoint" });
+        @export(&c.key_encoder_new, .{ .name = "void_key_encoder_new" });
+        @export(&c.key_encoder_free, .{ .name = "void_key_encoder_free" });
+        @export(&c.key_encoder_setopt, .{ .name = "void_key_encoder_setopt" });
+        @export(&c.key_encoder_setopt_from_terminal, .{ .name = "void_key_encoder_setopt_from_terminal" });
+        @export(&c.key_encoder_encode, .{ .name = "void_key_encoder_encode" });
+        @export(&c.mouse_event_new, .{ .name = "void_mouse_event_new" });
+        @export(&c.mouse_event_free, .{ .name = "void_mouse_event_free" });
+        @export(&c.mouse_event_set_action, .{ .name = "void_mouse_event_set_action" });
+        @export(&c.mouse_event_get_action, .{ .name = "void_mouse_event_get_action" });
+        @export(&c.mouse_event_set_button, .{ .name = "void_mouse_event_set_button" });
+        @export(&c.mouse_event_clear_button, .{ .name = "void_mouse_event_clear_button" });
+        @export(&c.mouse_event_get_button, .{ .name = "void_mouse_event_get_button" });
+        @export(&c.mouse_event_set_mods, .{ .name = "void_mouse_event_set_mods" });
+        @export(&c.mouse_event_get_mods, .{ .name = "void_mouse_event_get_mods" });
+        @export(&c.mouse_event_set_position, .{ .name = "void_mouse_event_set_position" });
+        @export(&c.mouse_event_get_position, .{ .name = "void_mouse_event_get_position" });
+        @export(&c.mouse_encoder_new, .{ .name = "void_mouse_encoder_new" });
+        @export(&c.mouse_encoder_free, .{ .name = "void_mouse_encoder_free" });
+        @export(&c.mouse_encoder_setopt, .{ .name = "void_mouse_encoder_setopt" });
+        @export(&c.mouse_encoder_setopt_from_terminal, .{ .name = "void_mouse_encoder_setopt_from_terminal" });
+        @export(&c.mouse_encoder_reset, .{ .name = "void_mouse_encoder_reset" });
+        @export(&c.mouse_encoder_encode, .{ .name = "void_mouse_encoder_encode" });
+        @export(&c.osc_new, .{ .name = "void_osc_new" });
+        @export(&c.osc_free, .{ .name = "void_osc_free" });
+        @export(&c.osc_next, .{ .name = "void_osc_next" });
+        @export(&c.osc_reset, .{ .name = "void_osc_reset" });
+        @export(&c.osc_end, .{ .name = "void_osc_end" });
+        @export(&c.osc_command_type, .{ .name = "void_osc_command_type" });
+        @export(&c.osc_command_data, .{ .name = "void_osc_command_data" });
+        @export(&c.focus_encode, .{ .name = "void_focus_encode" });
+        @export(&c.mode_report_encode, .{ .name = "void_mode_report_encode" });
+        @export(&c.paste_is_safe, .{ .name = "void_paste_is_safe" });
+        @export(&c.paste_encode, .{ .name = "void_paste_encode" });
+        @export(&c.size_report_encode, .{ .name = "void_size_report_encode" });
+        @export(&c.style_default, .{ .name = "void_style_default" });
+        @export(&c.style_is_default, .{ .name = "void_style_is_default" });
+        @export(&c.sys_log_stderr, .{ .name = "void_sys_log_stderr" });
+        @export(&c.sys_set, .{ .name = "void_sys_set" });
+        @export(&c.cell_get, .{ .name = "void_cell_get" });
+        @export(&c.cell_get_multi, .{ .name = "void_cell_get_multi" });
+        @export(&c.row_get, .{ .name = "void_row_get" });
+        @export(&c.row_get_multi, .{ .name = "void_row_get_multi" });
+        @export(&c.color_rgb_get, .{ .name = "void_color_rgb_get" });
+        @export(&c.sgr_new, .{ .name = "void_sgr_new" });
+        @export(&c.sgr_free, .{ .name = "void_sgr_free" });
+        @export(&c.sgr_reset, .{ .name = "void_sgr_reset" });
+        @export(&c.sgr_set_params, .{ .name = "void_sgr_set_params" });
+        @export(&c.sgr_next, .{ .name = "void_sgr_next" });
+        @export(&c.sgr_unknown_full, .{ .name = "void_sgr_unknown_full" });
+        @export(&c.sgr_unknown_partial, .{ .name = "void_sgr_unknown_partial" });
+        @export(&c.sgr_attribute_tag, .{ .name = "void_sgr_attribute_tag" });
+        @export(&c.sgr_attribute_value, .{ .name = "void_sgr_attribute_value" });
+        @export(&c.formatter_terminal_new, .{ .name = "void_formatter_terminal_new" });
+        @export(&c.formatter_format_buf, .{ .name = "void_formatter_format_buf" });
+        @export(&c.formatter_format_alloc, .{ .name = "void_formatter_format_alloc" });
+        @export(&c.formatter_free, .{ .name = "void_formatter_free" });
+        @export(&c.render_state_new, .{ .name = "void_render_state_new" });
+        @export(&c.render_state_update, .{ .name = "void_render_state_update" });
+        @export(&c.render_state_get, .{ .name = "void_render_state_get" });
+        @export(&c.render_state_get_multi, .{ .name = "void_render_state_get_multi" });
+        @export(&c.render_state_set, .{ .name = "void_render_state_set" });
+        @export(&c.render_state_colors_get, .{ .name = "void_render_state_colors_get" });
+        @export(&c.render_state_row_iterator_new, .{ .name = "void_render_state_row_iterator_new" });
+        @export(&c.render_state_row_iterator_next, .{ .name = "void_render_state_row_iterator_next" });
+        @export(&c.render_state_row_get, .{ .name = "void_render_state_row_get" });
+        @export(&c.render_state_row_get_multi, .{ .name = "void_render_state_row_get_multi" });
+        @export(&c.render_state_row_set, .{ .name = "void_render_state_row_set" });
+        @export(&c.render_state_row_iterator_free, .{ .name = "void_render_state_row_iterator_free" });
+        @export(&c.render_state_row_cells_new, .{ .name = "void_render_state_row_cells_new" });
+        @export(&c.render_state_row_cells_next, .{ .name = "void_render_state_row_cells_next" });
+        @export(&c.render_state_row_cells_select, .{ .name = "void_render_state_row_cells_select" });
+        @export(&c.render_state_row_cells_get, .{ .name = "void_render_state_row_cells_get" });
+        @export(&c.render_state_row_cells_get_multi, .{ .name = "void_render_state_row_cells_get_multi" });
+        @export(&c.render_state_row_cells_free, .{ .name = "void_render_state_row_cells_free" });
+        @export(&c.render_state_free, .{ .name = "void_render_state_free" });
+        @export(&c.terminal_new, .{ .name = "void_terminal_new" });
+        @export(&c.terminal_free, .{ .name = "void_terminal_free" });
+        @export(&c.terminal_reset, .{ .name = "void_terminal_reset" });
+        @export(&c.terminal_resize, .{ .name = "void_terminal_resize" });
+        @export(&c.terminal_set, .{ .name = "void_terminal_set" });
+        @export(&c.terminal_vt_write, .{ .name = "void_terminal_vt_write" });
+        @export(&c.terminal_scroll_viewport, .{ .name = "void_terminal_scroll_viewport" });
+        @export(&c.terminal_mode_get, .{ .name = "void_terminal_mode_get" });
+        @export(&c.terminal_mode_set, .{ .name = "void_terminal_mode_set" });
+        @export(&c.terminal_get, .{ .name = "void_terminal_get" });
+        @export(&c.terminal_get_multi, .{ .name = "void_terminal_get_multi" });
+        @export(&c.terminal_grid_ref, .{ .name = "void_terminal_grid_ref" });
+        @export(&c.terminal_point_from_grid_ref, .{ .name = "void_terminal_point_from_grid_ref" });
+        @export(&c.kitty_graphics_get, .{ .name = "void_kitty_graphics_get" });
+        @export(&c.kitty_graphics_image, .{ .name = "void_kitty_graphics_image" });
+        @export(&c.kitty_graphics_image_get, .{ .name = "void_kitty_graphics_image_get" });
+        @export(&c.kitty_graphics_image_get_multi, .{ .name = "void_kitty_graphics_image_get_multi" });
+        @export(&c.kitty_graphics_placement_iterator_new, .{ .name = "void_kitty_graphics_placement_iterator_new" });
+        @export(&c.kitty_graphics_placement_iterator_free, .{ .name = "void_kitty_graphics_placement_iterator_free" });
+        @export(&c.kitty_graphics_placement_iterator_set, .{ .name = "void_kitty_graphics_placement_iterator_set" });
+        @export(&c.kitty_graphics_placement_next, .{ .name = "void_kitty_graphics_placement_next" });
+        @export(&c.kitty_graphics_placement_get, .{ .name = "void_kitty_graphics_placement_get" });
+        @export(&c.kitty_graphics_placement_get_multi, .{ .name = "void_kitty_graphics_placement_get_multi" });
+        @export(&c.kitty_graphics_placement_rect, .{ .name = "void_kitty_graphics_placement_rect" });
+        @export(&c.kitty_graphics_placement_pixel_size, .{ .name = "void_kitty_graphics_placement_pixel_size" });
+        @export(&c.kitty_graphics_placement_grid_size, .{ .name = "void_kitty_graphics_placement_grid_size" });
+        @export(&c.kitty_graphics_placement_viewport_pos, .{ .name = "void_kitty_graphics_placement_viewport_pos" });
+        @export(&c.kitty_graphics_placement_source_rect, .{ .name = "void_kitty_graphics_placement_source_rect" });
+        @export(&c.kitty_graphics_placement_render_info, .{ .name = "void_kitty_graphics_placement_render_info" });
+        @export(&c.grid_ref_cell, .{ .name = "void_grid_ref_cell" });
+        @export(&c.grid_ref_row, .{ .name = "void_grid_ref_row" });
+        @export(&c.grid_ref_graphemes, .{ .name = "void_grid_ref_graphemes" });
+        @export(&c.grid_ref_hyperlink_uri, .{ .name = "void_grid_ref_hyperlink_uri" });
+        @export(&c.grid_ref_style, .{ .name = "void_grid_ref_style" });
+        @export(&c.build_info, .{ .name = "void_build_info" });
+        @export(&c.type_json, .{ .name = "void_type_json" });
+        @export(&c.alloc_alloc, .{ .name = "void_alloc" });
+        @export(&c.alloc_free, .{ .name = "void_free" });
 
         // On Wasm we need to export our allocator convenience functions.
         if (builtin.target.cpu.arch.isWasm()) {
             const alloc = @import("lib/allocator/convenience.zig");
-            @export(&alloc.allocOpaque, .{ .name = "ghostty_wasm_alloc_opaque" });
-            @export(&alloc.freeOpaque, .{ .name = "ghostty_wasm_free_opaque" });
-            @export(&alloc.allocU8Array, .{ .name = "ghostty_wasm_alloc_u8_array" });
-            @export(&alloc.freeU8Array, .{ .name = "ghostty_wasm_free_u8_array" });
-            @export(&alloc.allocU16Array, .{ .name = "ghostty_wasm_alloc_u16_array" });
-            @export(&alloc.freeU16Array, .{ .name = "ghostty_wasm_free_u16_array" });
-            @export(&alloc.allocU8, .{ .name = "ghostty_wasm_alloc_u8" });
-            @export(&alloc.freeU8, .{ .name = "ghostty_wasm_free_u8" });
-            @export(&alloc.allocUsize, .{ .name = "ghostty_wasm_alloc_usize" });
-            @export(&alloc.freeUsize, .{ .name = "ghostty_wasm_free_usize" });
-            @export(&c.wasm_alloc_sgr_attribute, .{ .name = "ghostty_wasm_alloc_sgr_attribute" });
-            @export(&c.wasm_free_sgr_attribute, .{ .name = "ghostty_wasm_free_sgr_attribute" });
+            @export(&alloc.allocOpaque, .{ .name = "void_wasm_alloc_opaque" });
+            @export(&alloc.freeOpaque, .{ .name = "void_wasm_free_opaque" });
+            @export(&alloc.allocU8Array, .{ .name = "void_wasm_alloc_u8_array" });
+            @export(&alloc.freeU8Array, .{ .name = "void_wasm_free_u8_array" });
+            @export(&alloc.allocU16Array, .{ .name = "void_wasm_alloc_u16_array" });
+            @export(&alloc.freeU16Array, .{ .name = "void_wasm_free_u16_array" });
+            @export(&alloc.allocU8, .{ .name = "void_wasm_alloc_u8" });
+            @export(&alloc.freeU8, .{ .name = "void_wasm_free_u8" });
+            @export(&alloc.allocUsize, .{ .name = "void_wasm_alloc_usize" });
+            @export(&alloc.freeUsize, .{ .name = "void_wasm_free_usize" });
+            @export(&c.wasm_alloc_sgr_attribute, .{ .name = "void_wasm_alloc_sgr_attribute" });
+            @export(&c.wasm_free_sgr_attribute, .{ .name = "void_wasm_free_sgr_attribute" });
         }
     }
 }

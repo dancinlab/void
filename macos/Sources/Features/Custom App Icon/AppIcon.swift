@@ -1,7 +1,7 @@
 import AppKit
 import System
 
-/// The icon style for the Ghostty App.
+/// The icon style for the Void App.
 enum AppIcon: Equatable, Codable, Sendable {
     case official
     case blueprint
@@ -14,10 +14,10 @@ enum AppIcon: Equatable, Codable, Sendable {
     case xray
     /// Save full image data to avoid sandboxing issues
     case custom(_ iconFile: Data)
-    case customStyle(_ icon: ColorizedGhosttyIcon)
+    case customStyle(_ icon: ColorizedVoidIcon)
 
 #if !DOCK_TILE_PLUGIN
-    init?(config: Ghostty.Config) {
+    init?(config: Void.Config) {
         switch config.macosIcon {
         case .official:
             return nil
@@ -52,7 +52,7 @@ enum AppIcon: Equatable, Codable, Sendable {
             else {
                 return nil
             }
-            self = .customStyle(ColorizedGhosttyIcon(screenColors: screenColors, ghostColor: ghostColor, frame: config.macosIconFrame))
+            self = .customStyle(ColorizedVoidIcon(screenColors: screenColors, ghostColor: ghostColor, frame: config.macosIconFrame))
         }
     }
 #endif
@@ -89,11 +89,11 @@ enum AppIcon: Equatable, Codable, Sendable {
 /// Making sure that `NSWorkspace.shared.setIcon` executes on only one thread at a time
 actor AppIconUpdater {
     func update(icon: AppIcon?) {
-        UserDefaults.ghostty.appIcon = icon
+        UserDefaults.void.appIcon = icon
         // Notify DockTilePlugin to update dock icon
         DistributedNotificationCenter.default()
             .postNotificationName(
-                .ghosttyIconDidChange,
+                .voidIconDidChange,
                 object: nil,
                 userInfo: nil,
                 deliverImmediately: true,

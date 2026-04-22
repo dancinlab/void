@@ -79,7 +79,7 @@ pub const Handler = struct {
         title_changed: ?*const fn (*Handler) void,
 
         /// Called in response to an XTVERSION query. Returns the version
-        /// string to report (e.g. "ghostty 1.2.3"). The returned memory
+        /// string to report (e.g. "void 1.2.3"). The returned memory
         /// must be valid for the lifetime of the call. The maximum length
         /// is 256 bytes; longer strings will be silently ignored.
         xtversion: ?*const fn (*Handler) []const u8,
@@ -350,7 +350,7 @@ pub const Handler = struct {
         const resp = std.fmt.bufPrintZ(
             &buf,
             "\x1BP>|{s}\x1B\\",
-            .{if (version.len > 0) version else "libghostty"},
+            .{if (version.len > 0) version else "libvoid"},
         ) catch return;
         self.writePty(resp);
     }
@@ -1500,9 +1500,9 @@ test "xtversion default" {
     var s: Stream = .initAlloc(testing.allocator, handler);
     defer s.deinit();
 
-    // Without xtversion effect set, should report "libghostty"
+    // Without xtversion effect set, should report "libvoid"
     s.nextSlice("\x1b[>0q");
-    try testing.expectEqualStrings("\x1bP>|libghostty\x1b\\", S.written.?);
+    try testing.expectEqualStrings("\x1bP>|libvoid\x1b\\", S.written.?);
 }
 
 test "xtversion with effect" {
@@ -1515,7 +1515,7 @@ test "xtversion with effect" {
             written = data;
         }
         fn xtversion(_: *Handler) []const u8 {
-            return "ghostty 1.2.3";
+            return "void 1.2.3";
         }
     };
     S.written = null;
@@ -1528,7 +1528,7 @@ test "xtversion with effect" {
     defer s.deinit();
 
     s.nextSlice("\x1b[>0q");
-    try testing.expectEqualStrings("\x1bP>|ghostty 1.2.3\x1b\\", S.written.?);
+    try testing.expectEqualStrings("\x1bP>|void 1.2.3\x1b\\", S.written.?);
 }
 
 test "xtversion with empty string effect" {
@@ -1553,9 +1553,9 @@ test "xtversion with empty string effect" {
     var s: Stream = .initAlloc(testing.allocator, handler);
     defer s.deinit();
 
-    // Empty string from effect should fall back to "libghostty"
+    // Empty string from effect should fall back to "libvoid"
     s.nextSlice("\x1b[>0q");
-    try testing.expectEqualStrings("\x1bP>|libghostty\x1b\\", S.written.?);
+    try testing.expectEqualStrings("\x1bP>|libvoid\x1b\\", S.written.?);
 }
 
 test "size report csi_14_t with effect" {
@@ -1725,7 +1725,7 @@ test "enquiry with effect" {
             written = testing.allocator.dupe(u8, data) catch @panic("OOM");
         }
         fn enquiry(_: *Handler) []const u8 {
-            return "ghostty";
+            return "void";
         }
     };
     S.written = null;
@@ -1739,7 +1739,7 @@ test "enquiry with effect" {
 
     s.nextSlice("\x05");
     defer testing.allocator.free(S.written.?);
-    try testing.expectEqualStrings("ghostty", S.written.?);
+    try testing.expectEqualStrings("void", S.written.?);
 }
 
 test "enquiry with empty response" {

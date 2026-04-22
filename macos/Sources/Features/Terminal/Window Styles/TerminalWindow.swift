@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import GhosttyKit
+import VoidKit
 
 /// The base class for all standalone, "normal" terminal windows. This sets the basic
 /// style and configuration of the window based on the app configuration.
@@ -31,7 +31,7 @@ class TerminalWindow: NSWindow {
         return view
     }()
 
-    /// The configuration derived from the Ghostty config so we don't need to rely on references.
+    /// The configuration derived from the Void config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
 
     /// Sets up our tab context menu
@@ -104,7 +104,7 @@ class TerminalWindow: NSWindow {
 
         // All new windows are based on the app config at the time of creation.
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
-        let config = appDelegate.ghostty.config
+        let config = appDelegate.void.config
 
         // Setup our initial config
         derivedConfig = .init(config)
@@ -171,7 +171,7 @@ class TerminalWindow: NSWindow {
         tab.accessoryView = stackView
 
         // Get our saved level
-        level = UserDefaults.ghostty.value(forKey: Self.defaultLevelKey) as? NSWindow.Level ?? .normal
+        level = UserDefaults.void.value(forKey: Self.defaultLevelKey) as? NSWindow.Level ?? .normal
     }
 
     // Both of these must be true for windows without decorations to be able to
@@ -275,7 +275,7 @@ class TerminalWindow: NSWindow {
 
     /// This identifier is attached to the tab bar view controller when we detect it being
     /// added.
-    static let tabBarIdentifier: NSUserInterfaceItemIdentifier = .init("_ghosttyTabBar")
+    static let tabBarIdentifier: NSUserInterfaceItemIdentifier = .init("_voidTabBar")
 
     var hasMoreThanOneTabs: Bool {
         /// accessing ``tabGroup?.windows`` here
@@ -464,7 +464,7 @@ class TerminalWindow: NSWindow {
     // MARK: Positioning And Styling
 
     /// This is called by the controller when there is a need to reset the window appearance.
-    func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
+    func syncAppearance(_ surfaceConfig: Void.SurfaceView.DerivedConfig) {
         // If our window is not visible, then we do nothing. Some things such as blurring
         // have no effect if the window is not visible. Ultimately, we'll have this called
         // at some point when a surface becomes focused.
@@ -493,8 +493,8 @@ class TerminalWindow: NSWindow {
 
             // We don't need to set blur when using glass
             if !surfaceConfig.backgroundBlur.isGlassStyle, let appDelegate = NSApp.delegate as? AppDelegate {
-                ghostty_set_window_background_blur(
-                    appDelegate.ghostty.app,
+                void_set_window_background_blur(
+                    appDelegate.void.app,
                     Unmanaged.passUnretained(self).toOpaque())
             }
         } else {
@@ -512,7 +512,7 @@ class TerminalWindow: NSWindow {
     /// change the alpha channel again manually.
     var preferredBackgroundColor: NSColor? {
         if let terminalController, !terminalController.surfaceTree.isEmpty {
-            let surface: Ghostty.SurfaceView?
+            let surface: Void.SurfaceView?
 
             // If our focused surface borders the top then we prefer its background color
             if let focusedSurface = terminalController.focusedSurface,
@@ -583,11 +583,11 @@ class TerminalWindow: NSWindow {
 
     struct DerivedConfig {
         let title: String?
-        let backgroundBlur: Ghostty.Config.BackgroundBlur
+        let backgroundBlur: Void.Config.BackgroundBlur
         let backgroundColor: NSColor
         let backgroundOpacity: Double
-        let macosWindowButtons: Ghostty.MacOSWindowButtons
-        let macosTitlebarStyle: Ghostty.Config.MacOSTitlebarStyle
+        let macosWindowButtons: Void.MacOSWindowButtons
+        let macosTitlebarStyle: Void.Config.MacOSTitlebarStyle
         let windowCornerRadius: CGFloat
 
         init() {
@@ -600,7 +600,7 @@ class TerminalWindow: NSWindow {
             self.windowCornerRadius = 16
         }
 
-        init(_ config: Ghostty.Config) {
+        init(_ config: Void.Config) {
             self.title = config.title
             self.backgroundColor = NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity
@@ -702,11 +702,11 @@ private struct TabColorIndicatorView: View {
 // MARK: - Tab Context Menu
 
 extension TerminalWindow {
-    private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
-    private static let changeTitleMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.changeTitleMenuItem")
-    private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
+    private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.void.closeTabsOnTheRightMenuItem")
+    private static let changeTitleMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.void.changeTitleMenuItem")
+    private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.void.tabColorSeparator")
 
-    private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
+    private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.void.tabColorPalette")
 
     func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
         guard isTabContextMenu(menu) else { return }

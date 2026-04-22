@@ -38,22 +38,22 @@ endif()
 
 # --- Set up zig cc as the cross compiler ------------------------------------
 
-# GhosttyZigCompiler.cmake must be called before project().
+# VoidZigCompiler.cmake must be called before project().
 # Downstream projects would copy this file into their tree; here we
 # include it directly from the repo.
-include(../../dist/cmake/GhosttyZigCompiler.cmake)
-ghostty_zig_compiler(ZIG_TARGET "${ZIG_TARGET}")
+include(../../dist/cmake/VoidZigCompiler.cmake)
+void_zig_compiler(ZIG_TARGET "${ZIG_TARGET}")
 
 project(c-vt-cmake-cross LANGUAGES C CXX)
 
 include(FetchContent)
-FetchContent_Declare(ghostty
+FetchContent_Declare(void
     GIT_REPOSITORY https://github.com/ghostty-org/ghostty.git
     GIT_TAG main
 )
-FetchContent_MakeAvailable(ghostty)
+FetchContent_MakeAvailable(void)
 
-ghostty_vt_add_target(NAME cross ZIG_TARGET "${ZIG_TARGET}")
+void_vt_add_target(NAME cross ZIG_TARGET "${ZIG_TARGET}")
 
 add_executable(c_vt_cmake_cross src/main.c)
-target_link_libraries(c_vt_cmake_cross PRIVATE ghostty-vt-static-cross)
+target_link_libraries(c_vt_cmake_cross PRIVATE void-vt-static-cross)

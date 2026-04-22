@@ -1,7 +1,7 @@
 const std = @import("std");
 
 // Until the gobject bindings are built at the same time we are building
-// Ghostty, we need to import `gtk/gtk.h` directly to ensure that the version
+// Void, we need to import `gtk/gtk.h` directly to ensure that the version
 // macros match the version of `gtk4` that we are building/linking against.
 const c = @cImport({
     @cInclude("gtk/gtk.h");

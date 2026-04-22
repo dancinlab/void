@@ -4,7 +4,7 @@ const assert = @import("../quirks.zig").inlineAssert;
 const indexOf = @import("index_of.zig").indexOf;
 
 // vt.cpp
-extern "c" fn ghostty_simd_decode_utf8_until_control_seq(
+extern "c" fn void_simd_decode_utf8_until_control_seq(
     input: [*]const u8,
     count: usize,
     output: [*]u32,
@@ -24,7 +24,7 @@ pub fn utf8DecodeUntilControlSeq(
 
     if (comptime options.simd) {
         var decoded: usize = 0;
-        const consumed = ghostty_simd_decode_utf8_until_control_seq(
+        const consumed = void_simd_decode_utf8_until_control_seq(
             input.ptr,
             input.len,
             output.ptr,

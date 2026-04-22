@@ -1,7 +1,7 @@
 const grid_ref = @import("grid_ref.zig");
 const Selection = @import("../Selection.zig");
 
-/// C: GhosttySelection
+/// C: VoidSelection
 pub const CSelection = extern struct {
     size: usize = @sizeOf(CSelection),
     start: grid_ref.CGridRef,

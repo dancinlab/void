@@ -125,7 +125,7 @@ pub const Shaders = struct {
         ) catch |err| err: {
             // If an error happens while building postprocess shaders we
             // want to just not use any postprocess shaders since we don't
-            // want to block Ghostty from working.
+            // want to block Void from working.
             log.warn("error initializing postprocess shaders err={}", .{err});
             break :err &.{};
         };

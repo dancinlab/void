@@ -7,8 +7,8 @@ const Config = @import("Config.zig");
 const HelpStrings = @import("HelpStrings.zig");
 const MetallibStep = @import("MetallibStep.zig");
 const UnicodeTables = @import("UnicodeTables.zig");
-const GhosttyFrameData = @import("GhosttyFrameData.zig");
-const DistResource = @import("GhosttyDist.zig").Resource;
+const VoidFrameData = @import("VoidFrameData.zig");
+const DistResource = @import("VoidDist.zig").Resource;
 
 config: *const Config,
 
@@ -16,7 +16,7 @@ options: *std.Build.Step.Options,
 help_strings: HelpStrings,
 metallib: ?*MetallibStep,
 unicode_tables: UnicodeTables,
-framedata: GhosttyFrameData,
+framedata: VoidFrameData,
 uucode_tables: std.Build.LazyPath,
 
 /// Used to keep track of a list of file sources.
@@ -84,7 +84,7 @@ fn initTarget(
 ) !void {
     // Update our metallib
     self.metallib = .create(b, .{
-        .name = "Ghostty",
+        .name = "Void",
         .target = target,
         .sources = &.{b.path("src/renderer/shaders/shaders.metal")},
     });
@@ -133,7 +133,7 @@ pub fn add(
     step.root_module.addOptions("build_options", self.options);
 
     // Every exe needs the terminal options
-    self.config.terminalOptions(.ghostty).add(b, step.root_module);
+    self.config.terminalOptions(.void).add(b, step.root_module);
 
     // C imports for locale constants and functions
     {
@@ -254,7 +254,7 @@ pub fn add(
         }
     }
 
-    // Libpng - Ghostty doesn't actually use this directly, its only used
+    // Libpng - Void doesn't actually use this directly, its only used
     // through dependencies, so we only need to add it to our static
     // libs list if we're not using system integration. The dependencies
     // will handle linking it.
@@ -434,7 +434,7 @@ pub fn add(
 
         const metallib = self.metallib.?;
         metallib.output.addStepDependencies(&step.step);
-        step.root_module.addAnonymousImport("ghostty_metallib", .{
+        step.root_module.addAnonymousImport("void_metallib", .{
             .root_source_file = metallib.output,
         });
     }
@@ -919,11 +919,11 @@ pub fn gtkNgDistResources(
     const generate_c = b.addSystemCommand(&.{
         "glib-compile-resources",
         "--c-name",
-        "ghostty",
+        "void",
         "--generate-source",
         "--target",
     });
-    const resources_c = generate_c.addOutputFileArg("ghostty_resources.c");
+    const resources_c = generate_c.addOutputFileArg("void_resources.c");
     generate_c.addFileArg(gresource_xml);
     for (gresource.file_inputs) |path| {
         generate_c.addFileInput(b.path(path));
@@ -932,11 +932,11 @@ pub fn gtkNgDistResources(
     const generate_h = b.addSystemCommand(&.{
         "glib-compile-resources",
         "--c-name",
-        "ghostty",
+        "void",
         "--generate-header",
         "--target",
     });
-    const resources_h = generate_h.addOutputFileArg("ghostty_resources.h");
+    const resources_h = generate_h.addOutputFileArg("void_resources.h");
     generate_h.addFileArg(gresource_xml);
     for (gresource.file_inputs) |path| {
         generate_h.addFileInput(b.path(path));
@@ -944,11 +944,11 @@ pub fn gtkNgDistResources(
 
     return .{
         .resources_c = .{
-            .dist = "src/apprt/gtk/ghostty_resources.c",
+            .dist = "src/apprt/gtk/void_resources.c",
             .generated = resources_c,
         },
         .resources_h = .{
-            .dist = "src/apprt/gtk/ghostty_resources.h",
+            .dist = "src/apprt/gtk/void_resources.h",
             .generated = resources_h,
         },
     };

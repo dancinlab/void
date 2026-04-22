@@ -1,6 +1,6 @@
 # c-vt-cmake-static
 
-Demonstrates consuming libghostty-vt as a **static** library from a CMake
+Demonstrates consuming libvoid-vt as a **static** library from a CMake
 project using `FetchContent`. Creates a terminal, writes VT sequences into
 it, and formats the screen contents as plain text.
 
@@ -16,6 +16,6 @@ cmake --build build
 To build against a local checkout instead of fetching from GitHub:
 
 ```shell-session
-cmake -B build -DFETCHCONTENT_SOURCE_DIR_GHOSTTY=../..
+cmake -B build -DFETCHCONTENT_SOURCE_DIR_VOID=../..
 cmake --build build
 ```

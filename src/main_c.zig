@@ -1,10 +1,10 @@
-// This is the main file for the C API. The C API is used to embed Ghostty
+// This is the main file for the C API. The C API is used to embed Void
 // within other applications. Depending on the build settings some APIs
 // may not be available (i.e. embedding into macOS exposes various Metal
 // support).
 //
 // This currently isn't supported as a general purpose embedding API.
-// This is currently used only to embed ghostty within a macOS app. However,
+// This is currently used only to embed void within a macOS app. However,
 // it could be expanded to be general purpose in the future.
 
 const std = @import("std");
@@ -12,7 +12,7 @@ const assert = @import("quirks.zig").inlineAssert;
 const posix = std.posix;
 const builtin = @import("builtin");
 const build_config = @import("build_config.zig");
-const main = @import("main_ghostty.zig");
+const main = @import("main_void.zig");
 const state = &@import("global.zig").state;
 const apprt = @import("apprt.zig");
 const internal_os = @import("os/main.zig");
@@ -21,7 +21,7 @@ const internal_os = @import("os/main.zig");
 comptime {
     // We allow tests to reference this file because we unit test
     // some of the C API. At runtime though we should never get these
-    // functions unless we are building libghostty.
+    // functions unless we are building libvoid.
     if (!builtin.is_test) {
         assert(apprt.runtime == apprt.embedded);
     }
@@ -37,7 +37,7 @@ comptime {
     // Our config API
     _ = @import("config.zig").CApi;
 
-    // Any apprt-specific C API, mainly libghostty for apprt.embedded.
+    // Any apprt-specific C API, mainly libvoid for apprt.embedded.
     if (@hasDecl(apprt.runtime, "CAPI")) _ = apprt.runtime.CAPI;
 
     // Our benchmark API. We probably want to gate this on a build
@@ -45,7 +45,7 @@ comptime {
     _ = @import("benchmark/main.zig").CApi;
 }
 
-/// ghostty_info_s
+/// void_info_s
 const Info = extern struct {
     mode: BuildMode,
     version: [*]const u8,
@@ -59,7 +59,7 @@ const Info = extern struct {
     };
 };
 
-/// ghostty_string_s
+/// void_string_s
 pub const String = extern struct {
     ptr: ?[*]const u8,
     len: usize,
@@ -101,13 +101,13 @@ pub const String = extern struct {
     }
 };
 
-/// Initialize ghostty global state.
-pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
+/// Initialize void global state.
+pub export fn void_init(argc: usize, argv: [*][*:0]u8) c_int {
     assert(builtin.link_libc);
 
     std.os.argv = argv[0..argc];
     state.init() catch |err| {
-        std.log.err("failed to initialize ghostty error={}", .{err});
+        std.log.err("failed to initialize void error={}", .{err});
         return 1;
     };
 
@@ -116,7 +116,7 @@ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
 
 /// Runs an action if it is specified. If there is no action this returns
 /// false. If there is an action then this doesn't return.
-pub export fn ghostty_cli_try_action() void {
+pub export fn void_cli_try_action() void {
     const action = state.action orelse return;
     std.log.info("executing CLI action={}", .{action});
     posix.exit(action.run(state.alloc) catch |err| {
@@ -127,8 +127,8 @@ pub export fn ghostty_cli_try_action() void {
     posix.exit(0);
 }
 
-/// Return metadata about Ghostty, such as version, build mode, etc.
-pub export fn ghostty_info() Info {
+/// Return metadata about Void, such as version, build mode, etc.
+pub export fn void_info() Info {
     return .{
         .mode = switch (builtin.mode) {
             .Debug => .debug,
@@ -141,18 +141,18 @@ pub export fn ghostty_info() Info {
     };
 }
 
-/// Translate a string maintained by libghostty into the current
+/// Translate a string maintained by libvoid into the current
 /// application language. This will return the same string (same pointer)
 /// if no translation is found, so the pointer must be stable through
 /// the function call.
 ///
-/// This should only be used for singular strings maintained by Ghostty.
-pub export fn ghostty_translate(msgid: [*:0]const u8) [*:0]const u8 {
+/// This should only be used for singular strings maintained by Void.
+pub export fn void_translate(msgid: [*:0]const u8) [*:0]const u8 {
     return internal_os.i18n._(msgid);
 }
 
-/// Free a string allocated by Ghostty.
-pub export fn ghostty_string_free(str: String) void {
+/// Free a string allocated by Void.
+pub export fn void_string_free(str: String) void {
     str.deinit();
 }
 
@@ -202,7 +202,7 @@ pub const DllMain = if (builtin.os.tag == .windows and
     }
 }.handler else void;
 
-test "ghostty_string_s empty string" {
+test "void_string_s empty string" {
     const testing = std.testing;
     const empty_string = String.empty;
     defer empty_string.deinit();
@@ -211,7 +211,7 @@ test "ghostty_string_s empty string" {
     try testing.expect(empty_string.sentinel == false);
 }
 
-test "ghostty_string_s c string" {
+test "void_string_s c string" {
     const testing = std.testing;
     state.alloc = testing.allocator;
 
@@ -227,7 +227,7 @@ test "ghostty_string_s c string" {
     try testing.expect(c_null_string.sentinel == true);
 }
 
-test "ghostty_string_s zig string" {
+test "void_string_s zig string" {
     const testing = std.testing;
     state.alloc = testing.allocator;
 

@@ -1,7 +1,7 @@
 const std = @import("std");
 const args = @import("args.zig");
 const Allocator = std.mem.Allocator;
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 const help_strings = @import("help_strings");
 const Config = @import("../config/Config.zig");
 const ConfigKey = @import("../config/key.zig").Key;
@@ -11,12 +11,12 @@ const Pager = @import("Pager.zig");
 pub const Options = struct {
     /// The config option to explain. For example:
     ///
-    ///   ghostty +explain-config --option=font-size
+    ///   void +explain-config --option=font-size
     option: ?[]const u8 = null,
 
     /// The keybind action to explain. For example:
     ///
-    ///   ghostty +explain-config --keybind=copy_to_clipboard
+    ///   void +explain-config --keybind=copy_to_clipboard
     keybind: ?[]const u8 = null,
 
     pub fn deinit(self: Options) void {
@@ -31,14 +31,14 @@ pub const Options = struct {
 };
 
 /// The `explain-config` command prints the documentation for a single
-/// Ghostty configuration option or keybind action.
+/// Void configuration option or keybind action.
 ///
 /// Examples:
 ///
-///   ghostty +explain-config font-size
-///   ghostty +explain-config copy_to_clipboard
-///   ghostty +explain-config --option=font-size
-///   ghostty +explain-config --keybind=copy_to_clipboard
+///   void +explain-config font-size
+///   void +explain-config copy_to_clipboard
+///   void +explain-config --option=font-size
+///   void +explain-config --keybind=copy_to_clipboard
 ///
 /// Flags:
 ///
@@ -78,9 +78,9 @@ pub fn run(alloc: Allocator) !u8 {
         var stderr: std.fs.File = .stderr();
         var buffer: [4096]u8 = undefined;
         var stderr_writer = stderr.writer(&buffer);
-        try stderr_writer.interface.writeAll("Usage: ghostty +explain-config <option>\n");
-        try stderr_writer.interface.writeAll("       ghostty +explain-config --option=<option>\n");
-        try stderr_writer.interface.writeAll("       ghostty +explain-config --keybind=<action>\n");
+        try stderr_writer.interface.writeAll("Usage: void +explain-config <option>\n");
+        try stderr_writer.interface.writeAll("       void +explain-config --option=<option>\n");
+        try stderr_writer.interface.writeAll("       void +explain-config --keybind=<action>\n");
         try stderr_writer.end();
         return 1;
     };

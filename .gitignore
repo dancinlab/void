@@ -17,7 +17,7 @@ CMakeFiles/
 /result*
 /.nixos-test-history
 example/*.wasm
-test/ghostty
+test/void
 test/cases/**/*.actual.png
 flatpak/builddir/
 flatpak/repo/
@@ -25,7 +25,7 @@ flatpak/repo/
 glad.zip
 /Box_test.ppm
 /Box_test_diff.ppm
-/ghostty.qcow2
+/void.qcow2
 
 vgcore.*
 

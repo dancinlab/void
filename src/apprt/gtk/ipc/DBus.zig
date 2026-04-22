@@ -16,10 +16,10 @@ target: apprt.ipc.Target,
 /// Connection to the DBus session bus.
 dbus: *gio.DBusConnection,
 
-/// The bus name of the Ghostty instance that we are calling.
+/// The bus name of the Void instance that we are calling.
 bus_name: [:0]const u8,
 
-/// The object path of the Ghostty instance that we are calling.
+/// The object path of the Void instance that we are calling.
 object_path: [:0]const u8,
 
 /// Used to build the DBus payload.
@@ -35,7 +35,7 @@ pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) (A
     const stderr = &stderr_writer.interface;
 
     // Get the appropriate bus name and object path for contacting the
-    // Ghostty instance we're interested in.
+    // Void instance we're interested in.
     const bus_name: [:0]const u8, const object_path: [:0]const u8 = switch (target) {
         .class => |class| result: {
             // Force the usage of the class specified on the CLI to determine the
@@ -129,7 +129,7 @@ pub fn addParameter(self: *Self, variant: *glib.Variant) void {
     self.parameters_builder.add("v", variant);
 }
 
-/// Send the IPC to the remote Ghostty. Once it completes, nothing further
+/// Send the IPC to the remote Void. Once it completes, nothing further
 /// should be done with this object other than call `deinit`.
 pub fn send(self: *Self) (std.Io.Writer.Error || apprt.ipc.Errors)!void {
     var buf: [256]u8 = undefined;

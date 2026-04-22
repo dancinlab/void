@@ -1,4 +1,4 @@
-//! Inter-process Communication to a running Ghostty instance from a separate
+//! Inter-process Communication to a running Void instance from a separate
 //! process.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -13,35 +13,35 @@ pub const Errors = error{
 };
 
 pub const Target = union(Key) {
-    /// Open up a new window in a custom instance of Ghostty.
+    /// Open up a new window in a custom instance of Void.
     class: [:0]const u8,
 
     /// Detect which instance to open a new window in.
     detect,
 
-    // Sync with: ghostty_ipc_target_tag_e
+    // Sync with: void_ipc_target_tag_e
     pub const Key = enum(c_int) {
         class,
         detect,
 
-        test "ghostty.h Target.Key" {
-            try lib.checkGhosttyHEnum(Key, "GHOSTTY_IPC_TARGET_");
+        test "void.h Target.Key" {
+            try lib.checkVoidHEnum(Key, "VOID_IPC_TARGET_");
         }
     };
 
-    // Sync with: ghostty_ipc_target_u
+    // Sync with: void_ipc_target_u
     pub const CValue = extern union {
         class: [*:0]const u8,
         detect: void,
     };
 
-    // Sync with: ghostty_ipc_target_s
+    // Sync with: void_ipc_target_s
     pub const C = extern struct {
         key: Key,
         value: CValue,
     };
 
-    /// Convert to ghostty_ipc_target_s.
+    /// Convert to void_ipc_target_s.
     pub fn cval(self: Target) C {
         return .{
             .key = @as(Key, self),
@@ -57,7 +57,7 @@ pub const Action = union(enum) {
     // A GUIDE TO ADDING NEW ACTIONS:
     //
     // 1. Add the action to the `Key` enum. The order of the enum matters
-    //    because it maps directly to the libghostty C enum. For ABI
+    //    because it maps directly to the libvoid C enum. For ABI
     //    compatibility, new actions should be added to the end of the enum.
     //
     // 2. Add the action and optional value to the Action union.
@@ -66,11 +66,11 @@ pub const Action = union(enum) {
     //    compatible (extern). If it is not, add a `C` decl to the value
     //    and a `cval` function to convert to the C ABI compatible value.
     //
-    // 4. Update `include/ghostty.h`: add the new key, value, and union
+    // 4. Update `include/void.h`: add the new key, value, and union
     //    entry. If the value type is void then only the key needs to be
     //    added. Ensure the order matches exactly with the Zig code.
 
-    /// The arguments to pass to Ghostty as the command.
+    /// The arguments to pass to Void as the command.
     new_window: NewWindow,
 
     pub const NewWindow = struct {
@@ -110,16 +110,16 @@ pub const Action = union(enum) {
         }
     };
 
-    /// Sync with: ghostty_ipc_action_tag_e
+    /// Sync with: void_ipc_action_tag_e
     pub const Key = enum(c_int) {
         new_window,
 
-        test "ghostty.h Action.Key" {
-            try lib.checkGhosttyHEnum(Key, "GHOSTTY_IPC_ACTION_");
+        test "void.h Action.Key" {
+            try lib.checkVoidHEnum(Key, "VOID_IPC_ACTION_");
         }
     };
 
-    /// Sync with: ghostty_ipc_action_u
+    /// Sync with: void_ipc_action_u
     pub const CValue = cvalue: {
         const key_fields = @typeInfo(Key).@"enum".fields;
         var union_fields: [key_fields.len]std.builtin.Type.UnionField = undefined;
@@ -147,7 +147,7 @@ pub const Action = union(enum) {
         } });
     };
 
-    /// Sync with: ghostty_ipc_action_s
+    /// Sync with: void_ipc_action_s
     pub const C = extern struct {
         key: Key,
         value: CValue,
@@ -174,7 +174,7 @@ pub const Action = union(enum) {
         unreachable;
     }
 
-    /// Convert to ghostty_ipc_action_s.
+    /// Convert to void_ipc_action_s.
     pub fn cval(self: Action, alloc: Allocator) C {
         const value: CValue = switch (self) {
             inline else => |v, tag| @unionInit(

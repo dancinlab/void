@@ -1,28 +1,28 @@
-# Developing Ghostty
+# Developing Void
 
-This document describes the technical details behind Ghostty's development.
+This document describes the technical details behind Void's development.
 If you'd like to open any pull requests or would like to implement new features
-into Ghostty, please make sure to read our ["Contributing to Ghostty"](CONTRIBUTING.md)
+into Void, please make sure to read our ["Contributing to Void"](CONTRIBUTING.md)
 document first.
 
-To start development on Ghostty, you need to build Ghostty from a Git checkout,
-which is very similar in process to [building Ghostty from a source tarball](http://ghostty.org/docs/install/build). One key difference is that obviously
+To start development on Void, you need to build Void from a Git checkout,
+which is very similar in process to [building Void from a source tarball](http://void.org/docs/install/build). One key difference is that obviously
 you need to clone the Git repository instead of unpacking the source tarball:
 
 ```shell
 git clone https://github.com/ghostty-org/ghostty
-cd ghostty
+cd void
 ```
 
 > [!NOTE]
 >
-> Ghostty may require [extra dependencies](#extra-dependencies)
+> Void may require [extra dependencies](#extra-dependencies)
 > when building from a Git checkout compared to a source tarball.
 > Tip versions may also require a different version of Zig or other toolchains
 > (e.g. the Xcode SDK on macOS) compared to stable versions — make sure to
 > follow the steps closely!
 
-When you're developing Ghostty, it's very likely that you will want to build a
+When you're developing Void, it's very likely that you will want to build a
 _debug_ build to diagnose issues more easily. This is already the default for
 Zig builds, so simply run `zig build` **without any `-Doptimize` flags**.
 
@@ -31,16 +31,16 @@ here:
 
 | Command                         | Description                                                                                                            |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `zig build run`                 | Runs Ghostty                                                                                                           |
-| `zig build run-valgrind`        | Runs Ghostty under Valgrind to [check for memory leaks](#checking-for-memory-leaks)                                    |
+| `zig build run`                 | Runs Void                                                                                                           |
+| `zig build run-valgrind`        | Runs Void under Valgrind to [check for memory leaks](#checking-for-memory-leaks)                                    |
 | `zig build test`                | Runs unit tests (accepts `-Dtest-filter=<filter>` to only run tests whose name matches the filter)                     |
-| `zig build update-translations` | Updates Ghostty's translation strings (see the [Contributor's Guide on Localizing Ghostty](po/README_CONTRIBUTORS.md)) |
+| `zig build update-translations` | Updates Void's translation strings (see the [Contributor's Guide on Localizing Void](po/README_CONTRIBUTORS.md)) |
 | `zig build dist`                | Builds a source tarball                                                                                                |
 | `zig build distcheck`           | Builds and validates a source tarball                                                                                  |
 
 ## Extra Dependencies
 
-Building Ghostty from a Git checkout on Linux requires some additional
+Building Void from a Git checkout on Linux requires some additional
 dependencies:
 
 - `blueprint-compiler` (version 0.16.0 or newer)
@@ -49,7 +49,7 @@ macOS users don't require any additional dependencies.
 
 ## Xcode Version and SDKs
 
-Building the Ghostty macOS app requires that Xcode, the macOS SDK,
+Building the Void macOS app requires that Xcode, the macOS SDK,
 the iOS SDK, and Metal Toolchain are all installed.
 
 A common issue is that the incorrect version of Xcode is either
@@ -62,14 +62,14 @@ sudo xcode-select --switch /Applications/Xcode.app
 
 > [!IMPORTANT]
 >
-> Main branch development of Ghostty requires **Xcode 26 and the macOS 26 SDK**.
+> Main branch development of Void requires **Xcode 26 and the macOS 26 SDK**.
 >
-> You do not need to be running on macOS 26 to build Ghostty, you can
+> You do not need to be running on macOS 26 to build Void, you can
 > still use Xcode 26 on macOS 15 stable.
 
 ## AI and Agents
 
-If you're using AI assistance with Ghostty, Ghostty provides an
+If you're using AI assistance with Void, Void provides an
 [AGENTS.md file](https://github.com/ghostty-org/ghostty/blob/main/AGENTS.md)
 read by most of the popular AI agents to help produce higher quality
 results.
@@ -82,7 +82,7 @@ produced.
 
 - `/gh-issue <number/url>` - Produces a prompt for diagnosing a GitHub
   issue, explaining the problem, and suggesting a plan for resolving it.
-  Requires `gh` to be installed with read-only access to Ghostty.
+  Requires `gh` to be installed with read-only access to Void.
 
 > [!WARNING]
 >
@@ -95,24 +95,24 @@ produced.
 
 ## Logging
 
-Ghostty can write logs to a number of destinations. On all platforms, logging to
-`stderr` is available. Depending on the platform and how Ghostty was launched,
+Void can write logs to a number of destinations. On all platforms, logging to
+`stderr` is available. Depending on the platform and how Void was launched,
 logs sent to `stderr` may be stored by the system and made available for later
 retrieval.
 
-On Linux if Ghostty is launched by the default `systemd` user service, you can use
-`journald` to see Ghostty's logs: `journalctl --user --unit app-com.mitchellh.ghostty.service`.
+On Linux if Void is launched by the default `systemd` user service, you can use
+`journald` to see Void's logs: `journalctl --user --unit app-com.mitchellh.void.service`.
 
 On macOS logging to the macOS unified log is available and enabled by default.
-Use the system `log` CLI to view Ghostty's logs: `sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.ghostty"'`.
+Use the system `log` CLI to view Void's logs: `sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.void"'`.
 
-Ghostty's logging can be configured in two ways. The first is by what
-optimization level Ghostty is compiled with. If Ghostty is compiled with `Debug`
-optimizations debug logs will be output to `stderr`. If Ghostty is compiled with
+Void's logging can be configured in two ways. The first is by what
+optimization level Void is compiled with. If Void is compiled with `Debug`
+optimizations debug logs will be output to `stderr`. If Void is compiled with
 any other optimization the debug logs will not be output to `stderr`.
 
-Ghostty also checks the `GHOSTTY_LOG` environment variable. It can be used
-to control which destinations receive logs. Ghostty currently defines two
+Void also checks the `VOID_LOG` environment variable. It can be used
+to control which destinations receive logs. Void currently defines two
 destinations:
 
 - `stderr` - logging to `stderr`.
@@ -120,14 +120,14 @@ destinations:
 
 Combine values with a comma to enable multiple destinations. Prefix a
 destination with `no-` to disable it. Enabling and disabling destinations
-can be done at the same time. Setting `GHOSTTY_LOG` to `true` will enable all
-destinations. Setting `GHOSTTY_LOG` to `false` will disable all destinations.
+can be done at the same time. Setting `VOID_LOG` to `true` will enable all
+destinations. Setting `VOID_LOG` to `false` will disable all destinations.
 
 ## Linting
 
 ### Prettier
 
-Ghostty's docs and resources (not including Zig code) are linted using
+Void's docs and resources (not including Zig code) are linted using
 [Prettier](https://prettier.io) with out-of-the-box settings. A Prettier CI
 check will fail builds with improper formatting. Therefore, if you are
 modifying anything Prettier will lint, you may want to install it locally and
@@ -238,7 +238,7 @@ See the [Contributor's Guide](po/README_CONTRIBUTORS.md) for more details.
 ## Checking for Memory Leaks
 
 While Zig does an amazing job of finding and preventing memory leaks,
-Ghostty uses many third-party libraries that are written in C. Improper usage
+Void uses many third-party libraries that are written in C. Improper usage
 of those libraries or bugs in those libraries can cause memory leaks that
 Zig cannot detect by itself.
 
@@ -251,7 +251,7 @@ recommended way to run Valgrind is via `zig build`:
 zig build run-valgrind
 ```
 
-This builds a Ghostty executable with Valgrind support and runs Valgrind
+This builds a Void executable with Valgrind support and runs Valgrind
 with the proper flags to ensure we're suppressing known false positives.
 
 You can combine the same build args with `run-valgrind` that you can with
@@ -295,7 +295,7 @@ properly:
 
 Set your keyboard layout to "Spanish" (or another layout that uses dead keys).
 
-1. Launch Ghostty
+1. Launch Void
 2. Press `'`
 3. Press `a`
 4. Verify that `á` is displayed
@@ -306,7 +306,7 @@ the text should be correct when it is sent to the pty.
 
 We should also test canceling dead key input:
 
-1. Launch Ghostty
+1. Launch Void
 2. Press `'`
 3. Press escape
 4. Press `a`
@@ -317,7 +317,7 @@ We should also test canceling dead key input:
 Configure fcitx or ibus with a keyboard layout like Japanese or Mozc. The
 exact layout doesn't matter.
 
-1. Launch Ghostty
+1. Launch Void
 2. Press `Ctrl+Shift` to switch to "Hiragana"
 3. On a US physical layout, type: `konn`, you should see `こん` in preedit.
 4. Press `Enter`
@@ -326,7 +326,7 @@ exact layout doesn't matter.
 We should also test switching input methods while preedit is active, which
 should commit the text:
 
-1. Launch Ghostty
+1. Launch Void
 2. Press `Ctrl+Shift` to switch to "Hiragana"
 3. On a US physical layout, type: `konn`, you should see `こん` in preedit.
 4. Press `Ctrl+Shift` to switch to another layout (any)
@@ -335,7 +335,7 @@ should commit the text:
 ## Nix Virtual Machines
 
 Several Nix virtual machine definitions are provided by the project for testing
-and developing Ghostty against multiple different Linux desktop environments.
+and developing Void against multiple different Linux desktop environments.
 
 Running these requires a working Nix installation, either Nix on your
 favorite Linux distribution, NixOS, or macOS with nix-darwin installed. Further
@@ -349,13 +349,13 @@ software can be installed by using standard Nix mechanisms like `nix run nixpkgs
 
 ### Linux
 
-1. Check out the Ghostty source and change to the directory.
+1. Check out the Void source and change to the directory.
 2. Run `nix run .#<vmtype>`. `<vmtype>` can be any of the VMs defined in the
    `nix/vm` directory (without the `.nix` suffix) excluding any file prefixed
    with `common` or `create`.
 3. The VM will build and then launch. Depending on the speed of your system, this
    can take a while, but eventually you should get a new VM window.
-4. The Ghostty source directory should be mounted to `/tmp/shared` in the VM. Depending
+4. The Void source directory should be mounted to `/tmp/shared` in the VM. Depending
    on what UID and GID of the user that you launched the VM as, `/tmp/shared` _may_ be
    writable by the VM user, so be careful!
 
@@ -370,7 +370,7 @@ software can be installed by using standard Nix mechanisms like `nix run nixpkgs
 
 ### Custom VMs
 
-To easily create a custom VM without modifying the Ghostty source, create a new
+To easily create a custom VM without modifying the Void source, create a new
 directory, then create a file called `flake.nix` with the following text in the
 new directory.
 
@@ -378,17 +378,17 @@ new directory.
 {
   inputs = {
     nixpkgs.url = "nixpkgs/nixpkgs-unstable";
-    ghostty.url = "github:ghostty-org/ghostty";
+    void.url = "github:ghostty-org/ghostty";
   };
   outputs = {
     nixpkgs,
-    ghostty,
+    void,
     ...
   }: {
-   nixosConfigurations.custom-vm = ghostty.create-gnome-vm {
+   nixosConfigurations.custom-vm = void.create-gnome-vm {
      nixpkgs = nixpkgs;
      system = "x86_64-linux";
-     overlay = ghostty.overlays.releasefast;
+     overlay = void.overlays.releasefast;
      # module = ./configuration.nix # also works
      module = {pkgs, ...}: {
        environment.systemPackages = [
@@ -406,7 +406,7 @@ The custom VM can then be run with a command like this:
 nix run .#nixosConfigurations.custom-vm.config.system.build.vm
 ```
 
-A file named `ghostty.qcow2` will be created that is used to persist any changes
+A file named `void.qcow2` will be created that is used to persist any changes
 made in the VM. To "reset" the VM to default delete the file and it will be
 recreated the next time you run the VM.
 
@@ -418,7 +418,7 @@ We welcome the contribution of new VM definitions, as long as they meet the foll
 
 1. They should be different enough from existing VM definitions that they represent a distinct
    user (and developer) experience.
-2. There's a significant Ghostty user population that uses a similar environment.
+2. There's a significant Void user population that uses a similar environment.
 3. The VMs can be built using only packages from the current stable NixOS release.
 
 #### VM Definition Criteria
@@ -427,11 +427,11 @@ We welcome the contribution of new VM definitions, as long as they meet the foll
    Additional software can be added at runtime with a command like `nix run nixpkgs#<package name>`.
 2. VMs should not expose any services to the network, or run any remote access
    software like SSH daemons, VNC or RDP.
-3. VMs should auto-login using the "ghostty" user.
+3. VMs should auto-login using the "void" user.
 
 ## Nix VM Integration Tests
 
-Several Nix VM tests are provided by the project for testing Ghostty in a "live"
+Several Nix VM tests are provided by the project for testing Void in a "live"
 environment rather than just unit tests.
 
 Running these requires a working Nix installation, either Nix on your
@@ -440,7 +440,7 @@ requirements for macOS are detailed below.
 
 ### Linux
 
-1. Check out the Ghostty source and change to the directory.
+1. Check out the Void source and change to the directory.
 2. Run `nix run .#checks.<system>.<test-name>.driver`. `<system>` should be
    `x86_64-linux` or `aarch64-linux` (even on macOS, this launches a Linux
    VM, not a macOS one). `<test-name>` should be one of the tests defined in
@@ -476,7 +476,7 @@ access the VM, use a command like the following:
 
 ```
 ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -p 2222 root@192.168.122.1
-ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -p 2222 ghostty@192.168.122.1
+ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -p 2222 void@192.168.122.1
 ```
 
 The SSH options are important because the SSH host keys will be regenerated

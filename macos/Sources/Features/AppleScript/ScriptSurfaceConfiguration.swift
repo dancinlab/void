@@ -1,11 +1,11 @@
 import Foundation
 
-/// AppleScript record support for `Ghostty.SurfaceConfiguration`.
+/// AppleScript record support for `Void.SurfaceConfiguration`.
 ///
 /// This keeps scripting conversion at the data-structure boundary so AppleScript
 /// can pass records by value (`new surface configuration`, assign, copy, mutate)
 /// without introducing an additional wrapper type.
-extension Ghostty.SurfaceConfiguration: ScriptRecord {
+extension Void.SurfaceConfiguration: ScriptRecord {
     init(scriptRecord source: NSDictionary?) throws {
         self.init()
 

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-// This is a copy of std.mem.cutPrefix from 0.16. Once Ghostty has been ported
+// This is a copy of std.mem.cutPrefix from 0.16. Once Void has been ported
 // to 0.16 this can be removed.
 
 /// If slice starts with prefix, returns the rest of slice starting at

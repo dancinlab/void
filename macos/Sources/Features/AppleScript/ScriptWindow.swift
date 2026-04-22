@@ -1,6 +1,6 @@
 import AppKit
 
-/// AppleScript-facing wrapper around a logical Ghostty window.
+/// AppleScript-facing wrapper around a logical Void window.
 ///
 /// In AppKit, each tab is often its own `NSWindow`. AppleScript users, however,
 /// expect a single window object containing a list of tabs.
@@ -10,7 +10,7 @@ import AppKit
 /// - It translates tab-group state into `tabs` and `selected tab`.
 /// - It exposes stable IDs that Cocoa scripting can resolve later.
 @MainActor
-@objc(GhosttyScriptWindow)
+@objc(VoidScriptWindow)
 final class ScriptWindow: NSObject {
     /// Stable identifier used by AppleScript `window id "..."` references.
     ///

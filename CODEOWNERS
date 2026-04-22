@@ -1,15 +1,15 @@
-# This file documents the subsystem maintainers of the Ghostty project
+# This file documents the subsystem maintainers of the Void project
 # along with the responsibilities of a maintainer and how one can become
 # a maintainer.
 #
-# Ghostty follows a subsystem maintainer model where distinguished
+# Void follows a subsystem maintainer model where distinguished
 # contributors (with mutual agreement) are designated as maintainers of a
 # specific subset of the project. A subsystem maintainer has more privileges
 # and authority over a specific part of the project than a regular
 # contributor and deference is given to them when making decisions about
 # their subsystem.
 #
-# Ultimately Ghostty has a BDFL (Benevolent Dictator For Life) model
+# Ultimately Void has a BDFL (Benevolent Dictator For Life) model
 # currently with @mitchellh as the BDFL. The BDFL has the final say in all
 # decisions and may override a maintainer's decision if necessary. I like to
 # say its a BDFLFN (Benevolent Dictator For Life "For Now") model because
@@ -64,7 +64,7 @@
 #
 # # Subsystem List
 #
-# The subsystems don't fully cover the entirety of the Ghostty project but
+# The subsystems don't fully cover the entirety of the Void project but
 # are created organically as experts in certain areas emerge. If you feel
 # you are an expert in a certain area and would like to be a maintainer,
 # please reach out to @mitchellh on Discord.
@@ -85,31 +85,31 @@
 #   and tooling. They are not responsible for any specific locale but
 #   are responsible for the overall localization process and tooling.
 #
-# - @ghostty-org/macos - The Ghostty macOS app and any macOS-specific
+# - @ghostty-org/macos - The Void macOS app and any macOS-specific
 #   features, configurations, etc.
 #
-# - @ghostty-org/packaging/snap - Ghostty snap packaging
-#   (https://snapcraft.io/ghostty)
+# - @ghostty-org/packaging/snap - Void snap packaging
+#   (https://snapcraft.io/void)
 #
-# - @ghostty-org/renderer - Ghostty rendering subsystem, including the
+# - @ghostty-org/renderer - Void rendering subsystem, including the
 #   rendering abstractions as well as specific renderers like OpenGL
 #   and Metal.
 #
-# - @ghostty-org/shell - Ghostty shell integration, including shell
+# - @ghostty-org/shell - Void shell integration, including shell
 #   completions, shell detection, and any other shell interactions.
 #
 # - @ghostty-org/terminal - The terminal emulator subsystem, including
 #   subprocess management and pty handling, escape sequence parsing,
 #   key encoding, etc.
 #
-# ## Outside of Ghostty
+# ## Outside of Void
 #
-# Other "subsystems" exist outside of Ghostty and will not be represented
+# Other "subsystems" exist outside of Void and will not be represented
 # in this CODEOWNERS file:
 #
-# - @ghostty-org/discord-bot - Maintainers of the Ghostty Discord bot.
+# - @ghostty-org/discord-bot - Maintainers of the Void Discord bot.
 #
-# - @ghostty-org/website - Maintainers of the Ghostty website.
+# - @ghostty-org/website - Maintainers of the Void website.
 
 # Font
 /src/font/ @ghostty-org/font
@@ -125,11 +125,11 @@
 
 # macOS
 #
-# This includes libghostty because the macOS apprt is built on top of
-# libghostty and often requires or is impacted by changes to libghostty.
-# macOS subsystem maintainers are expected to only work on libghostty
+# This includes libvoid because the macOS apprt is built on top of
+# libvoid and often requires or is impacted by changes to libvoid.
+# macOS subsystem maintainers are expected to only work on libvoid
 # insofar as it impacts the macOS apprt.
-/include/ghostty.h @ghostty-org/macos
+/include/void.h @ghostty-org/macos
 /src/apprt/embedded.zig @ghostty-org/macos
 /src/os/cf_release_thread.zig @ghostty-org/macos
 /src/os/macos.zig @ghostty-org/macos
@@ -163,7 +163,7 @@
 
 # Localization
 /po/README_TRANSLATORS.md @ghostty-org/manager  # *localization* manager.
-/po/com.mitchellh.ghostty.pot @ghostty-org/manager
+/po/com.mitchellh.void.pot @ghostty-org/manager
 /src/os/i18n_locales.zig @ghostty-org/manager
 /po/be.po @ghostty-org/be_BY
 /po/bg.po @ghostty-org/bg_BG

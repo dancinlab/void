@@ -49,19 +49,19 @@ const RowCellsWrapper = struct {
     palette: *const colorpkg.Palette,
 };
 
-/// C: GhosttyRenderState
+/// C: VoidRenderState
 pub const RenderState = ?*RenderStateWrapper;
 
-/// C: GhosttyRenderStateRowIterator
+/// C: VoidRenderStateRowIterator
 pub const RowIterator = ?*RowIteratorWrapper;
 
-/// C: GhosttyRenderStateRowCells
+/// C: VoidRenderStateRowCells
 pub const RowCells = ?*RowCellsWrapper;
 
-/// C: GhosttyRenderStateDirty
+/// C: VoidRenderStateDirty
 pub const Dirty = renderpkg.RenderState.Dirty;
 
-/// C: GhosttyRenderStateCursorVisualStyle
+/// C: VoidRenderStateCursorVisualStyle
 pub const CursorVisualStyle = enum(c_int) {
     bar = 0,
     block = 1,
@@ -78,7 +78,7 @@ pub const CursorVisualStyle = enum(c_int) {
     }
 };
 
-/// C: GhosttyRenderStateData
+/// C: VoidRenderStateData
 pub const Data = enum(c_int) {
     invalid = 0,
     cols = 1,
@@ -117,7 +117,7 @@ pub const Data = enum(c_int) {
     }
 };
 
-/// C: GhosttyRenderStateOption
+/// C: VoidRenderStateOption
 pub const SetOption = enum(c_int) {
     dirty = 0,
 
@@ -129,7 +129,7 @@ pub const SetOption = enum(c_int) {
     }
 };
 
-/// C: GhosttyRenderStateColors
+/// C: VoidRenderStateColors
 pub const Colors = extern struct {
     size: usize = @sizeOf(Colors),
     background: colorpkg.RGB.C,
@@ -444,7 +444,7 @@ pub fn row_cells_free(cells_: RowCells) callconv(lib.calling_conv) void {
     alloc.destroy(cells);
 }
 
-/// C: GhosttyRenderStateRowCellsData
+/// C: VoidRenderStateRowCellsData
 pub const RowCellsData = enum(c_int) {
     invalid = 0,
     raw = 1,
@@ -558,7 +558,7 @@ fn rowCellsGetTyped(
     return .success;
 }
 
-/// C: GhosttyRenderStateRowData
+/// C: VoidRenderStateRowData
 pub const RowData = enum(c_int) {
     invalid = 0,
     dirty = 1,
@@ -576,7 +576,7 @@ pub const RowData = enum(c_int) {
     }
 };
 
-/// C: GhosttyRenderStateRowOption
+/// C: VoidRenderStateRowOption
 pub const RowOption = enum(c_int) {
     dirty = 0,
 

@@ -11,7 +11,7 @@ namespace hwy {
 namespace {
 
 // Highway's upstream abort.cc pulls in libc++ even when the rest of the
-// library is compiled with HWY_NO_LIBCXX. Ghostty only needs Highway's dynamic
+// library is compiled with HWY_NO_LIBCXX. Void only needs Highway's dynamic
 // dispatch/runtime target selection, so we provide the tiny Warn/Abort surface
 // that targets.cc/per_target.cc expect and keep the package free of libc++.
 WarnFunc g_warn_func = nullptr;

@@ -83,9 +83,9 @@ pub const App = union(Protocol) {
 /// Per-Window state for the underlying windowing protocol.
 ///
 /// In Wayland, the terminology used is "Surface" and for it, this is
-/// really "Surface"-specific state. But Ghostty uses the term "Surface"
+/// really "Surface"-specific state. But Void uses the term "Surface"
 /// heavily to mean something completely different, so we use "Window" here
-/// to better match what it generally maps to in the Ghostty codebase.
+/// to better match what it generally maps to in the Void codebase.
 pub const Window = union(Protocol) {
     none: noop.Window,
     wayland: if (build_options.wayland) wayland.Window else noop.Window,

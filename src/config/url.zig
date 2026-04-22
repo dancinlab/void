@@ -265,16 +265,16 @@ test "url regex" {
             .expect = "news:comp.infosystems.www.servers.unix",
         },
         .{
-            .input = "/Users/ghostty.user/code/example.py",
-            .expect = "/Users/ghostty.user/code/example.py",
+            .input = "/Users/void.user/code/example.py",
+            .expect = "/Users/void.user/code/example.py",
         },
         .{
-            .input = "/Users/ghostty.user/code/../example.py",
-            .expect = "/Users/ghostty.user/code/../example.py",
+            .input = "/Users/void.user/code/../example.py",
+            .expect = "/Users/void.user/code/../example.py",
         },
         .{
-            .input = "/Users/ghostty.user/code/../example.py hello world",
-            .expect = "/Users/ghostty.user/code/../example.py",
+            .input = "/Users/void.user/code/../example.py hello world",
+            .expect = "/Users/void.user/code/../example.py",
         },
         .{
             .input = "../example.py",
@@ -289,8 +289,8 @@ test "url regex" {
             .expect = "../example.py",
         },
         .{
-            .input = "[link](/home/user/ghostty.user/example)",
-            .expect = "/home/user/ghostty.user/example",
+            .input = "[link](/home/user/void.user/example)",
+            .expect = "/home/user/void.user/example",
         },
         // IPv6 URL tests - Basic tests
         .{
@@ -390,8 +390,8 @@ test "url regex" {
             .expect = "src/config/url.zig",
         },
         .{
-            .input = "lib/ghostty/terminal.zig:42:10",
-            .expect = "lib/ghostty/terminal.zig:42:10",
+            .input = "lib/void/terminal.zig:42:10",
+            .expect = "lib/void/terminal.zig:42:10",
         },
         .{
             .input = "some-pkg/src/file.txt more text",
@@ -411,8 +411,8 @@ test "url regex" {
             .expect = "~/Documents/notes.md",
         },
         .{
-            .input = "~/.config/ghostty/config",
-            .expect = "~/.config/ghostty/config",
+            .input = "~/.config/void/config",
+            .expect = "~/.config/void/config",
         },
         .{
             .input = "directory: ~/src/ghostty-org/ghostty",
@@ -423,8 +423,8 @@ test "url regex" {
             .expect = "$HOME/src/config/url.zig",
         },
         .{
-            .input = "project dir: $PWD/src/ghostty/main.zig",
-            .expect = "$PWD/src/ghostty/main.zig",
+            .input = "project dir: $PWD/src/void/main.zig",
+            .expect = "$PWD/src/void/main.zig",
         },
         // $VAR mid-path should match fully, not partially from the $
         .{
@@ -436,12 +436,12 @@ test "url regex" {
             .expect = ".foo/bar/$VAR",
         },
         .{
-            .input = ".config/ghostty/config",
-            .expect = ".config/ghostty/config",
+            .input = ".config/void/config",
+            .expect = ".config/void/config",
         },
         .{
-            .input = "loaded from .local/share/ghostty/state.db now",
-            .expect = ".local/share/ghostty/state.db",
+            .input = "loaded from .local/share/void/state.db now",
+            .expect = ".local/share/void/state.db",
         },
         .{
             .input = "../some/where",
@@ -473,8 +473,8 @@ test "url regex" {
         },
         // trailing colon should not be part of the path
         .{
-            .input = "./.config/ghostty: Needs upstream (main)",
-            .expect = "./.config/ghostty",
+            .input = "./.config/void: Needs upstream (main)",
+            .expect = "./.config/void",
         },
         .{
             .input = "./Downloads: Operation not permitted",

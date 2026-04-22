@@ -18,14 +18,14 @@ const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseCo
 const Surface = @import("surface.zig").Surface;
 const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
 
-const log = std.log.scoped(.gtk_ghostty_split_tree);
+const log = std.log.scoped(.gtk_void_split_tree);
 
 pub const SplitTree = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = gtk.Box;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttySplitTree",
+        .name = "VoidSplitTree",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
@@ -422,7 +422,7 @@ pub const SplitTree = extern struct {
     // Properties
 
     /// Returns true if this split tree needs confirmation before quitting based
-    /// on the various Ghostty configurations.
+    /// on the various Void configurations.
     pub fn getNeedsConfirmQuit(self: *Self) bool {
         const tree = self.getTree() orelse return false;
         var it = tree.iterator();
@@ -1029,7 +1029,7 @@ const SplitTreeSplit = extern struct {
     parent_instance: Parent,
     pub const Parent = adw.Bin;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttySplitTreeSplit",
+        .name = "VoidSplitTreeSplit",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,

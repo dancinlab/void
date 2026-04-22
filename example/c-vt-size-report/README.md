@@ -1,11 +1,11 @@
-# Example: `ghostty-vt` Size Report Encoding
+# Example: `void-vt` Size Report Encoding
 
-This contains a simple example of how to use the `ghostty-vt` size report
+This contains a simple example of how to use the `void-vt` size report
 encoding API to encode terminal size reports into escape sequences.
 
 This uses a `build.zig` and `Zig` to build the C program so that we
 can reuse a lot of our build logic and depend directly on our source
-tree, but Ghostty emits a standard C library that can be used with any
+tree, but Void emits a standard C library that can be used with any
 C tooling.
 
 ## Usage

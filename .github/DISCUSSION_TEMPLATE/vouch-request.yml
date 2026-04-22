@@ -10,7 +10,7 @@ body:
     attributes:
       label: What do you want to change?
       description: |
-        Describe the change you'd like to make to Ghostty. If there is an existing issue or discussion, link to it.
+        Describe the change you'd like to make to Void. If there is an existing issue or discussion, link to it.
       placeholder: |
         I'd like to fix the rendering issue described in #1234 where...
     validations:

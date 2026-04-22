@@ -32,7 +32,7 @@ pub const Path = union(enum) {
         return std.meta.eql(self, other);
     }
 
-    /// ghostty_config_path_s
+    /// void_config_path_s
     pub const C = extern struct {
         path: [*:0]const u8,
         optional: bool,

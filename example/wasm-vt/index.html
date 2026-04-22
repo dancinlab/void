@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ghostty VT Terminal - WebAssembly Example</title>
+    <title>Void VT Terminal - WebAssembly Example</title>
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
@@ -93,8 +93,8 @@
     </style>
 </head>
 <body>
-    <h1>Ghostty VT Terminal - WebAssembly Example</h1>
-    <p>This example demonstrates initializing a terminal, writing VT-encoded data to it, and formatting the output using the Ghostty VT WebAssembly module.</p>
+    <h1>Void VT Terminal - WebAssembly Example</h1>
+    <p>This example demonstrates initializing a terminal, writing VT-encoded data to it, and formatting the output using the Void VT WebAssembly module.</p>
 
     <div class="status" id="status">Loading WebAssembly module...</div>
 
@@ -121,7 +121,7 @@
 
         async function loadWasm() {
             try {
-                const response = await fetch('../../zig-out/bin/ghostty-vt.wasm');
+                const response = await fetch('../../zig-out/bin/void-vt.wasm');
                 const wasmBytes = await response.arrayBuffer();
 
                 const wasmModule = await WebAssembly.instantiate(wasmBytes, {
@@ -138,7 +138,7 @@
                 wasmMemory = wasmInstance.exports.memory;
 
                 // Load the type layout JSON from the library
-                const jsonPtr = wasmInstance.exports.ghostty_type_json();
+                const jsonPtr = wasmInstance.exports.void_type_json();
                 const jsonStr = new TextDecoder().decode(
                     new Uint8Array(wasmMemory.buffer, jsonPtr, wasmMemory.buffer.byteLength - jsonPtr)
                 ).split('\0')[0];
@@ -186,10 +186,10 @@
                 .replace(/\\\\/g, '\\');
         }
 
-        // GHOSTTY_FORMATTER_FORMAT_PLAIN = 0
-        const GHOSTTY_FORMATTER_FORMAT_PLAIN = 0;
-        // GHOSTTY_SUCCESS = 0
-        const GHOSTTY_SUCCESS = 0;
+        // VOID_FORMATTER_FORMAT_PLAIN = 0
+        const VOID_FORMATTER_FORMAT_PLAIN = 0;
+        // VOID_SUCCESS = 0
+        const VOID_SUCCESS = 0;
 
         function run() {
             const outputDiv = document.getElementById('output');
@@ -199,81 +199,81 @@
                 const rows = parseInt(document.getElementById('rows').value, 10);
                 const vtText = parseEscapes(document.getElementById('vtInput').value);
 
-                const TERM_OPTS_SIZE = typeLayout['GhosttyTerminalOptions'].size;
-                const optsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(TERM_OPTS_SIZE);
+                const TERM_OPTS_SIZE = typeLayout['VoidTerminalOptions'].size;
+                const optsPtr = wasmInstance.exports.void_wasm_alloc_u8_array(TERM_OPTS_SIZE);
                 new Uint8Array(getBuffer(), optsPtr, TERM_OPTS_SIZE).fill(0);
                 const optsView = new DataView(getBuffer(), optsPtr, TERM_OPTS_SIZE);
-                setField(optsView, 'GhosttyTerminalOptions', 'cols', cols);
-                setField(optsView, 'GhosttyTerminalOptions', 'rows', rows);
-                setField(optsView, 'GhosttyTerminalOptions', 'max_scrollback', 0);
+                setField(optsView, 'VoidTerminalOptions', 'cols', cols);
+                setField(optsView, 'VoidTerminalOptions', 'rows', rows);
+                setField(optsView, 'VoidTerminalOptions', 'max_scrollback', 0);
 
                 // Allocate pointer to receive the terminal handle
-                const termPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
+                const termPtrPtr = wasmInstance.exports.void_wasm_alloc_opaque();
 
                 // Create terminal
-                const newResult = wasmInstance.exports.ghostty_terminal_new(0, termPtrPtr, optsPtr);
-                wasmInstance.exports.ghostty_wasm_free_u8_array(optsPtr, TERM_OPTS_SIZE);
+                const newResult = wasmInstance.exports.void_terminal_new(0, termPtrPtr, optsPtr);
+                wasmInstance.exports.void_wasm_free_u8_array(optsPtr, TERM_OPTS_SIZE);
 
-                if (newResult !== GHOSTTY_SUCCESS) {
-                    throw new Error(`ghostty_terminal_new failed with result ${newResult}`);
+                if (newResult !== VOID_SUCCESS) {
+                    throw new Error(`void_terminal_new failed with result ${newResult}`);
                 }
 
                 const termPtr = new DataView(getBuffer()).getUint32(termPtrPtr, true);
-                wasmInstance.exports.ghostty_wasm_free_opaque(termPtrPtr);
+                wasmInstance.exports.void_wasm_free_opaque(termPtrPtr);
 
                 // Write VT data to the terminal
                 const vtBytes = new TextEncoder().encode(vtText);
-                const dataPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(vtBytes.length);
+                const dataPtr = wasmInstance.exports.void_wasm_alloc_u8_array(vtBytes.length);
                 new Uint8Array(getBuffer()).set(vtBytes, dataPtr);
-                wasmInstance.exports.ghostty_terminal_vt_write(termPtr, dataPtr, vtBytes.length);
-                wasmInstance.exports.ghostty_wasm_free_u8_array(dataPtr, vtBytes.length);
+                wasmInstance.exports.void_terminal_vt_write(termPtr, dataPtr, vtBytes.length);
+                wasmInstance.exports.void_wasm_free_u8_array(dataPtr, vtBytes.length);
 
                 // Create a plain-text formatter
-                const FMT_OPTS_SIZE = typeLayout['GhosttyFormatterTerminalOptions'].size;
-                const fmtOptsPtr = wasmInstance.exports.ghostty_wasm_alloc_u8_array(FMT_OPTS_SIZE);
+                const FMT_OPTS_SIZE = typeLayout['VoidFormatterTerminalOptions'].size;
+                const fmtOptsPtr = wasmInstance.exports.void_wasm_alloc_u8_array(FMT_OPTS_SIZE);
                 new Uint8Array(getBuffer(), fmtOptsPtr, FMT_OPTS_SIZE).fill(0);
                 const fmtOptsView = new DataView(getBuffer(), fmtOptsPtr, FMT_OPTS_SIZE);
-                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'size', FMT_OPTS_SIZE);
-                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'emit', GHOSTTY_FORMATTER_FORMAT_PLAIN);
-                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'unwrap', 0);
-                setField(fmtOptsView, 'GhosttyFormatterTerminalOptions', 'trim', 1);
+                setField(fmtOptsView, 'VoidFormatterTerminalOptions', 'size', FMT_OPTS_SIZE);
+                setField(fmtOptsView, 'VoidFormatterTerminalOptions', 'emit', VOID_FORMATTER_FORMAT_PLAIN);
+                setField(fmtOptsView, 'VoidFormatterTerminalOptions', 'unwrap', 0);
+                setField(fmtOptsView, 'VoidFormatterTerminalOptions', 'trim', 1);
 
                 // Set the nested sized-struct `size` fields for extra and extra.screen
-                const extraOffset = fieldInfo('GhosttyFormatterTerminalOptions', 'extra').offset;
-                const extraSize = typeLayout['GhosttyFormatterTerminalExtra'].size;
-                const extraSizeField = fieldInfo('GhosttyFormatterTerminalExtra', 'size');
+                const extraOffset = fieldInfo('VoidFormatterTerminalOptions', 'extra').offset;
+                const extraSize = typeLayout['VoidFormatterTerminalExtra'].size;
+                const extraSizeField = fieldInfo('VoidFormatterTerminalExtra', 'size');
                 fmtOptsView.setUint32(extraOffset + extraSizeField.offset, extraSize, true);
 
-                const screenOffset = fieldInfo('GhosttyFormatterTerminalExtra', 'screen').offset;
-                const screenSize = typeLayout['GhosttyFormatterScreenExtra'].size;
-                const screenSizeField = fieldInfo('GhosttyFormatterScreenExtra', 'size');
+                const screenOffset = fieldInfo('VoidFormatterTerminalExtra', 'screen').offset;
+                const screenSize = typeLayout['VoidFormatterScreenExtra'].size;
+                const screenSizeField = fieldInfo('VoidFormatterScreenExtra', 'size');
                 fmtOptsView.setUint32(extraOffset + screenOffset + screenSizeField.offset, screenSize, true);
 
-                const fmtPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
-                const fmtResult = wasmInstance.exports.ghostty_formatter_terminal_new(
+                const fmtPtrPtr = wasmInstance.exports.void_wasm_alloc_opaque();
+                const fmtResult = wasmInstance.exports.void_formatter_terminal_new(
                     0, fmtPtrPtr, termPtr, fmtOptsPtr
                 );
-                wasmInstance.exports.ghostty_wasm_free_u8_array(fmtOptsPtr, FMT_OPTS_SIZE);
+                wasmInstance.exports.void_wasm_free_u8_array(fmtOptsPtr, FMT_OPTS_SIZE);
 
-                if (fmtResult !== GHOSTTY_SUCCESS) {
-                    wasmInstance.exports.ghostty_terminal_free(termPtr);
-                    throw new Error(`ghostty_formatter_terminal_new failed with result ${fmtResult}`);
+                if (fmtResult !== VOID_SUCCESS) {
+                    wasmInstance.exports.void_terminal_free(termPtr);
+                    throw new Error(`void_formatter_terminal_new failed with result ${fmtResult}`);
                 }
 
                 const fmtPtr = new DataView(getBuffer()).getUint32(fmtPtrPtr, true);
-                wasmInstance.exports.ghostty_wasm_free_opaque(fmtPtrPtr);
+                wasmInstance.exports.void_wasm_free_opaque(fmtPtrPtr);
 
                 // Format with alloc
-                const outPtrPtr = wasmInstance.exports.ghostty_wasm_alloc_opaque();
-                const outLenPtr = wasmInstance.exports.ghostty_wasm_alloc_usize();
-                const formatResult = wasmInstance.exports.ghostty_formatter_format_alloc(
+                const outPtrPtr = wasmInstance.exports.void_wasm_alloc_opaque();
+                const outLenPtr = wasmInstance.exports.void_wasm_alloc_usize();
+                const formatResult = wasmInstance.exports.void_formatter_format_alloc(
                     fmtPtr, 0, outPtrPtr, outLenPtr
                 );
 
-                if (formatResult !== GHOSTTY_SUCCESS) {
-                    wasmInstance.exports.ghostty_formatter_free(fmtPtr);
-                    wasmInstance.exports.ghostty_terminal_free(termPtr);
-                    throw new Error(`ghostty_formatter_format_alloc failed with result ${formatResult}`);
+                if (formatResult !== VOID_SUCCESS) {
+                    wasmInstance.exports.void_formatter_free(fmtPtr);
+                    wasmInstance.exports.void_terminal_free(termPtr);
+                    throw new Error(`void_formatter_format_alloc failed with result ${formatResult}`);
                 }
 
                 const outPtr = new DataView(getBuffer()).getUint32(outPtrPtr, true);
@@ -291,11 +291,11 @@
                 outputDiv.textContent = output;
 
                 // Clean up
-                wasmInstance.exports.ghostty_free(0, outPtr, outLen);
-                wasmInstance.exports.ghostty_wasm_free_opaque(outPtrPtr);
-                wasmInstance.exports.ghostty_wasm_free_usize(outLenPtr);
-                wasmInstance.exports.ghostty_formatter_free(fmtPtr);
-                wasmInstance.exports.ghostty_terminal_free(termPtr);
+                wasmInstance.exports.void_free(0, outPtr, outLen);
+                wasmInstance.exports.void_wasm_free_opaque(outPtrPtr);
+                wasmInstance.exports.void_wasm_free_usize(outLenPtr);
+                wasmInstance.exports.void_formatter_free(fmtPtr);
+                wasmInstance.exports.void_terminal_free(termPtr);
 
             } catch (e) {
                 console.error('Error:', e);

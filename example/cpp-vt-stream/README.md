@@ -1,13 +1,13 @@
 # Example: VT Stream Processing in C++
 
-This contains a simple example of how to use `ghostty_terminal_vt_write`
+This contains a simple example of how to use `void_terminal_vt_write`
 to parse and process VT sequences in C++. This is a simplified C++ port
-of the `c-vt-stream` example that verifies libghostty compiles in C++
+of the `c-vt-stream` example that verifies libvoid compiles in C++
 mode.
 
 > [!IMPORTANT]
 >
-> **`libghostty` is a C library.** This example is only here so our CI
+> **`libvoid` is a C library.** This example is only here so our CI
 > verifies that the library can be built in used from C++ files.
 
 ## Usage

@@ -7,7 +7,7 @@ const formatter = @import("formatter.zig");
 
 // IMPORTANT: This is in a separate file from formatter.zig because it
 // puts a build-time dependency on Config.zig which brings in too much
-// into libghostty-vt tests which reference some formattable types.
+// into libvoid-vt tests which reference some formattable types.
 
 /// FileFormatter is a formatter implementation that outputs the
 /// config in a file-like format. This uses more generous whitespace,

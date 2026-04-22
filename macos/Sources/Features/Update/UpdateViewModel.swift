@@ -277,7 +277,7 @@ enum UpdateState: Equatable {
         let reply: @Sendable (SPUUserUpdateChoice) -> Void
 
         var releaseNotes: ReleaseNotes? {
-            let currentCommit = Bundle.main.infoDictionary?["GhosttyCommit"] as? String
+            let currentCommit = Bundle.main.infoDictionary?["VoidCommit"] as? String
             return ReleaseNotes(displayVersionString: appcastItem.displayVersionString, currentCommit: currentCommit)
         }
     }
@@ -293,7 +293,7 @@ enum UpdateState: Equatable {
             // Check for semantic version (x.y.z)
             if let semver = Self.extractSemanticVersion(from: version) {
                 let slug = semver.replacingOccurrences(of: ".", with: "-")
-                if let url = URL(string: "https://ghostty.org/docs/install/release-notes/\(slug)") {
+                if let url = URL(string: "https://void.org/docs/install/release-notes/\(slug)") {
                     self = .tagged(url)
                     return
                 }
@@ -364,7 +364,7 @@ enum UpdateState: Equatable {
     }
 
     struct Installing {
-        /// True if this state is triggered by ``Ghostty/UpdateDriver/updater(_:willInstallUpdateOnQuit:immediateInstallationBlock:)``
+        /// True if this state is triggered by ``Void/UpdateDriver/updater(_:willInstallUpdateOnQuit:immediateInstallationBlock:)``
         var isAutoUpdate = false
         let retryTerminatingApplication: () -> Void
         let dismiss: () -> Void

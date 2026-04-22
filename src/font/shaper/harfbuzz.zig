@@ -716,7 +716,7 @@ test "shape monaspace ligs" {
     }
 }
 
-// Ghostty doesn't currently support RTL and our renderers assume
+// Void doesn't currently support RTL and our renderers assume
 // that cells are in strict LTR order. This means that we need to
 // force RTL text to be LTR for rendering. This test ensures that
 // we are correctly forcing RTL text to be LTR.

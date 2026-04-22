@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const args = @import("args.zig");
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 const Allocator = std.mem.Allocator;
 const vaxis = @import("vaxis");
 
@@ -28,7 +28,7 @@ const Boo = struct {
     // binary from increasing too much in size
     buffer: [frame_width * frame_height]vaxis.Cell = undefined,
 
-    ghostty_style: vaxis.Style,
+    void_style: vaxis.Style,
     outline_style: vaxis.Style,
 
     // Width of a single frame
@@ -123,7 +123,7 @@ const Boo = struct {
         var line_iter = std.mem.splitScalar(u8, frame, '\n');
         while (line_iter.next()) |line| {
             var state: State = .normal;
-            var style = self.ghostty_style;
+            var style = self.void_style;
             var cp_iter: std.unicode.Utf8Iterator = .{ .bytes = line, .i = 0 };
             while (cp_iter.nextCodepointSlice()) |char| {
                 switch (state) {
@@ -135,7 +135,7 @@ const Boo = struct {
                     },
                     .span => if (std.mem.eql(u8, "<", char)) {
                         state = .in_tag;
-                        style = self.ghostty_style;
+                        style = self.void_style;
                         continue;
                     },
                     .in_tag => {
@@ -171,7 +171,7 @@ const Boo = struct {
     }
 };
 
-/// The `boo` command is used to display the animation from the Ghostty website in the terminal
+/// The `boo` command is used to display the animation from the Void website in the terminal
 pub fn run(gpa: Allocator) !u8 {
     // Disable on non-desktop systems.
     switch (builtin.os.tag) {
@@ -200,7 +200,7 @@ pub fn run(gpa: Allocator) !u8 {
     var boo: Boo = undefined;
     boo.frame = 0;
     boo.framerate = 1000 / 30;
-    boo.ghostty_style = .{};
+    boo.void_style = .{};
     boo.outline_style = .{ .fg = .{ .index = 4 } };
     @memset(&boo.buffer, .{});
 

@@ -74,9 +74,9 @@ const Effects = struct {
     pub const EnquiryFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) lib.String;
 
     /// C function pointer type for the xtversion callback.
-    /// Returns the version string (e.g. "ghostty 1.2.3"). The memory
+    /// Returns the version string (e.g. "void 1.2.3"). The memory
     /// must remain valid until the callback returns. An empty string
-    /// (len=0) causes the default "libghostty" to be reported.
+    /// (len=0) causes the default "libvoid" to be reported.
     pub const XtversionFn = *const fn (Terminal, ?*anyopaque) callconv(lib.calling_conv) lib.String;
 
     /// C function pointer type for the title_changed callback.
@@ -93,7 +93,7 @@ const Effects = struct {
     pub const DeviceAttributesFn = *const fn (Terminal, ?*anyopaque, *CDeviceAttributes) callconv(lib.calling_conv) bool;
 
     /// C-compatible device attributes struct.
-    /// C: GhosttyDeviceAttributes
+    /// C: VoidDeviceAttributes
     pub const CDeviceAttributes = extern struct {
         primary: Primary,
         secondary: Secondary,
@@ -205,10 +205,10 @@ const Effects = struct {
     }
 };
 
-/// C: GhosttyTerminal
+/// C: VoidTerminal
 pub const Terminal = ?*TerminalWrapper;
 
-/// C: GhosttyTerminalOptions
+/// C: VoidTerminalOptions
 pub const Options = extern struct {
     cols: size.CellCountInt,
     rows: size.CellCountInt,
@@ -290,7 +290,7 @@ pub fn vt_write(
     wrapper.stream.nextSlice(ptr[0..len]);
 }
 
-/// C: GhosttyTerminalOption
+/// C: VoidTerminalOption
 pub const Option = enum(c_int) {
     userdata = 0,
     write_pty = 1,
@@ -446,10 +446,10 @@ fn setTyped(
     return .success;
 }
 
-/// C: GhosttyDeviceAttributes
+/// C: VoidDeviceAttributes
 pub const DeviceAttributes = Effects.CDeviceAttributes;
 
-/// C: GhosttyTerminalScrollViewport
+/// C: VoidTerminalScrollViewport
 pub const ScrollViewport = ZigTerminal.ScrollViewport.C;
 
 pub fn scroll_viewport(
@@ -533,16 +533,16 @@ pub fn mode_set(
     return .success;
 }
 
-/// C: GhosttyKittyGraphics
+/// C: VoidKittyGraphics
 pub const KittyGraphics = kitty_gfx_c.KittyGraphics;
 
-/// C: GhosttyTerminalScreen
+/// C: VoidTerminalScreen
 pub const TerminalScreen = ScreenSet.Key;
 
-/// C: GhosttyTerminalScrollbar
+/// C: VoidTerminalScrollbar
 pub const TerminalScrollbar = PageList.Scrollbar.C;
 
-/// C: GhosttyTerminalData
+/// C: VoidTerminalData
 pub const TerminalData = enum(c_int) {
     invalid = 0,
     cols = 1,
@@ -1685,12 +1685,12 @@ test "xtversion without callback reports default" {
     };
     defer S.deinit();
 
-    // Set write_pty but not xtversion — should get default "libghostty"
+    // Set write_pty but not xtversion — should get default "libvoid"
     try testing.expectEqual(Result.success, set(t, .write_pty, @ptrCast(&S.writePty)));
 
     vt_write(t, "\x1B[>q", 4);
     try testing.expect(S.last_data != null);
-    try testing.expectEqualStrings("\x1BP>|libghostty\x1B\\", S.last_data.?);
+    try testing.expectEqualStrings("\x1BP>|libvoid\x1B\\", S.last_data.?);
 }
 
 test "set title_changed callback" {

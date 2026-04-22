@@ -8,9 +8,9 @@ const CoreConfig = configpkg.Config;
 
 const Common = @import("../class.zig").Common;
 
-const log = std.log.scoped(.gtk_ghostty_config);
+const log = std.log.scoped(.gtk_void_config);
 
-/// Wraps a `Ghostty.Config` object in a GObject so it can be reference
+/// Wraps a `Void.Config` object in a GObject so it can be reference
 /// counted. When this object is freed, the underlying config is also freed.
 ///
 /// It is highly recommended to NOT take a reference to this object,
@@ -25,7 +25,7 @@ pub const Config = extern struct {
     parent_instance: Parent,
     pub const Parent = gobject.Object;
     pub const getGObjectType = gobject.ext.defineClass(Self, .{
-        .name = "GhosttyConfig",
+        .name = "VoidConfig",
         .classInit = &Class.init,
         .parent_class = &Class.parent,
         .private = .{ .Type = Private, .offset = &Private.offset },
@@ -71,7 +71,7 @@ pub const Config = extern struct {
         pub var offset: c_int = 0;
     };
 
-    /// Create a new GhosttyConfig from a loaded configuration.
+    /// Create a new VoidConfig from a loaded configuration.
     ///
     /// This clones the given configuration, so it is safe for the
     /// caller to free the original configuration after this call.
@@ -165,7 +165,7 @@ pub const Config = extern struct {
 
 // This test verifies our memory management works as expected. Since
 // we use the testing allocator any leaks are detected.
-test "GhosttyConfig" {
+test "VoidConfig" {
     const testing = std.testing;
     const alloc = testing.allocator;
     var config: CoreConfig = try .default(alloc);

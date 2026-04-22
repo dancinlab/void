@@ -152,7 +152,7 @@ pub const Shaders = struct {
         ) catch |err| err: {
             // If an error happens while building postprocess shaders we
             // want to just not use any postprocess shaders since we don't
-            // want to block Ghostty from working.
+            // want to block Void from working.
             log.warn("error initializing postprocess shaders err={}", .{err});
             break :err &.{};
         };
@@ -335,7 +335,7 @@ fn initLibrary(device: objc.Object) !objc.Object {
     const start = try std.time.Instant.now();
 
     const data = try macos.dispatch.Data.create(
-        @embedFile("ghostty_metallib"),
+        @embedFile("void_metallib"),
         macos.dispatch.queue.getMain(),
         macos.dispatch.Data.DESTRUCTOR_DEFAULT,
     );

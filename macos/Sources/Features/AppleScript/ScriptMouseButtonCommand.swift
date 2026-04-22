@@ -1,12 +1,12 @@
 import AppKit
 
-/// Handler for the `send mouse button` AppleScript command defined in `Ghostty.sdef`.
+/// Handler for the `send mouse button` AppleScript command defined in `Void.sdef`.
 ///
 /// Cocoa scripting instantiates this class because the command's `<cocoa>` element
-/// specifies `class="GhosttyScriptMouseButtonCommand"`. The runtime calls
+/// specifies `class="VoidScriptMouseButtonCommand"`. The runtime calls
 /// `performDefaultImplementation()` to execute the command.
 @MainActor
-@objc(GhosttyScriptMouseButtonCommand)
+@objc(VoidScriptMouseButtonCommand)
 final class ScriptMouseButtonCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
         guard NSApp.validateScript(command: self) else { return nil }
@@ -36,7 +36,7 @@ final class ScriptMouseButtonCommand: NSScriptCommand {
             return nil
         }
 
-        let action: Ghostty.Input.MouseState
+        let action: Void.Input.MouseState
         if let actionCode = evaluatedArguments?["action"] as? UInt32 {
             switch actionCode {
             case "GIpr".fourCharCode: action = .press
@@ -47,9 +47,9 @@ final class ScriptMouseButtonCommand: NSScriptCommand {
             action = .press
         }
 
-        let mods: Ghostty.Input.Mods
+        let mods: Void.Input.Mods
         if let modsString = evaluatedArguments?["modifiers"] as? String {
-            guard let parsed = Ghostty.Input.Mods(scriptModifiers: modsString) else {
+            guard let parsed = Void.Input.Mods(scriptModifiers: modsString) else {
                 scriptErrorNumber = errAECoercionFail
                 scriptErrorString = "Unknown modifier in: \(modsString)"
                 return nil
@@ -59,9 +59,9 @@ final class ScriptMouseButtonCommand: NSScriptCommand {
             mods = []
         }
 
-        let mouseEvent = Ghostty.Input.MouseButtonEvent(
+        let mouseEvent = Void.Input.MouseButtonEvent(
             action: action,
-            button: button.ghosttyButton,
+            button: button.voidButton,
             mods: mods
         )
         surface.sendMouseButton(mouseEvent)
@@ -70,7 +70,7 @@ final class ScriptMouseButtonCommand: NSScriptCommand {
     }
 }
 
-/// Four-character codes matching the `mouse button` enumeration in `Ghostty.sdef`.
+/// Four-character codes matching the `mouse button` enumeration in `Void.sdef`.
 private enum ScriptMouseButtonValue {
     case left
     case right
@@ -85,7 +85,7 @@ private enum ScriptMouseButtonValue {
         }
     }
 
-    var ghosttyButton: Ghostty.Input.MouseButton {
+    var voidButton: Void.Input.MouseButton {
         switch self {
         case .left: .left
         case .right: .right

@@ -1,11 +1,11 @@
-# Korean translations for com.mitchellh.ghostty package.
+# Korean translations for com.mitchellh.void package.
 # Copyright (C) 2025 Mitchell Hashimoto
-# This file is distributed under the same license as the com.mitchellh.ghostty package.
+# This file is distributed under the same license as the com.mitchellh.void package.
 # Ruben Engelbrecht <hey@rme.gg>, 2025.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.ghostty\n"
+"Project-Id-Version: com.mitchellh.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-02-11 12:50+0900\n"
@@ -17,9 +17,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: dist/linux/ghostty_nautilus.py:53
-msgid "Open in Ghostty"
-msgstr "Ghostty에서 열기"
+#: dist/linux/void_nautilus.py:53
+msgid "Open in Void"
+msgstr "Void에서 열기"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -81,12 +81,12 @@ msgstr "설정 값 다시 불러오기"
 #: src/apprt/gtk/ui/1.2/debug-warning.blp:7
 #: src/apprt/gtk/ui/1.3/debug-warning.blp:6
 msgid ""
-"⚠️ You're running a debug build of Ghostty! Performance will be degraded."
-msgstr "⚠️ Ghostty 디버그 빌드로 실행 중입니다! 성능이 저하됩니다."
+"⚠️ You're running a debug build of Void! Performance will be degraded."
+msgstr "⚠️ Void 디버그 빌드로 실행 중입니다! 성능이 저하됩니다."
 
 #: src/apprt/gtk/ui/1.5/inspector-window.blp:5
-msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: 터미널 인스펙터"
+msgid "Void: Terminal Inspector"
+msgstr "Void: 터미널 인스펙터"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
@@ -236,8 +236,8 @@ msgid "Terminal Inspector"
 msgstr "터미널 인스펙터"
 
 #: src/apprt/gtk/ui/1.5/window.blp:307 src/apprt/gtk/class/window.zig:1727
-msgid "About Ghostty"
-msgstr "Ghostty 정보"
+msgid "About Void"
+msgstr "Void 정보"
 
 #: src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Quit"
@@ -276,8 +276,8 @@ msgstr ""
 "다."
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:184
-msgid "Quit Ghostty?"
-msgstr "Ghostty를 종료하시겠습니까?"
+msgid "Quit Void?"
+msgstr "Void를 종료하시겠습니까?"
 
 #: src/apprt/gtk/class/close_confirmation_dialog.zig:185
 msgid "Close Tab?"
@@ -348,5 +348,5 @@ msgid "Cleared clipboard"
 msgstr "클립보드 지워짐"
 
 #: src/apprt/gtk/class/window.zig:1708
-msgid "Ghostty Developers"
-msgstr "Ghostty 개발자들"
+msgid "Void Developers"
+msgstr "Void 개발자들"

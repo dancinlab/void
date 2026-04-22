@@ -5,7 +5,7 @@
 /// (at least at the time of writing this comment).
 
 /// NSWindow.addTabbedWindow wrapper
-FOUNDATION_EXPORT BOOL GhosttyAddTabbedWindowSafely(
+FOUNDATION_EXPORT BOOL VoidAddTabbedWindowSafely(
     id _Nonnull parent,
     id _Nonnull child,
     NSInteger ordered,

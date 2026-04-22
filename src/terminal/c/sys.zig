@@ -5,7 +5,7 @@ const CAllocator = lib.alloc.Allocator;
 const terminal_sys = @import("../sys.zig");
 const Result = @import("result.zig").Result;
 
-/// C: GhosttySysImage
+/// C: VoidSysImage
 pub const Image = extern struct {
     width: u32,
     height: u32,
@@ -13,7 +13,7 @@ pub const Image = extern struct {
     data_len: usize,
 };
 
-/// C: GhosttySysDecodePngFn
+/// C: VoidSysDecodePngFn
 pub const DecodePngFn = *const fn (
     ?*anyopaque,
     *const CAllocator,
@@ -22,7 +22,7 @@ pub const DecodePngFn = *const fn (
     *Image,
 ) callconv(lib.calling_conv) bool;
 
-/// C: GhosttySysLogLevel
+/// C: VoidSysLogLevel
 pub const LogLevel = enum(c_int) {
     @"error" = 0,
     warning = 1,
@@ -39,7 +39,7 @@ pub const LogLevel = enum(c_int) {
     }
 };
 
-/// C: GhosttySysLogFn
+/// C: VoidSysLogFn
 pub const LogFn = *const fn (
     ?*anyopaque,
     LogLevel,
@@ -49,7 +49,7 @@ pub const LogFn = *const fn (
     usize,
 ) callconv(lib.calling_conv) void;
 
-/// C: GhosttySysOption
+/// C: VoidSysOption
 pub const Option = enum(c_int) {
     userdata = 0,
     decode_png = 1,
@@ -182,7 +182,7 @@ const LogEmitter = struct {
 
 /// Custom std.log sink for C ABI builds.
 ///
-/// When a log callback is installed via ghostty_sys_set(), messages are
+/// When a log callback is installed via void_sys_set(), messages are
 /// dispatched through it. When no callback is installed, messages are
 /// silently discarded. Large messages that exceed the stack buffer are
 /// delivered across multiple callback invocations.
@@ -214,7 +214,7 @@ pub fn logFn(
 /// Built-in log callback that writes to stderr.
 ///
 /// Formats each message as "[level](scope): message\n". Can be passed
-/// directly to ghostty_sys_set(GHOSTTY_SYS_OPT_LOG, &ghostty_sys_log_stderr).
+/// directly to void_sys_set(VOID_SYS_OPT_LOG, &void_sys_log_stderr).
 ///
 /// Uses std.debug.lockStderrWriter for thread-safe, mutex-protected output.
 /// On freestanding/wasm targets this is a no-op (no stderr available).

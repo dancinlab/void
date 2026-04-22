@@ -1,5 +1,5 @@
 import AppKit
-import GhosttyKit
+import VoidKit
 import UniformTypeIdentifiers
 
 extension NSPasteboard.PasteboardType {
@@ -27,9 +27,9 @@ extension NSPasteboard.PasteboardType {
 }
 
 extension NSPasteboard {
-    /// The pasteboard to used for Ghostty selection.
-    static var ghosttySelection: NSPasteboard = {
-        NSPasteboard(name: .init("com.mitchellh.ghostty.selection"))
+    /// The pasteboard to used for Void selection.
+    static var voidSelection: NSPasteboard = {
+        NSPasteboard(name: .init("com.mitchellh.void.selection"))
     }()
 
     /// Gets the contents of the pasteboard as a string following a specific set of semantics.
@@ -41,21 +41,21 @@ extension NSPasteboard {
         if let urls = readObjects(forClasses: [NSURL.self]) as? [URL],
            urls.count > 0 {
             return urls
-                .map { $0.isFileURL ? Ghostty.Shell.escape($0.path) : $0.absoluteString }
+                .map { $0.isFileURL ? Void.Shell.escape($0.path) : $0.absoluteString }
                 .joined(separator: " ")
         }
 
         return self.string(forType: .string)
     }
 
-    /// The pasteboard for the Ghostty enum type.
-    static func ghostty(_ clipboard: ghostty_clipboard_e) -> NSPasteboard? {
+    /// The pasteboard for the Void enum type.
+    static func void(_ clipboard: void_clipboard_e) -> NSPasteboard? {
         switch clipboard {
-        case GHOSTTY_CLIPBOARD_STANDARD:
+        case VOID_CLIPBOARD_STANDARD:
             return Self.general
 
-        case GHOSTTY_CLIPBOARD_SELECTION:
-            return Self.ghosttySelection
+        case VOID_CLIPBOARD_SELECTION:
+            return Self.voidSelection
 
         default:
             return nil

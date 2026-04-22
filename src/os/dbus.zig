@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 /// Returns true if the program was launched by D-Bus activation.
 ///
 /// On Linux GTK, this returns true if the program was launched using D-Bus
-/// activation. It will return false if Ghostty was launched any other way.
+/// activation. It will return false if Void was launched any other way.
 ///
 /// For other platforms and app runtimes, this returns false.
 pub fn launchedByDbusActivation() bool {

@@ -140,7 +140,7 @@ fn main() {
     }
 
     let out_dir     = pkg_dir + "/images/icons"
-    let avatar_path = pkg_dir + "/images/Ghostty.icon/Assets/avatar.svg"
+    let avatar_path = pkg_dir + "/images/Void.icon/Assets/avatar.svg"
 
     let avatar_check = to_string(exec("test -f " + shq(avatar_path) + " && echo y || echo n")).trim()
     if avatar_check != "y" {
@@ -173,6 +173,17 @@ fn main() {
     build_one(32,   "icon_32.png",      out_dir, avatar_inner)
     build_one(32,   "icon_16@2x.png",   out_dir, avatar_inner)
     build_one(16,   "icon_16.png",      out_dir, avatar_inner)
+
+    // Sync 1024px render → Void.icon/Assets/avatar.png so actool picks up
+    // new geometry on next xcodebuild. icon.json references avatar.png, not
+    // the iconset PNGs.
+    let actool_src = pkg_dir + "/images/Void.icon/Assets/avatar.png"
+    let cp_res = exec_with_status("cp '" + out_dir + "/icon_1024.png' '" + actool_src + "'")
+    if cp_res[1] == 0 {
+        println("   synced → " + actool_src)
+    } else {
+        eprintln("warn: failed to sync actool avatar.png")
+    }
 
     println("done.")
 }

@@ -41,7 +41,7 @@ pub fn run(
     // If we're on macOS, we setup signposts so its easier to find
     // the results in Instruments. There's a lot of nasty comptime stuff
     // here but its just to ensure this does nothing on other platforms.
-    const signpost_name = "ghostty";
+    const signpost_name = "void";
     const signpost: if (builtin.target.os.tag.isDarwin()) struct {
         log: *macos.os.Log,
         id: macos.os.signpost.Id,
@@ -133,7 +133,7 @@ pub const VTable = struct {
 test Benchmark {
     // This test fails on FreeBSD and Windows so skip:
     //
-    // /home/runner/work/ghostty/ghostty/src/benchmark/Benchmark.zig:165:5: 0x3cd2de1 in decltest.Benchmark (ghostty-test)
+    // /home/runner/work/void/void/src/benchmark/Benchmark.zig:165:5: 0x3cd2de1 in decltest.Benchmark (void-test)
     //     try testing.expect(result.duration > 0);
     //     ^
     switch (builtin.os.tag) {

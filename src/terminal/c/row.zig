@@ -5,17 +5,17 @@ const page = @import("../page.zig");
 const Row = page.Row;
 const Result = @import("result.zig").Result;
 
-/// C: GhosttyRow
+/// C: VoidRow
 pub const CRow = Row.C;
 
-/// C: GhosttyRowSemanticPrompt
+/// C: VoidRowSemanticPrompt
 pub const SemanticPrompt = enum(c_int) {
     none = 0,
     prompt = 1,
     prompt_continuation = 2,
 };
 
-/// C: GhosttyRowData
+/// C: VoidRowData
 pub const RowData = enum(c_int) {
     invalid = 0,
 
@@ -40,7 +40,7 @@ pub const RowData = enum(c_int) {
     hyperlink = 5,
 
     /// The semantic prompt state of this row.
-    /// Output type: GhosttyRowSemanticPrompt *
+    /// Output type: VoidRowSemanticPrompt *
     semantic_prompt = 6,
 
     /// Whether this row contains a Kitty virtual placeholder.

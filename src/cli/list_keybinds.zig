@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const args = @import("args.zig");
-const Action = @import("ghostty.zig").Action;
+const Action = @import("void.zig").Action;
 const Arena = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
 const configpkg = @import("../config.zig");
@@ -35,12 +35,12 @@ pub const Options = struct {
 };
 
 /// The `list-keybinds` command is used to list all the available keybinds for
-/// Ghostty.
+/// Void.
 ///
 /// When executed without any arguments this will list the current keybinds
 /// loaded by the config file. If no config file is found or there aren't any
 /// changes to the keybinds it will print out the default ones configured for
-/// Ghostty
+/// Void
 ///
 /// Flags:
 ///
@@ -226,7 +226,7 @@ fn prettyPrint(alloc: Allocator, keybinds: Config.Keybinds) !u8 {
     const writer = tty.writer();
     defer vx.deinit(alloc, writer);
 
-    // We know we are ghostty, so let's enable mode 2027. Vaxis normally does this but you need an
+    // We know we are void, so let's enable mode 2027. Vaxis normally does this but you need an
     // event loop to auto-enable it.
     vx.caps.unicode = .unicode;
     try writer.writeAll(vaxis.ctlseqs.unicode_set);

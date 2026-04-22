@@ -14,11 +14,11 @@ pub fn genConfig(writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\---
         \\title: Reference
-        \\description: Reference of all Ghostty configuration options.
+        \\description: Reference of all Void configuration options.
         \\editOnGithubLink: https://github.com/ghostty-org/ghostty/edit/main/src/config/Config.zig
         \\---
         \\
-        \\This is a reference of all Ghostty configuration options. These
+        \\This is a reference of all Void configuration options. These
         \\options are ordered roughly by how common they are to be used
         \\and grouped with related options. I recommend utilizing your
         \\browser's search functionality to find the option you're looking
