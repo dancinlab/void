@@ -91,12 +91,14 @@ jobs:
           restore-keys: |
             xcode-${{ runner.os }}-
 
-      - name: Build Void.app (ad-hoc signed, icon off)
+      - name: Build Void.app (ad-hoc signed, arm64-only, icon off)
         run: |
           cd macos
           xcodebuild -project Void.xcodeproj \
             -target Void \
             -configuration Release \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
