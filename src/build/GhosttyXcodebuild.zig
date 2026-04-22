@@ -69,6 +69,16 @@ pub fn init(
             "Ghostty",
             "-configuration",
             xc_config,
+            // void fork — Sparkle SPM checkout 만 sandbox-allowlist 경로로 리다이렉트.
+            // 기본 ~/Library/Caches/org.swift.swiftpm/ 은 Claude Code
+            // sandbox-exec (raw#8 + raw#13 SBPL) 의 .github/workflows/*.yml
+            // + .sh/.py/.toml deny 에 걸려 Sparkle checkout 실패 (revision
+            // 21d8df80 "Couldn't check out"). /tmp/.claude/ 아래는 라인 102-105
+            // allow 가 모든 deny 를 override. -derivedDataPath 는 주입 X
+            // — SYMROOT 기본값(macos/build/ReleaseLocal/Ghostty.app) 유지해야
+            // zig build 의 copy-app-bundle step 이 경로 맞음.
+            "-clonedSourcePackagesDirPath",
+            "/tmp/.claude/void-spm",
         });
 
         // If we have a specific architecture, we need to pass it
