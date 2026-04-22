@@ -613,7 +613,7 @@ pub const Key = struct {
         // the discovery path to find a glyph before falling through to
         // CoreText's heuristic. On non-macOS these names simply miss and
         // are skipped without error.
-        const cjk_regular_fallbacks: []const []const u8 = &.{
+        const cjk_regular_fallbacks: []const [:0]const u8 = &.{
             "Apple SD Gothic Neo",
             "Hiragino Sans",
             "PingFang SC",
