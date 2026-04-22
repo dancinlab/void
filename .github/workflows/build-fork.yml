@@ -91,7 +91,7 @@ jobs:
           restore-keys: |
             xcode-${{ runner.os }}-
 
-      - name: Build Void.app (ad-hoc signed, arm64-only, icon off)
+      - name: Build Void.app (ad-hoc signed, arm64-only)
         run: |
           cd macos
           xcodebuild -project Void.xcodeproj \
@@ -103,7 +103,6 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="" \
-            ASSETCATALOG_COMPILER_APPICON_NAME="" \
             COMPILATION_CACHE_CAS_PATH="$HOME/Library/Developer/Xcode/DerivedData/CompilationCache.noindex" \
             COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 
