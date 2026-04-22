@@ -537,6 +537,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Equalize the size of all splits.",
         }},
 
+        .toggle_grid_mode => comptime &.{.{
+            .action = .toggle_grid_mode,
+            .title = "Toggle Grid / Tab Mode",
+            .description = "Toggle between grid layout (single tab, all surfaces as N×M grid) and tab layout (each surface its own tab).",
+        }},
+
         .reset_window_size => comptime &.{.{
             .action = .reset_window_size,
             .title = "Reset Window Size",

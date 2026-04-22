@@ -636,6 +636,15 @@ pub const Action = union(enum) {
     /// Equalize the size of all splits in the current window.
     equalize_splits,
 
+    /// Toggle between grid layout and tab layout for all panes in the
+    /// current window. In grid mode, all open surfaces are arranged in a
+    /// single tab as an N×M grid (auto-sized: 2 → 1×2, 4 → 2×2, 6 → 3×2,
+    /// etc — bias for more columns when uneven). In tab mode, each surface
+    /// lives in its own tab.
+    ///
+    /// Only implemented on macOS.
+    toggle_grid_mode,
+
     /// Reset the window to the default size. The "default size" is the
     /// size that a new window would be created with. This has no effect
     /// if the window is fullscreen.
@@ -1390,6 +1399,7 @@ pub const Action = union(enum) {
             .toggle_readonly,
             .resize_split,
             .equalize_splits,
+            .toggle_grid_mode,
             .inspector,
             => .surface,
         };

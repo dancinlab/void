@@ -5552,6 +5552,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .toggle_grid_mode => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_grid_mode,
+            {},
+        ),
+
         .toggle_split_zoom => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_split_zoom,

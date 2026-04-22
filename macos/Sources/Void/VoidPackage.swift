@@ -436,6 +436,11 @@ extension VD.Notification {
     /// Notification sent to the split root to equalize split sizes
     static let didEqualizeSplits = Notification.Name("com.mitchellh.void.didEqualizeSplits")
 
+    /// Notification to toggle between Grid layout and Tab layout for all
+    /// surfaces in the current window. Observed by the window controller
+    /// which handles the actual layout transformation.
+    static let didToggleGridMode = Notification.Name("com.mitchellh.void.didToggleGridMode")
+
     /// Notification that renderer health changed
     static let didUpdateRendererHealth = Notification.Name("com.mitchellh.void.didUpdateRendererHealth")
 

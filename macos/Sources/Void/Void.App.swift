@@ -524,6 +524,9 @@ extension VD {
             case VOID_ACTION_EQUALIZE_SPLITS:
                 equalizeSplits(app, target: target)
 
+            case VOID_ACTION_TOGGLE_GRID_MODE:
+                toggleGridMode(app, target: target)
+
             case VOID_ACTION_TOGGLE_SPLIT_ZOOM:
                 return toggleSplitZoom(app, target: target)
 
@@ -1305,6 +1308,27 @@ extension VD {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 NotificationCenter.default.post(
                     name: Notification.didEqualizeSplits,
+                    object: surfaceView
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func toggleGridMode(
+            _ app: void_app_t,
+            target: void_target_s) {
+            switch target.tag {
+            case VOID_TARGET_APP:
+                VD.logger.warning("toggle_grid_mode does nothing with an app target")
+                return
+
+            case VOID_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: Notification.didToggleGridMode,
                     object: surfaceView
                 )
 

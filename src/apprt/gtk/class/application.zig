@@ -687,6 +687,9 @@ pub const Application = extern struct {
 
             .equalize_splits => return Action.equalizeSplits(target),
 
+            // GTK-side grid mode toggle is not implemented. macOS-only for now.
+            .toggle_grid_mode => return false,
+
             .goto_split => return Action.gotoSplit(target, value),
 
             .goto_window => return Action.gotoWindow(value),

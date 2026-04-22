@@ -7067,6 +7067,13 @@ pub const Keybinds = struct {
                 .{ .equalize_splits = {} },
             );
 
+            // Grid ↔ Tab mode toggle (Void addition)
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true } },
+                .{ .toggle_grid_mode = {} },
+            );
+
             // Jump to prompt, matches Terminal.app
             try self.set.put(
                 alloc,

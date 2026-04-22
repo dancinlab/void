@@ -148,6 +148,12 @@ pub const Action = union(Key) {
     /// Equalize all the splits in the target window.
     equalize_splits,
 
+    /// Toggle between grid-layout and tab-layout for all surfaces in the
+    /// target window. In grid layout, every open surface is arranged in a
+    /// single tab as an auto-sized grid (2 → 1×2, 4 → 2×2, 6 → 3×2, …).
+    /// In tab layout, each surface becomes its own tab.
+    toggle_grid_mode,
+
     /// Toggle whether a split is zoomed or not. A zoomed split is resized
     /// to take up the entire window.
     toggle_split_zoom,
@@ -365,6 +371,7 @@ pub const Action = union(Key) {
         goto_window,
         resize_split,
         equalize_splits,
+        toggle_grid_mode,
         toggle_split_zoom,
         present_terminal,
         size_limit,
