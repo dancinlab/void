@@ -607,6 +607,25 @@ pub const Key = struct {
             });
         }
 
+        // CJK last-resort fallback: if the user's font-family list doesn't
+        // cover Hangul/Kana/Han, CoreText's CTFontCreateForString sometimes
+        // returns a serif. Appending a sans-serif CJK family here forces
+        // the discovery path to find a glyph before falling through to
+        // CoreText's heuristic. On non-macOS these names simply miss and
+        // are skipped without error.
+        const cjk_regular_fallbacks: []const []const u8 = &.{
+            "Apple SD Gothic Neo",
+            "Hiragino Sans",
+            "PingFang SC",
+        };
+        for (cjk_regular_fallbacks) |family| {
+            try descriptors.append(alloc, .{
+                .family = family,
+                .size = font_size.points,
+            });
+        }
+        const regular_count = descriptors.items.len;
+
         // In all the styled cases below, we prefer to specify an exact
         // style via the `font-style` configuration. If a style is not
         // specified, we use the discovery mechanism to search for a
@@ -625,6 +644,15 @@ pub const Key = struct {
                 .variations = config.@"font-variation-bold".list.items,
             });
         }
+        for (cjk_regular_fallbacks) |family| {
+            try descriptors.append(alloc, .{
+                .family = family,
+                .size = font_size.points,
+                .bold = true,
+            });
+        }
+        const bold_count = descriptors.items.len;
+
         for (config.@"font-family-italic".list.items) |family| {
             const style = config.@"font-style-italic".nameValue();
             try descriptors.append(alloc, .{
@@ -635,6 +663,16 @@ pub const Key = struct {
                 .variations = config.@"font-variation-italic".list.items,
             });
         }
+        // CJK has no synthetic italic in most system fonts; reuse regular
+        // fallbacks so Korean italic still hits sans-serif instead of serif.
+        for (cjk_regular_fallbacks) |family| {
+            try descriptors.append(alloc, .{
+                .family = family,
+                .size = font_size.points,
+            });
+        }
+        const italic_count = descriptors.items.len;
+
         for (config.@"font-family-bold-italic".list.items) |family| {
             const style = config.@"font-style-bold-italic".nameValue();
             try descriptors.append(alloc, .{
@@ -646,6 +684,14 @@ pub const Key = struct {
                 .variations = config.@"font-variation-bold-italic".list.items,
             });
         }
+        for (cjk_regular_fallbacks) |family| {
+            try descriptors.append(alloc, .{
+                .family = family,
+                .size = font_size.points,
+                .bold = true,
+            });
+        }
+        const bold_italic_count = descriptors.items.len;
 
         // Setup the codepoint map
         const codepoint_map: CodepointMap = map: {
@@ -674,19 +720,14 @@ pub const Key = struct {
             break :set set;
         };
 
-        const regular_offset = config.@"font-family".list.items.len;
-        const bold_offset = regular_offset + config.@"font-family-bold".list.items.len;
-        const italic_offset = bold_offset + config.@"font-family-italic".list.items.len;
-        const bold_italic_offset = italic_offset + config.@"font-family-bold-italic".list.items.len;
-
         return .{
             .arena = arena,
             .descriptors = try descriptors.toOwnedSlice(alloc),
             .style_offsets = .{
-                regular_offset,
-                bold_offset,
-                italic_offset,
-                bold_italic_offset,
+                regular_count,
+                bold_count,
+                italic_count,
+                bold_italic_count,
             },
             .codepoint_map = codepoint_map,
             .metric_modifiers = metric_modifiers,
