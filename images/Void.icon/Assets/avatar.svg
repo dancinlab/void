@@ -21,12 +21,13 @@
     </radialGradient>
   </defs>
 
-  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- Apple HIG macOS icon body = 824/1024 of canvas with squircle corners.
+       In our 512 viewBox: 412×412 inside (50..462), corner radius ~92. -->
+  <rect x="50" y="50" width="412" height="412" rx="92" ry="92" fill="url(#bg)"/>
 
   <!-- concentric hexagons (flat-top) warping toward center.
-       vertices at (R,0) (R/2, R√3/2) (-R/2, R√3/2) (-R,0) (-R/2,-R√3/2) (R/2,-R√3/2)
-       stroke-width INCREASES toward center to fake gravitational compression -->
-  <g transform="translate(256 256) scale(0.85)" fill="none" stroke="#f0f0f0" stroke-linejoin="miter">
+       scale 0.75 → outer vertex 172 px from center (body half-width 206 → 34 px margin inside squircle). -->
+  <g transform="translate(256 256) scale(0.65)" fill="none" stroke="#f0f0f0" stroke-linejoin="miter">
     <polygon points="230,0 115,199.186 -115,199.186 -230,0 -115,-199.186 115,-199.186"
              stroke-width="3.5" stroke-opacity="1.00"/>
     <polygon points="200,0 100,173.205 -100,173.205 -200,0 -100,-173.205 100,-173.205"
@@ -48,7 +49,7 @@
   </g>
 
   <!-- 6 radial spokes (subtle) -->
-  <g transform="translate(256 256) scale(0.85)" stroke="#aaaaaa" stroke-width="1.2" stroke-opacity="0.30" fill="none">
+  <g transform="translate(256 256) scale(0.65)" stroke="#aaaaaa" stroke-width="1.2" stroke-opacity="0.30" fill="none">
     <line x1="0" y1="0" x2="230" y2="0"/>
     <line x1="0" y1="0" x2="115" y2="199.186"/>
     <line x1="0" y1="0" x2="-115" y2="199.186"/>
