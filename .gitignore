@@ -36,5 +36,7 @@ vgcore.*
 /bin/
 /config/
 /shared/
+# zig build 임시 아티팩트 (zig-cache/zig-out 과 별개로 생성됨)
+/zig-pkg/
 # prefix-less icon sizes (용도 재확정 대기 — 기존 icon_*.png 는 커밋됨)
 /images/icons/[0-9]*.png
