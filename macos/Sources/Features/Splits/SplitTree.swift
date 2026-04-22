@@ -239,6 +239,38 @@ extension SplitTree {
         return .init(root: newRoot, zoomed: zoomed)
     }
 
+    /// Build a grid tree from a flat list of views.
+    ///
+    /// Layout rule: `cols = ceil(sqrt(N))`, `rows = ceil(N / cols)`.
+    /// - N=2 → 1×2, N=3 → 2×2 (last row 1 view), N=4 → 2×2,
+    ///   N=5 → 2×3 (last row 2 views), N=6 → 2×3, N=7..9 → 3×3.
+    /// Ratios are equalized via the existing leaf-count weighting.
+    static func grid(views: [ViewType]) -> Self {
+        guard !views.isEmpty else { return .init() }
+        if views.count == 1 { return .init(view: views[0]) }
+        let cols = Int(ceil(Double(views.count).squareRoot()))
+        var rowNodes: [Node] = []
+        var i = 0
+        while i < views.count {
+            let end = Swift.min(i + cols, views.count)
+            let row = Array(views[i..<end]).map { Node.leaf(view: $0) }
+            rowNodes.append(buildBalanced(row, direction: .horizontal))
+            i = end
+        }
+        let root = buildBalanced(rowNodes, direction: .vertical)
+        return SplitTree(root: root, zoomed: nil).equalized()
+    }
+
+    /// Build a balanced nested split from a list of nodes along the given direction.
+    /// Any ratio is fine here since `equalized()` is applied afterward.
+    private static func buildBalanced(_ nodes: [Node], direction: Direction) -> Node {
+        if nodes.count == 1 { return nodes[0] }
+        let mid = nodes.count / 2
+        let left = buildBalanced(Array(nodes[0..<mid]), direction: direction)
+        let right = buildBalanced(Array(nodes[mid...]), direction: direction)
+        return .split(.init(direction: direction, ratio: 0.5, left: left, right: right))
+    }
+
     /// Resize a node in the tree by the given pixel amount in the specified direction.
     ///
     /// This method adjusts the split ratios of the tree to accommodate the requested resize

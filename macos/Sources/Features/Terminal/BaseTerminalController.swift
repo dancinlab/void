@@ -190,6 +190,11 @@ class BaseTerminalController: NSWindowController,
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(voidDidToggleGridMode(_:)),
+            name: VD.Notification.didToggleGridMode,
+            object: nil)
+        center.addObserver(
+            self,
             selector: #selector(voidDidFocusSplit(_:)),
             name: VD.Notification.voidFocusSplit,
             object: nil)
@@ -622,6 +627,111 @@ class BaseTerminalController: NSWindowController,
 
         // Equalize the splits
         surfaceTree = surfaceTree.equalized()
+    }
+
+    /// Toggle between grid layout (single tab with N-way grid) and tab layout
+    /// (each surface in its own tab) for all surfaces in the current window's tab group.
+    ///
+    /// Direction is inferred from current state:
+    ///   - Multiple tabs in this window → flatten to grid in the target tab
+    ///   - Single tab with splits → explode into one surface per tab
+    ///   - Single tab with a single surface → no-op
+    @objc private func voidDidToggleGridMode(_ notification: Notification) {
+        guard let target = notification.object as? VD.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+        guard let selfTC = self as? TerminalController else { return }
+        guard let tabGroup = self.window?.tabGroup else {
+            // No tab group: only Grid→Tab explode is meaningful.
+            if surfaceTree.isSplit {
+                explodeIntoTabs(in: selfTC, focusTarget: target)
+            }
+            return
+        }
+
+        let siblingControllers = tabGroup.windows.compactMap { $0.windowController as? TerminalController }
+        let hasMultipleTabs = siblingControllers.count > 1
+
+        if hasMultipleTabs {
+            flattenTabsToGrid(into: selfTC, tabs: siblingControllers, focusTarget: target)
+        } else if surfaceTree.isSplit {
+            explodeIntoTabs(in: selfTC, focusTarget: target)
+        }
+        // else: single tab, single surface — no-op
+    }
+
+    /// Collect every leaf surface across `tabs` (in tab order), build a grid SplitTree,
+    /// install it on `target`, and close every other tab.
+    private func flattenTabsToGrid(
+        into target: TerminalController,
+        tabs: [TerminalController],
+        focusTarget: VD.SurfaceView
+    ) {
+        // Collect all surfaces in tab order. Each controller's sequence iterates
+        // leaves in tree order.
+        var allSurfaces: [VD.SurfaceView] = []
+        for tc in tabs {
+            allSurfaces.append(contentsOf: tc.surfaceTree.map { $0 })
+        }
+        guard !allSurfaces.isEmpty else { return }
+
+        let gridTree = SplitTree<VD.SurfaceView>.grid(views: allSurfaces)
+
+        undoManager?.disableUndoRegistration {
+            // Empty out every other tab FIRST so their close logic sees no surfaces
+            // to clean up (surfaces now live in the grid tree we're about to set).
+            for tc in tabs where tc !== target {
+                tc.surfaceTree = .init()
+            }
+
+            // Install the grid on the target tab.
+            target.surfaceTree = gridTree
+            target.focusedSurface = focusTarget
+
+            // Close the drained tabs.
+            for tc in tabs where tc !== target {
+                tc.window?.close()
+            }
+        }
+    }
+
+    /// Move every leaf beyond the first out of `controller`'s surface tree into a new
+    /// sibling tab so each surface ends up alone in its own tab.
+    private func explodeIntoTabs(
+        in controller: TerminalController,
+        focusTarget: VD.SurfaceView
+    ) {
+        let leaves: [VD.SurfaceView] = controller.surfaceTree.map { $0 }
+        guard leaves.count > 1 else { return }
+        guard let parentWindow = controller.window else { return }
+
+        undoManager?.disableUndoRegistration {
+            // Keep the first leaf in the current tab; spawn new tabs for the rest.
+            // We preserve focus on `focusTarget`: if it's leaf[0], nothing special;
+            // otherwise the new tab hosting it will be focused via makeKeyAndOrderFront.
+            controller.surfaceTree = .init(view: leaves[0])
+
+            var lastWindow: NSWindow = parentWindow
+            for view in leaves.dropFirst() {
+                let subtree = SplitTree<VD.SurfaceView>(view: view)
+                let newTC = TerminalController(void, withSurfaceTree: subtree)
+                guard let newWindow = newTC.window else { continue }
+
+                if newWindow.tabbingMode != .disallowed {
+                    lastWindow.addTabbedWindowSafely(newWindow, ordered: .above)
+                }
+
+                newTC.showWindow(self)
+                lastWindow = newWindow
+
+                if view == focusTarget {
+                    newWindow.makeKeyAndOrderFront(self)
+                }
+            }
+
+            if focusTarget == leaves[0] {
+                parentWindow.makeKeyAndOrderFront(self)
+            }
+        }
     }
 
     @objc private func voidDidFocusSplit(_ notification: Notification) {
