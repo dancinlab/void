@@ -7,9 +7,13 @@
 //   2. Strip its outer <svg> wrapper → inner geometry.
 //   3. For each of 12 macOS iconset sizes, compose a per-size SVG that
 //      contains:
-//        - Apple bezier <clipPath> (Liam Rosenfeld 7-constant exact)
-//        - black <rect> background
-//        - inner avatar <g> at 84% scale, centered (8% transparent margin)
+//        - Apple bezier <clipPath> at **body=824/1024 of canvas** (Apple HIG
+//          exact: icon body is 824px in a 1024 canvas, leaving 100px =
+//          ~9.77% transparent margin each side). Matches Finder/Safari/System
+//          Preferences tile sizing so the dock aligns all icons uniformly.
+//        - black <rect> background inside the squircle
+//        - avatar <g> full-bleed within the squircle (Finder-style — hexagon
+//          fills the body, clipPath trims corners that exceed the curve)
 //      Pipe that SVG through `rsvg-convert` from stdin → write PNG.
 //
 // Why per-size render: rsvg-convert rasterizes vector at the target
@@ -100,17 +104,19 @@ fn extract_svg_inner(svg_path: string) -> string {
 }
 
 fn build_one(size: int, fn_name: string, out_dir: string, avatar_inner: string) {
-    let szs   = to_string(size)
-    let inner = (size * 84) / 100   // hexagon at 84% canvas
-    let off   = (size - inner) / 2
-    let scale = (0.0 + inner) / 512.0  // avatar viewBox is 512 units
-    let d     = apple_bezier_d(size)
+    let szs      = to_string(size)
+    let body     = (size * 824) / 1024   // squircle = 80.5% of canvas (Apple HIG)
+    let body_off = (size - body) / 2      // ~9.77% transparent margin each side
+    let bsz      = to_string(body)
+    let boff     = to_string(body_off)
+    let scale    = (0.0 + body) / 512.0   // avatar fills squircle (Finder full-bleed)
+    let d        = apple_bezier_d(body)    // bezier sized to body, not full canvas
 
     let mut svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " + szs + " " + szs + "\" width=\"" + szs + "\" height=\"" + szs + "\">"
-    svg = svg + "<defs><clipPath id=\"sq\"><path d=\"" + d + "\"/></clipPath></defs>"
+    svg = svg + "<defs><clipPath id=\"sq\" transform=\"translate(" + boff + "," + boff + ")\"><path d=\"" + d + "\"/></clipPath></defs>"
     svg = svg + "<g clip-path=\"url(#sq)\">"
-    svg = svg + "<rect width=\"" + szs + "\" height=\"" + szs + "\" fill=\"black\"/>"
-    svg = svg + "<g transform=\"translate(" + to_string(off) + "," + to_string(off) + ") scale(" + to_string(scale) + ")\">"
+    svg = svg + "<rect x=\"" + boff + "\" y=\"" + boff + "\" width=\"" + bsz + "\" height=\"" + bsz + "\" fill=\"black\"/>"
+    svg = svg + "<g transform=\"translate(" + boff + "," + boff + ") scale(" + to_string(scale) + ")\">"
     svg = svg + avatar_inner
     svg = svg + "</g></g></svg>"
 
@@ -150,7 +156,7 @@ fn main() {
         exit(1)
     }
 
-    println("⬡ void iconset: Apple bezier mask + black bg + hexagon inset 8%")
+    println("⬡ void iconset: Apple HIG 824/1024 squircle + full-bleed hexagon (Finder-style)")
     println("   src: " + avatar_path)
     println("   out: " + out_dir)
 
