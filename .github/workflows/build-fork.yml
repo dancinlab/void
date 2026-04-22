@@ -91,13 +91,12 @@ jobs:
           restore-keys: |
             xcode-${{ runner.os }}-
 
-      - name: Build Void.app (ad-hoc signed, module=VoidApp, icon off)
+      - name: Build Void.app (ad-hoc signed, icon off)
         run: |
           cd macos
           xcodebuild -project Void.xcodeproj \
             -target Void \
             -configuration Release \
-            PRODUCT_MODULE_NAME=VoidApp \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
