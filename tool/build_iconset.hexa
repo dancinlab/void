@@ -1,0 +1,174 @@
+// tool/build_iconset.hexa — generate macOS app iconset for void
+// @allow-bare-exec
+// @no-lock-needed
+//
+// Pipeline:
+//   1. Read avatar.svg (need-singularity hexagon, viewBox 0 0 512 512).
+//   2. Strip its outer <svg> wrapper → inner geometry.
+//   3. For each of 12 macOS iconset sizes, compose a per-size SVG that
+//      contains:
+//        - Apple bezier <clipPath> (Liam Rosenfeld 7-constant exact)
+//        - black <rect> background
+//        - inner avatar <g> at 84% scale, centered (8% transparent margin)
+//      Pipe that SVG through `rsvg-convert` from stdin → write PNG.
+//
+// Why per-size render: rsvg-convert rasterizes vector at the target
+// resolution, so no PIL/numpy and no resize blur — every PNG is sharp.
+//
+// Apple shape source: https://liamrosenfeld.com/posts/apple_icon_quest/
+//   Constants reverse-engineered from CGPath/UIBezierPath behavior.
+//   cornerRadius ratio = 185.4 / 824 (macOS Big Sur+ official).
+//
+// Usage:
+//   cd <void repo>
+//   hexa tool/build_iconset.hexa
+// Requires: rsvg-convert (libRSVG), awk, printf
+
+fn shq(s: string) -> string {
+    // Single-quote-safe shell escape: 'a'\''b' style.
+    return "'" + s.replace("'", "'\\''") + "'"
+}
+
+fn have(cmd: string) -> bool {
+    let r = to_string(exec("command -v " + cmd + " 2>/dev/null")).trim()
+    return r != ""
+}
+
+fn run_or_die(cmd: string) {
+    let result = exec_with_status(cmd)
+    if result[1] != 0 {
+        eprintln("FAILED: " + cmd)
+        exit(1)
+    }
+}
+
+// ─── Apple bezier path (Liam Rosenfeld 7-constant) ─────────────────────
+
+fn fmt2(x: float, y: float) -> string {
+    return to_string(x) + "," + to_string(y)
+}
+
+fn pt_TL(x: float, y: float, w: float, h: float, cr: float) -> string {
+    return fmt2(x * cr, y * cr)
+}
+
+fn pt_TR(x: float, y: float, w: float, h: float, cr: float) -> string {
+    return fmt2(w - x * cr, y * cr)
+}
+
+fn pt_BR(x: float, y: float, w: float, h: float, cr: float) -> string {
+    return fmt2(w - x * cr, h - y * cr)
+}
+
+fn pt_BL(x: float, y: float, w: float, h: float, cr: float) -> string {
+    return fmt2(x * cr, h - y * cr)
+}
+
+// 22 commands: 1M + 8L + 12C + Z. Each corner = 3 bezier segments.
+fn apple_bezier_d(size: int) -> string {
+    let w  = 0.0 + size
+    let h  = 0.0 + size
+    let cr = w * 185.4 / 824.0
+    let mut d = "M " + pt_TL(1.528665, 0.0, w, h, cr)
+    d = d + " L " + pt_TR(1.528665, 0.0, w, h, cr)
+    d = d + " C " + pt_TR(1.08849296, 0.0, w, h, cr) + " " + pt_TR(0.86840694, 0.0, w, h, cr) + " " + pt_TR(0.63149379, 0.07491139, w, h, cr)
+    d = d + " C " + pt_TR(0.37282383, 0.16905956, w, h, cr) + " " + pt_TR(0.16905956, 0.37282383, w, h, cr) + " " + pt_TR(0.07491139, 0.63149379, w, h, cr)
+    d = d + " C " + pt_TR(0.0, 0.86840694, w, h, cr) + " " + pt_TR(0.0, 1.08849296, w, h, cr) + " " + pt_TR(0.0, 1.52866498, w, h, cr)
+    d = d + " L " + pt_BR(0.0, 1.528665, w, h, cr)
+    d = d + " C " + pt_BR(0.0, 1.08849296, w, h, cr) + " " + pt_BR(0.0, 0.86840694, w, h, cr) + " " + pt_BR(0.07491139, 0.63149379, w, h, cr)
+    d = d + " C " + pt_BR(0.16905956, 0.37282383, w, h, cr) + " " + pt_BR(0.37282383, 0.16905956, w, h, cr) + " " + pt_BR(0.63149379, 0.07491139, w, h, cr)
+    d = d + " C " + pt_BR(0.86840694, 0.0, w, h, cr) + " " + pt_BR(1.08849296, 0.0, w, h, cr) + " " + pt_BR(1.52866498, 0.0, w, h, cr)
+    d = d + " L " + pt_BL(1.528665, 0.0, w, h, cr)
+    d = d + " C " + pt_BL(1.08849296, 0.0, w, h, cr) + " " + pt_BL(0.86840694, 0.0, w, h, cr) + " " + pt_BL(0.63149379, 0.07491139, w, h, cr)
+    d = d + " C " + pt_BL(0.37282383, 0.16905956, w, h, cr) + " " + pt_BL(0.16905956, 0.37282383, w, h, cr) + " " + pt_BL(0.07491139, 0.63149379, w, h, cr)
+    d = d + " C " + pt_BL(0.0, 0.86840694, w, h, cr) + " " + pt_BL(0.0, 1.08849296, w, h, cr) + " " + pt_BL(0.0, 1.52866498, w, h, cr)
+    d = d + " L " + pt_TL(0.0, 1.528665, w, h, cr)
+    d = d + " C " + pt_TL(0.0, 1.08849296, w, h, cr) + " " + pt_TL(0.0, 0.86840694, w, h, cr) + " " + pt_TL(0.07491139, 0.63149379, w, h, cr)
+    d = d + " C " + pt_TL(0.16905956, 0.37282383, w, h, cr) + " " + pt_TL(0.37282383, 0.16905956, w, h, cr) + " " + pt_TL(0.63149379, 0.07491139, w, h, cr)
+    d = d + " C " + pt_TL(0.86840694, 0.0, w, h, cr) + " " + pt_TL(1.08849296, 0.0, w, h, cr) + " " + pt_TL(1.52866498, 0.0, w, h, cr)
+    d = d + " Z"
+    return d
+}
+
+// ─── SVG composition + render ──────────────────────────────────────────
+
+fn extract_svg_inner(svg_path: string) -> string {
+    // awk to strip xml decl + outer <svg ...> wrapper. Keep inner geometry.
+    let prog = "BEGIN{p=0} /<svg[^>]*>/{p=1; sub(/.*<svg[^>]*>/, \"\"); print; next} /<\\/svg>/{sub(/<\\/svg>.*/, \"\"); if($0!~/^[[:space:]]*$/) print; p=0; next} p{print}"
+    let cmd = "awk " + shq(prog) + " " + shq(svg_path)
+    return to_string(exec(cmd))
+}
+
+fn build_one(size: int, fn_name: string, out_dir: string, avatar_inner: string) {
+    let szs   = to_string(size)
+    let inner = (size * 84) / 100   // hexagon at 84% canvas
+    let off   = (size - inner) / 2
+    let scale = (0.0 + inner) / 512.0  // avatar viewBox is 512 units
+    let d     = apple_bezier_d(size)
+
+    let mut svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " + szs + " " + szs + "\" width=\"" + szs + "\" height=\"" + szs + "\">"
+    svg = svg + "<defs><clipPath id=\"sq\"><path d=\"" + d + "\"/></clipPath></defs>"
+    svg = svg + "<g clip-path=\"url(#sq)\">"
+    svg = svg + "<rect width=\"" + szs + "\" height=\"" + szs + "\" fill=\"black\"/>"
+    svg = svg + "<g transform=\"translate(" + to_string(off) + "," + to_string(off) + ") scale(" + to_string(scale) + ")\">"
+    svg = svg + avatar_inner
+    svg = svg + "</g></g></svg>"
+
+    let out_path = out_dir + "/" + fn_name
+    let cmd = "printf '%s' " + shq(svg) + " | rsvg-convert -w " + szs + " -h " + szs + " -o " + shq(out_path)
+    run_or_die(cmd)
+    println("  " + fn_name + "  " + szs + "px")
+}
+
+fn main() {
+    let pkg_dir_raw = to_string(exec("printenv HX_PKG_DIR 2>/dev/null")).trim()
+    let pkg_dir = if pkg_dir_raw != "" { pkg_dir_raw } else { to_string(exec("pwd")).trim() }
+
+    if !have("rsvg-convert") {
+        eprintln("rsvg-convert not found. brew install librsvg")
+        exit(1)
+    }
+    if !have("awk") {
+        eprintln("awk not found (POSIX standard tool, should always be present)")
+        exit(1)
+    }
+
+    let out_dir     = pkg_dir + "/images/icons"
+    let avatar_path = pkg_dir + "/images/Ghostty.icon/Assets/avatar.svg"
+
+    let avatar_check = to_string(exec("test -f " + shq(avatar_path) + " && echo y || echo n")).trim()
+    if avatar_check != "y" {
+        eprintln("avatar.svg missing at " + avatar_path)
+        eprintln("fetch with:")
+        eprintln("  curl -sL https://raw.githubusercontent.com/need-singularity/.github/main/profile/avatar.svg -o " + avatar_path)
+        exit(1)
+    }
+
+    let avatar_inner = extract_svg_inner(avatar_path)
+    if avatar_inner == "" {
+        eprintln("could not extract inner SVG content from " + avatar_path)
+        exit(1)
+    }
+
+    println("⬡ void iconset: Apple bezier mask + black bg + hexagon inset 8%")
+    println("   src: " + avatar_path)
+    println("   out: " + out_dir)
+
+    // 12 macOS iconset sizes (largest first for natural sort)
+    build_one(2048, "icon_1024@2x.png", out_dir, avatar_inner)
+    build_one(1024, "icon_1024.png",    out_dir, avatar_inner)
+    build_one(1024, "icon_512@2x.png",  out_dir, avatar_inner)
+    build_one(512,  "icon_512.png",     out_dir, avatar_inner)
+    build_one(512,  "icon_256@2x.png",  out_dir, avatar_inner)
+    build_one(256,  "icon_256.png",     out_dir, avatar_inner)
+    build_one(256,  "icon_128@2x.png",  out_dir, avatar_inner)
+    build_one(128,  "icon_128.png",     out_dir, avatar_inner)
+    build_one(64,   "icon_32@2x.png",   out_dir, avatar_inner)
+    build_one(32,   "icon_32.png",      out_dir, avatar_inner)
+    build_one(32,   "icon_16@2x.png",   out_dir, avatar_inner)
+    build_one(16,   "icon_16.png",      out_dir, avatar_inner)
+
+    println("done.")
+}
+
+main()

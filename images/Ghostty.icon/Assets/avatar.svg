@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- need-singularity org avatar · Hexagon + Gravitational Well · monochrome -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="well" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#000000"/>
+      <stop offset="60%"  stop-color="#000000"/>
+      <stop offset="85%"  stop-color="#0c0c0c"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </radialGradient>
+    <radialGradient id="bg" cx="50%" cy="50%" r="75%">
+      <stop offset="0%"   stop-color="#1c1c1c"/>
+      <stop offset="100%" stop-color="#050505"/>
+    </radialGradient>
+    <!-- glow around event horizon -->
+    <radialGradient id="photon" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.0"/>
+      <stop offset="70%"  stop-color="#ffffff" stop-opacity="0.0"/>
+      <stop offset="85%"  stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- concentric hexagons (flat-top) warping toward center.
+       vertices at (R,0) (R/2, R√3/2) (-R/2, R√3/2) (-R,0) (-R/2,-R√3/2) (R/2,-R√3/2)
+       stroke-width INCREASES toward center to fake gravitational compression -->
+  <g transform="translate(256 256)" fill="none" stroke="#f0f0f0" stroke-linejoin="miter">
+    <polygon points="230,0 115,199.186 -115,199.186 -230,0 -115,-199.186 115,-199.186"
+             stroke-width="3.5" stroke-opacity="1.00"/>
+    <polygon points="200,0 100,173.205 -100,173.205 -200,0 -100,-173.205 100,-173.205"
+             stroke-width="2.6" stroke-opacity="0.85"/>
+    <polygon points="172,0 86,148.956 -86,148.956 -172,0 -86,-148.956 86,-148.956"
+             stroke-width="2.2" stroke-opacity="0.76"/>
+    <polygon points="146,0 73,126.439 -73,126.439 -146,0 -73,-126.439 73,-126.439"
+             stroke-width="1.9" stroke-opacity="0.68"/>
+    <polygon points="122,0 61,105.655 -61,105.655 -122,0 -61,-105.655 61,-105.655"
+             stroke-width="1.7" stroke-opacity="0.60"/>
+    <polygon points="100,0 50,86.603 -50,86.603 -100,0 -50,-86.603 50,-86.603"
+             stroke-width="1.5" stroke-opacity="0.52"/>
+    <polygon points="80,0 40,69.282 -40,69.282 -80,0 -40,-69.282 40,-69.282"
+             stroke-width="1.4" stroke-opacity="0.44"/>
+    <polygon points="62,0 31,53.694 -31,53.694 -62,0 -31,-53.694 31,-53.694"
+             stroke-width="1.3" stroke-opacity="0.36"/>
+    <polygon points="46,0 23,39.837 -23,39.837 -46,0 -23,-39.837 23,-39.837"
+             stroke-width="1.2" stroke-opacity="0.28"/>
+  </g>
+
+  <!-- 6 radial spokes (subtle) -->
+  <g transform="translate(256 256)" stroke="#aaaaaa" stroke-width="1.2" stroke-opacity="0.30" fill="none">
+    <line x1="0" y1="0" x2="230" y2="0"/>
+    <line x1="0" y1="0" x2="115" y2="199.186"/>
+    <line x1="0" y1="0" x2="-115" y2="199.186"/>
+    <line x1="0" y1="0" x2="-230" y2="0"/>
+    <line x1="0" y1="0" x2="-115" y2="-199.186"/>
+    <line x1="0" y1="0" x2="115" y2="-199.186"/>
+  </g>
+
+  <!-- photon sphere glow -->
+  <circle cx="256" cy="256" r="46" fill="url(#photon)"/>
+  <!-- event horizon — solid dark disk -->
+  <circle cx="256" cy="256" r="30" fill="url(#well)"/>
+  <!-- thin ring at horizon edge -->
+  <circle cx="256" cy="256" r="30" fill="none" stroke="#ffffff" stroke-width="0.8" stroke-opacity="0.55"/>
+</svg>
