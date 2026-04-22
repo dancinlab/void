@@ -30,7 +30,7 @@ pub const GlobalState = struct {
 
     gpa: ?GPA,
     alloc: std.mem.Allocator,
-    action: ?cli.app.Action,
+    action: ?cli.vd.Action,
     logging: Logging,
     rlimits: ResourceLimits = .{},
 
@@ -97,7 +97,7 @@ pub const GlobalState = struct {
 
         // We first try to parse any action that we may be executing.
         self.action = try cli.action.detectArgs(
-            cli.app.Action,
+            cli.vd.Action,
             self.alloc,
         );
 

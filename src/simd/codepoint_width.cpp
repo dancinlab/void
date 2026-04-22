@@ -34,7 +34,7 @@ constexpr T array_max(const T (&a)[N]) {
 #endif  // VOID_SIMD_CPW_HELPERS_
 
 HWY_BEFORE_NAMESPACE();
-namespace void {
+namespace vd {
 namespace HWY_NAMESPACE {
 
 namespace hn = hwy::HWY_NAMESPACE;
@@ -486,13 +486,13 @@ int8_t CodepointWidth(uint32_t input) {
 }
 
 }  // namespace HWY_NAMESPACE
-}  // namespace void
+}  // namespace vd
 HWY_AFTER_NAMESPACE();
 
 // HWY_ONCE is true for only one of the target passes
 #if HWY_ONCE
 
-namespace void {
+namespace vd {
 
 HWY_EXPORT(CodepointWidth);
 
@@ -500,12 +500,12 @@ int8_t CodepointWidth(uint32_t cp) {
   return HWY_DYNAMIC_DISPATCH(CodepointWidth)(cp);
 }
 
-}  // namespace void
+}  // namespace vd
 
 extern "C" {
 
 int8_t void_simd_codepoint_width(uint32_t cp) {
-  return void::CodepointWidth(cp);
+  return vd::CodepointWidth(cp);
 }
 
 }  // extern "C"

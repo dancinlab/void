@@ -8,22 +8,22 @@
 #include <hwy/highway.h>
 
 HWY_BEFORE_NAMESPACE();
-namespace void {
+namespace vd {
 namespace HWY_NAMESPACE {
 
 namespace hn = hwy::HWY_NAMESPACE;
 
 }  // namespace HWY_NAMESPACE
-}  // namespace void
+}  // namespace vd
 HWY_AFTER_NAMESPACE();
 
 #if HWY_ONCE
 
-namespace void {
+namespace vd {
 
 typedef void (*PrintFunc)(const char32_t* chars, size_t count);
 
-}  // namespace void
+}  // namespace vd
 
 #endif  // HWY_ONCE
 

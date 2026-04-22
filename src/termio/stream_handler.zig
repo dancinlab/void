@@ -461,7 +461,7 @@ pub const StreamHandler = struct {
             },
 
             .xtgettcap => |*gettcap| {
-                const map = comptime terminfo.app.xtgettcapMap();
+                const map = comptime terminfo.vd.xtgettcapMap();
                 while (gettcap.next()) |key| {
                     const response = map.get(key) orelse continue;
                     self.messageWriter(.{ .write_stable = response });

@@ -10,7 +10,7 @@
 #include <stddef.h>
 
 HWY_BEFORE_NAMESPACE();
-namespace void {
+namespace vd {
 namespace HWY_NAMESPACE {
 
 namespace hn = hwy::HWY_NAMESPACE;
@@ -96,7 +96,7 @@ size_t IndexOf(const uint8_t needle,
                size_t count);
 
 }  // namespace HWY_NAMESPACE
-}  // namespace void
+}  // namespace vd
 HWY_AFTER_NAMESPACE();
 
 #endif  // VOID_SIMD_INDEX_OF_H_
