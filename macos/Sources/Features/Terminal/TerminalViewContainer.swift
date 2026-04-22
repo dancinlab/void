@@ -74,7 +74,7 @@ class TerminalViewContainer: NSView {
         updateGlassEffectTopInsetIfNeeded()
     }
 
-    func voidConfigDidChange(_ config: Void.Config, preferredBackgroundColor: NSColor?) {
+    func voidConfigDidChange(_ config: VD.Config, preferredBackgroundColor: NSColor?) {
         let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
@@ -256,7 +256,7 @@ extension TerminalViewContainer {
         let backgroundOpacity: Double
         let cornerRadius: CGFloat?
 
-        init?(config: Void.Config, preferredBackgroundColor: NSColor?, cornerRadius: CGFloat?) {
+        init?(config: VD.Config, preferredBackgroundColor: NSColor?, cornerRadius: CGFloat?) {
             switch config.backgroundBlur {
             case .macosGlassRegular:
                 style = .regular

@@ -6,10 +6,10 @@ import VoidKit
 // CLI APIs require it and it lets us ensure it is done immediately for the
 // rest of the app.
 if void_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != VOID_SUCCESS {
-    Void.logger.critical("void_init failed")
+    VD.logger.critical("void_init failed")
 
     // We also write to stderr if this is executed from the CLI or zig run
-    switch Void.launchSource {
+    switch VD.launchSource {
     case .cli, .zig_run:
         let stderrHandle = FileHandle.standardError
         stderrHandle.write(

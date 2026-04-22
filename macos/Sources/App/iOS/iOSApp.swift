@@ -3,13 +3,13 @@ import VoidKit
 
 @main
 struct Void_iOSApp: App {
-    @StateObject private var void_app: Void.App
+    @StateObject private var void_app: VD.App
 
     init() {
         if void_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != VOID_SUCCESS {
             preconditionFailure("Initialize void backend failed")
         }
-        _void_app = StateObject(wrappedValue: Void.App())
+        _void_app = StateObject(wrappedValue: VD.App())
     }
 
     var body: some Scene {
@@ -21,20 +21,20 @@ struct Void_iOSApp: App {
 }
 
 struct iOS_VoidTerminal: View {
-    @EnvironmentObject private var void_app: Void.App
+    @EnvironmentObject private var void_app: VD.App
 
     var body: some View {
         ZStack {
             // Make sure that our background color extends to all parts of the screen
             Color(void_app.config.backgroundColor).ignoresSafeArea()
 
-            Void.Terminal()
+            VD.Terminal()
         }
     }
 }
 
 struct iOS_VoidInitView: View {
-    @EnvironmentObject private var void_app: Void.App
+    @EnvironmentObject private var void_app: VD.App
 
     var body: some View {
         VStack {

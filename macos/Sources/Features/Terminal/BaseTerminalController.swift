@@ -33,15 +33,15 @@ class BaseTerminalController: NSWindowController,
                               ClipboardConfirmationViewDelegate,
                               FullscreenDelegate {
     /// The app instance that this terminal view will represent.
-    let void: Void.App
+    let void: VD.App
 
     /// The currently focused surface.
-    var focusedSurface: Void.SurfaceView? {
+    var focusedSurface: VD.SurfaceView? {
         didSet { syncFocusToSurfaceTree() }
     }
 
     /// The tree of splits within this terminal window.
-    @Published var surfaceTree: SplitTree<Void.SurfaceView> = .init() {
+    @Published var surfaceTree: SplitTree<VD.SurfaceView> = .init() {
         didSet { surfaceTreeDidChange(from: oldValue, to: surfaceTree) }
     }
 
@@ -128,9 +128,9 @@ class BaseTerminalController: NSWindowController,
         fatalError("init(coder:) is not supported for this view")
     }
 
-    init(_ void: Void.App,
-         baseConfig base: Void.SurfaceConfiguration? = nil,
-         surfaceTree tree: SplitTree<Void.SurfaceView>? = nil
+    init(_ void: VD.App,
+         baseConfig base: VD.SurfaceConfiguration? = nil,
+         surfaceTree tree: SplitTree<VD.SurfaceView>? = nil
     ) {
         self.void = void
         self.derivedConfig = DerivedConfig(void.config)
@@ -139,7 +139,7 @@ class BaseTerminalController: NSWindowController,
 
         // Initialize our initial surface.
         guard let void_app = void.app else { preconditionFailure("app must be loaded") }
-        self.surfaceTree = tree ?? .init(view: Void.SurfaceView(void_app, baseConfig: base))
+        self.surfaceTree = tree ?? .init(view: VD.SurfaceView(void_app, baseConfig: base))
 
         // Setup our bell state for the window
         setupBellNotificationPublisher()
@@ -149,7 +149,7 @@ class BaseTerminalController: NSWindowController,
         center.addObserver(
             self,
             selector: #selector(onConfirmClipboardRequest),
-            name: Void.Notification.confirmClipboard,
+            name: VD.Notification.confirmClipboard,
             object: nil)
         center.addObserver(
             self,
@@ -176,37 +176,37 @@ class BaseTerminalController: NSWindowController,
         center.addObserver(
             self,
             selector: #selector(voidDidCloseSurface(_:)),
-            name: Void.Notification.voidCloseSurface,
+            name: VD.Notification.voidCloseSurface,
             object: nil)
         center.addObserver(
             self,
             selector: #selector(voidDidNewSplit(_:)),
-            name: Void.Notification.voidNewSplit,
+            name: VD.Notification.voidNewSplit,
             object: nil)
         center.addObserver(
             self,
             selector: #selector(voidDidEqualizeSplits(_:)),
-            name: Void.Notification.didEqualizeSplits,
+            name: VD.Notification.didEqualizeSplits,
             object: nil)
         center.addObserver(
             self,
             selector: #selector(voidDidFocusSplit(_:)),
-            name: Void.Notification.voidFocusSplit,
+            name: VD.Notification.voidFocusSplit,
             object: nil)
         center.addObserver(
             self,
             selector: #selector(voidDidToggleSplitZoom(_:)),
-            name: Void.Notification.didToggleSplitZoom,
+            name: VD.Notification.didToggleSplitZoom,
             object: nil)
         center.addObserver(
             self,
             selector: #selector(voidDidResizeSplit(_:)),
-            name: Void.Notification.didResizeSplit,
+            name: VD.Notification.didResizeSplit,
             object: nil)
         center.addObserver(
             self,
             selector: #selector(voidDidPresentTerminal(_:)),
-            name: Void.Notification.voidPresentTerminal,
+            name: VD.Notification.voidPresentTerminal,
             object: nil)
         center.addObserver(
             self,
@@ -234,19 +234,19 @@ class BaseTerminalController: NSWindowController,
     /// Create a new split.
     @discardableResult
     func newSplit(
-        at oldView: Void.SurfaceView,
-        direction: SplitTree<Void.SurfaceView>.NewDirection,
-        baseConfig config: Void.SurfaceConfiguration? = nil
-    ) -> Void.SurfaceView? {
+        at oldView: VD.SurfaceView,
+        direction: SplitTree<VD.SurfaceView>.NewDirection,
+        baseConfig config: VD.SurfaceConfiguration? = nil
+    ) -> VD.SurfaceView? {
         // We can only create new splits for surfaces in our tree.
         guard surfaceTree.root?.node(view: oldView) != nil else { return nil }
 
         // Create a new surface view
         guard let void_app = void.app else { return nil }
-        let newView = Void.SurfaceView(void_app, baseConfig: config)
+        let newView = VD.SurfaceView(void_app, baseConfig: config)
 
         // Do the split
-        let newTree: SplitTree<Void.SurfaceView>
+        let newTree: SplitTree<VD.SurfaceView>
         do {
             newTree = try surfaceTree.inserting(
                 view: newView,
@@ -256,7 +256,7 @@ class BaseTerminalController: NSWindowController,
             // If splitting fails for any reason (it should not), then we just log
             // and return. The new view we created will be deinitialized and its
             // no big deal.
-            Void.logger.warning("failed to insert split: \(error)")
+            VD.logger.warning("failed to insert split: \(error)")
             return nil
         }
 
@@ -270,13 +270,13 @@ class BaseTerminalController: NSWindowController,
     }
 
     /// Move focus to a surface view.
-    func focusSurface(_ view: Void.SurfaceView) {
+    func focusSurface(_ view: VD.SurfaceView) {
         // Check if target surface is in our tree
         guard surfaceTree.contains(view) else { return }
 
         // Move focus to the target surface and activate the window/app
         DispatchQueue.main.async {
-            Void.moveFocus(to: view)
+            VD.moveFocus(to: view)
             view.window?.makeKeyAndOrderFront(nil)
             if !NSApp.isActive {
                 NSApp.activate(ignoringOtherApps: true)
@@ -287,7 +287,7 @@ class BaseTerminalController: NSWindowController,
     /// Called when the surfaceTree variable changed.
     ///
     /// Subclasses should call super first.
-    func surfaceTreeDidChange(from: SplitTree<Void.SurfaceView>, to: SplitTree<Void.SurfaceView>) {
+    func surfaceTreeDidChange(from: SplitTree<VD.SurfaceView>, to: SplitTree<VD.SurfaceView>) {
         // If our surface tree becomes empty then we have no focused surface.
         if to.isEmpty {
             focusedSurface = nil
@@ -387,7 +387,7 @@ class BaseTerminalController: NSWindowController,
 
     /// Close a surface from a view.
     func closeSurface(
-        _ view: Void.SurfaceView,
+        _ view: VD.SurfaceView,
         withConfirmation: Bool = true
     ) {
         guard let node = surfaceTree.root?.node(view: view) else { return }
@@ -398,7 +398,7 @@ class BaseTerminalController: NSWindowController,
     ///
     /// This will also insert the proper undo stack information in.
     func closeSurface(
-        _ node: SplitTree<Void.SurfaceView>.Node,
+        _ node: SplitTree<VD.SurfaceView>.Node,
         withConfirmation: Bool = true
     ) {
         // This node must be part of our tree
@@ -429,7 +429,7 @@ class BaseTerminalController: NSWindowController,
 
     /// Find the next surface to focus when a node is being closed.
     /// Goes to previous split unless we're the leftmost leaf, then goes to next.
-    private func findNextFocusTargetAfterClosing(node: SplitTree<Void.SurfaceView>.Node) -> Void.SurfaceView? {
+    private func findNextFocusTargetAfterClosing(node: SplitTree<VD.SurfaceView>.Node) -> VD.SurfaceView? {
         guard let root = surfaceTree.root else { return nil }
 
         // If we're the leftmost, then we move to the next surface after closing.
@@ -446,9 +446,9 @@ class BaseTerminalController: NSWindowController,
     /// This also updates the undo manager to support restoring this node.
     ///
     /// This does no confirmation and assumes confirmation is already done.
-    private func removeSurfaceNode(_ node: SplitTree<Void.SurfaceView>.Node) {
+    private func removeSurfaceNode(_ node: SplitTree<VD.SurfaceView>.Node) {
         // Move focus if the closed surface was focused and we have a next target
-        let nextFocus: Void.SurfaceView? = if node.contains(
+        let nextFocus: VD.SurfaceView? = if node.contains(
             where: { $0 == focusedSurface }
         ) {
             findNextFocusTargetAfterClosing(node: node)
@@ -465,9 +465,9 @@ class BaseTerminalController: NSWindowController,
     }
 
     func replaceSurfaceTree(
-        _ newTree: SplitTree<Void.SurfaceView>,
-        moveFocusTo newView: Void.SurfaceView? = nil,
-        moveFocusFrom oldView: Void.SurfaceView? = nil,
+        _ newTree: SplitTree<VD.SurfaceView>,
+        moveFocusTo newView: VD.SurfaceView? = nil,
+        moveFocusFrom oldView: VD.SurfaceView? = nil,
         undoAction: String? = nil
     ) {
         // Setup our new split tree
@@ -475,7 +475,7 @@ class BaseTerminalController: NSWindowController,
         surfaceTree = newTree
         if let newView {
             DispatchQueue.main.async {
-                Void.moveFocus(to: newView, from: oldView)
+                VD.moveFocus(to: newView, from: oldView)
             }
         }
 
@@ -492,7 +492,7 @@ class BaseTerminalController: NSWindowController,
             target.surfaceTree = oldTree
             if let oldView {
                 DispatchQueue.main.async {
-                    Void.moveFocus(to: oldView, from: target.focusedSurface)
+                    VD.moveFocus(to: oldView, from: target.focusedSurface)
                 }
             }
 
@@ -563,27 +563,27 @@ class BaseTerminalController: NSWindowController,
         // Get our managed configuration object out
         guard let config = notification.userInfo?[
             Notification.Name.VoidConfigChangeKey
-        ] as? Void.Config else { return }
+        ] as? VD.Config else { return }
 
         // Update our derived config
         self.derivedConfig = DerivedConfig(config)
     }
 
     @objc private func voidCommandPaletteDidToggle(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Void.SurfaceView else { return }
+        guard let surfaceView = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.contains(surfaceView) else { return }
         toggleCommandPalette(nil)
     }
 
     @objc private func voidMaximizeDidToggle(_ notification: Notification) {
         guard let window else { return }
-        guard let surfaceView = notification.object as? Void.SurfaceView else { return }
+        guard let surfaceView = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.contains(surfaceView) else { return }
         window.zoom(nil)
     }
 
     @objc private func voidDidCloseSurface(_ notification: Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard let node = surfaceTree.root?.node(view: target) else { return }
         closeSurface(
             node,
@@ -592,17 +592,17 @@ class BaseTerminalController: NSWindowController,
 
     @objc private func voidDidNewSplit(_ notification: Notification) {
         // The target must be within our tree
-        guard let oldView = notification.object as? Void.SurfaceView else { return }
+        guard let oldView = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.root?.node(view: oldView) != nil else { return }
 
         // Notification must contain our base config
-        let configAny = notification.userInfo?[Void.Notification.NewSurfaceConfigKey]
-        let config = configAny as? Void.SurfaceConfiguration
+        let configAny = notification.userInfo?[VD.Notification.NewSurfaceConfigKey]
+        let config = configAny as? VD.SurfaceConfiguration
 
         // Determine our desired direction
         guard let directionAny = notification.userInfo?["direction"] else { return }
         guard let direction = directionAny as? void_action_split_direction_e else { return }
-        let splitDirection: SplitTree<Void.SurfaceView>.NewDirection
+        let splitDirection: SplitTree<VD.SurfaceView>.NewDirection
         switch direction {
         case VOID_SPLIT_DIRECTION_RIGHT: splitDirection = .right
         case VOID_SPLIT_DIRECTION_LEFT: splitDirection = .left
@@ -615,7 +615,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     @objc private func voidDidEqualizeSplits(_ notification: Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
 
         // Check if target surface is in current controller's tree
         guard surfaceTree.contains(target) else { return }
@@ -626,12 +626,12 @@ class BaseTerminalController: NSWindowController,
 
     @objc private func voidDidFocusSplit(_ notification: Notification) {
         // The target must be within our tree
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.root?.node(view: target) != nil else { return }
 
         // Get the direction from the notification
-        guard let directionAny = notification.userInfo?[Void.Notification.SplitDirectionKey] else { return }
-        guard let direction = directionAny as? Void.SplitFocusDirection else { return }
+        guard let directionAny = notification.userInfo?[VD.Notification.SplitDirectionKey] else { return }
+        guard let direction = directionAny as? VD.SplitFocusDirection else { return }
 
         // Find the node for the target surface
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
@@ -653,13 +653,13 @@ class BaseTerminalController: NSWindowController,
 
         // Move focus to the next surface
         DispatchQueue.main.async {
-            Void.moveFocus(to: nextSurface, from: target)
+            VD.moveFocus(to: nextSurface, from: target)
         }
     }
 
     @objc private func voidDidToggleSplitZoom(_ notification: Notification) {
         // The target must be within our tree
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
 
         // Toggle the zoomed state
@@ -681,24 +681,24 @@ class BaseTerminalController: NSWindowController,
         // Ensure focus stays on the target surface. We lose focus when we do
         // this so we need to grab it again.
         DispatchQueue.main.async {
-            Void.moveFocus(to: target)
+            VD.moveFocus(to: target)
         }
     }
 
     @objc private func voidDidResizeSplit(_ notification: Notification) {
         // The target must be within our tree
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
 
         // Extract direction and amount from notification
-        guard let directionAny = notification.userInfo?[Void.Notification.ResizeSplitDirectionKey] else { return }
-        guard let direction = directionAny as? Void.SplitResizeDirection else { return }
+        guard let directionAny = notification.userInfo?[VD.Notification.ResizeSplitDirectionKey] else { return }
+        guard let direction = directionAny as? VD.SplitResizeDirection else { return }
 
-        guard let amountAny = notification.userInfo?[Void.Notification.ResizeSplitAmountKey] else { return }
+        guard let amountAny = notification.userInfo?[VD.Notification.ResizeSplitAmountKey] else { return }
         guard let amount = amountAny as? UInt16 else { return }
 
-        // Convert Void.SplitResizeDirection to SplitTree.Spatial.Direction
-        let spatialDirection: SplitTree<Void.SurfaceView>.Spatial.Direction
+        // Convert VD.SplitResizeDirection to SplitTree.Spatial.Direction
+        let spatialDirection: SplitTree<VD.SurfaceView>.Spatial.Direction
         switch direction {
         case .up: spatialDirection = .up
         case .down: spatialDirection = .down
@@ -713,12 +713,12 @@ class BaseTerminalController: NSWindowController,
         do {
             surfaceTree = try surfaceTree.resizing(node: targetNode, by: amount, in: spatialDirection, with: bounds)
         } catch {
-            Void.logger.warning("failed to resize split: \(error)")
+            VD.logger.warning("failed to resize split: \(error)")
         }
     }
 
     @objc private func voidDidPresentTerminal(_ notification: Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
 
         // Bring the window to front and focus the surface.
@@ -726,15 +726,15 @@ class BaseTerminalController: NSWindowController,
 
         // We use a small delay to ensure this runs after any UI cleanup
         // (e.g., command palette restoring focus to its original surface).
-        Void.moveFocus(to: target)
-        Void.moveFocus(to: target, delay: 0.1)
+        VD.moveFocus(to: target)
+        VD.moveFocus(to: target, delay: 0.1)
 
         // Show a brief highlight to help the user locate the presented terminal.
         target.highlight()
     }
 
     @objc private func voidSurfaceDragEndedNoTarget(_ notification: Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
 
         // If our tree isn't split, then we never create a new window, because
@@ -752,7 +752,7 @@ class BaseTerminalController: NSWindowController,
         let removedTree = surfaceTree.removing(targetNode)
 
         // Create a new tree with the dragged surface and open a new window
-        let newTree = SplitTree<Void.SurfaceView>(view: target)
+        let newTree = SplitTree<VD.SurfaceView>(view: target)
 
         // Treat our undo below as a full group.
         undoManager?.beginUndoGrouping()
@@ -782,7 +782,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     private func localEventFlagsChanged(_ event: NSEvent) -> NSEvent? {
-        var surfaces: [Void.SurfaceView] = surfaceTree.map { $0 }
+        var surfaces: [VD.SurfaceView] = surfaceTree.map { $0 }
 
         // If we're the main window receiving key input, then we want to avoid
         // calling this on our focused surface because that'll trigger a double
@@ -800,7 +800,7 @@ class BaseTerminalController: NSWindowController,
 
     // MARK: TerminalViewDelegate
 
-    func focusedSurfaceDidChange(to: Void.SurfaceView?) {
+    func focusedSurfaceDidChange(to: VD.SurfaceView?) {
         let lastFocusedSurface = focusedSurface
         focusedSurface = to
 
@@ -881,22 +881,22 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    private func splitDidResize(node: SplitTree<Void.SurfaceView>.Node, to newRatio: Double) {
+    private func splitDidResize(node: SplitTree<VD.SurfaceView>.Node, to newRatio: Double) {
         let resizedNode = node.resizing(to: newRatio)
         do {
             surfaceTree = try surfaceTree.replacing(node: node, with: resizedNode)
         } catch {
-            Void.logger.warning("failed to replace node during split resize: \(error)")
+            VD.logger.warning("failed to replace node during split resize: \(error)")
         }
     }
 
     private func splitDidDrop(
-        source: Void.SurfaceView,
-        destination: Void.SurfaceView,
+        source: VD.SurfaceView,
+        destination: VD.SurfaceView,
         zone: TerminalSplitDropZone
     ) {
         // Map drop zone to split direction
-        let direction: SplitTree<Void.SurfaceView>.NewDirection = switch zone {
+        let direction: SplitTree<VD.SurfaceView>.NewDirection = switch zone {
         case .top: .up
         case .bottom: .down
         case .left: .left
@@ -907,11 +907,11 @@ class BaseTerminalController: NSWindowController,
         if let sourceNode = surfaceTree.root?.node(view: source) {
             // Source is in our tree - same window move
             let treeWithoutSource = surfaceTree.removing(sourceNode)
-            let newTree: SplitTree<Void.SurfaceView>
+            let newTree: SplitTree<VD.SurfaceView>
             do {
                 newTree = try treeWithoutSource.inserting(view: source, at: destination, direction: direction)
             } catch {
-                Void.logger.warning("failed to insert surface during drop: \(error)")
+                VD.logger.warning("failed to insert surface during drop: \(error)")
                 return
             }
 
@@ -925,7 +925,7 @@ class BaseTerminalController: NSWindowController,
 
         // Source is not in our tree - search other windows
         var sourceController: BaseTerminalController?
-        var sourceNode: SplitTree<Void.SurfaceView>.Node?
+        var sourceNode: SplitTree<VD.SurfaceView>.Node?
         for window in NSApp.windows {
             guard let controller = window.windowController as? BaseTerminalController else { continue }
             guard controller !== self else { continue }
@@ -937,18 +937,18 @@ class BaseTerminalController: NSWindowController,
         }
 
         guard let sourceController, let sourceNode else {
-            Void.logger.warning("source surface not found in any window during drop")
+            VD.logger.warning("source surface not found in any window during drop")
             return
         }
 
         // Remove from source controller's tree and add it to our tree.
         // We do this first because if there is an error then we can
         // abort.
-        let newTree: SplitTree<Void.SurfaceView>
+        let newTree: SplitTree<VD.SurfaceView>
         do {
             newTree = try surfaceTree.inserting(view: source, at: destination, direction: direction)
         } catch {
-            Void.logger.warning("failed to insert surface during cross-window drop: \(error)")
+            VD.logger.warning("failed to insert surface during cross-window drop: \(error)")
             return
         }
 
@@ -969,7 +969,7 @@ class BaseTerminalController: NSWindowController,
             moveFocusFrom: focusedSurface)
     }
 
-    func performAction(_ action: String, on surfaceView: Void.SurfaceView) {
+    func performAction(_ action: String, on surfaceView: VD.SurfaceView) {
         guard let surface = surfaceView.surface else { return }
         let len = action.utf8CString.count
         if len == 0 { return }
@@ -1075,7 +1075,7 @@ class BaseTerminalController: NSWindowController,
     // MARK: Clipboard Confirmation
 
     @objc private func onConfirmClipboardRequest(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
         guard let surface = target.surface else { return }
 
@@ -1083,14 +1083,14 @@ class BaseTerminalController: NSWindowController,
         guard let window = self.window else { return }
 
         // Check whether we use non-native fullscreen
-        guard let str = notification.userInfo?[Void.Notification.ConfirmClipboardStrKey] as? String else { return }
-        guard let state = notification.userInfo?[Void.Notification.ConfirmClipboardStateKey] as? UnsafeMutableRawPointer? else { return }
-        guard let request = notification.userInfo?[Void.Notification.ConfirmClipboardRequestKey] as? Void.ClipboardRequest else { return }
+        guard let str = notification.userInfo?[VD.Notification.ConfirmClipboardStrKey] as? String else { return }
+        guard let state = notification.userInfo?[VD.Notification.ConfirmClipboardStateKey] as? UnsafeMutableRawPointer? else { return }
+        guard let request = notification.userInfo?[VD.Notification.ConfirmClipboardRequestKey] as? VD.ClipboardRequest else { return }
 
         // If we already have a clipboard confirmation view up, we ignore this request.
         // This shouldn't be possible...
         guard self.clipboardConfirmation == nil else {
-            Void.App.completeClipboardRequest(surface, data: "", state: state, confirmed: true)
+            VD.App.completeClipboardRequest(surface, data: "", state: state, confirmed: true)
             return
         }
 
@@ -1105,7 +1105,7 @@ class BaseTerminalController: NSWindowController,
         window.beginSheet(self.clipboardConfirmation!.window!)
     }
 
-    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action, _ request: Void.ClipboardRequest) {
+    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action, _ request: VD.ClipboardRequest) {
         // End our clipboard confirmation no matter what
         guard let cc = self.clipboardConfirmation else { return }
         self.clipboardConfirmation = nil
@@ -1131,7 +1131,7 @@ class BaseTerminalController: NSWindowController,
                 str = cc.contents
             }
 
-            Void.App.completeClipboardRequest(cc.surface, data: str, state: cc.state, confirmed: true)
+            VD.App.completeClipboardRequest(cc.surface, data: str, state: cc.state, confirmed: true)
         }
     }
 
@@ -1234,7 +1234,7 @@ class BaseTerminalController: NSWindowController,
         // various weirdness with moving surfaces around.
         if let window, window.firstResponder == window, let focusedSurface {
             DispatchQueue.main.async {
-                Void.moveFocus(to: focusedSurface)
+                VD.moveFocus(to: focusedSurface)
             }
         }
 
@@ -1374,7 +1374,7 @@ class BaseTerminalController: NSWindowController,
         void.splitResize(surface: surface, direction: .right, amount: 10)
     }
 
-    private func splitMoveFocus(direction: Void.SplitFocusDirection) {
+    private func splitMoveFocus(direction: VD.SplitFocusDirection) {
         guard let surface = focusedSurface?.surface else { return }
         void.splitMoveFocus(surface: surface, direction: direction)
     }
@@ -1428,10 +1428,10 @@ class BaseTerminalController: NSWindowController,
     }
 
     private struct DerivedConfig {
-        let macosTitlebarProxyIcon: Void.MacOSTitlebarProxyIcon
+        let macosTitlebarProxyIcon: VD.MacOSTitlebarProxyIcon
         let windowStepResize: Bool
         let focusFollowsMouse: Bool
-        let splitPreserveZoom: Void.Config.SplitPreserveZoom
+        let splitPreserveZoom: VD.Config.SplitPreserveZoom
 
         init() {
             self.macosTitlebarProxyIcon = .visible
@@ -1440,7 +1440,7 @@ class BaseTerminalController: NSWindowController,
             self.splitPreserveZoom = .init()
         }
 
-        init(_ config: Void.Config) {
+        init(_ config: VD.Config) {
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse
@@ -1518,9 +1518,9 @@ extension BaseTerminalController {
     /// The publisher emits a dictionary of surface IDs to values whenever the tree changes
     /// or any surface publishes a new value for the key path.
     func surfaceValuesPublisher<Value>(
-        valueKeyPath: KeyPath<Void.SurfaceView, Value>,
-        publisherKeyPath: KeyPath<Void.SurfaceView, Published<Value>.Publisher>
-    ) -> AnyPublisher<[Void.SurfaceView.ID: Value], Never> {
+        valueKeyPath: KeyPath<VD.SurfaceView, Value>,
+        publisherKeyPath: KeyPath<VD.SurfaceView, Published<Value>.Publisher>
+    ) -> AnyPublisher<[VD.SurfaceView.ID: Value], Never> {
         // `surfaceTree` can be replaced entirely when splits are added/removed/closed.
         // For each tree snapshot we build a fresh publisher that watches all surfaces
         // in that snapshot.

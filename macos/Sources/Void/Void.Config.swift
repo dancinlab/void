@@ -1,7 +1,7 @@
 import SwiftUI
 import VoidKit
 
-extension Void {
+extension VD {
     /// Maps to a `void_config_t` and the various operations on that.
     class Config: ObservableObject {
         // The underlying C pointer to the Void config structure. This
@@ -120,7 +120,7 @@ extension Void {
             guard let cfg = self.config else { return nil }
 
             let trigger = void_config_trigger(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
-            return Void.keyboardShortcut(for: trigger)
+            return VD.keyboardShortcut(for: trigger)
         }
 #endif
 
@@ -411,7 +411,7 @@ extension Void {
 
         var macosCustomIcon: String {
             #if os(macOS)
-            let defaultValue = NSString("~/.config/void/Void.icns").expandingTildeInPath
+            let defaultValue = NSString("~/.config/void/VD.icns").expandingTildeInPath
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "macos-custom-icon"
@@ -720,14 +720,14 @@ extension Void {
             return Scrollbar(rawValue: str) ?? defaultValue
         }
 
-        var commandPaletteEntries: [Void.Command] {
+        var commandPaletteEntries: [VD.Command] {
             guard let config = self.config else { return [] }
             var v: void_config_command_list_s = .init()
             let key = "command-palette-entry"
             guard void_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return [] }
             guard v.len > 0 else { return [] }
             let buffer = UnsafeBufferPointer(start: v.commands, count: v.len)
-            return buffer.map { Void.Command(cValue: $0) }
+            return buffer.map { VD.Command(cValue: $0) }
         }
 
         var progressStyle: Bool {
@@ -742,7 +742,7 @@ extension Void {
 
 // MARK: Configuration Enums
 
-extension Void.Config {
+extension VD.Config {
     enum AutoUpdate: String {
         case off
         case check

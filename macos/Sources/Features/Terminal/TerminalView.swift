@@ -7,7 +7,7 @@ import os
 /// titles being set, cell sizes being changed, etc.
 protocol TerminalViewDelegate: AnyObject {
     /// Called when the currently focused surface changed. This can be nil.
-    func focusedSurfaceDidChange(to: Void.SurfaceView?)
+    func focusedSurfaceDidChange(to: VD.SurfaceView?)
 
     /// The URL of the pwd should change.
     func pwdDidChange(to: URL?)
@@ -16,7 +16,7 @@ protocol TerminalViewDelegate: AnyObject {
     func cellSizeDidChange(to: NSSize)
 
     /// Perform an action. At the time of writing this is only triggered by the command palette.
-    func performAction(_ action: String, on: Void.SurfaceView)
+    func performAction(_ action: String, on: VD.SurfaceView)
 
     /// A split tree operation
     func performSplitAction(_ action: TerminalSplitOperation)
@@ -28,7 +28,7 @@ protocol TerminalViewDelegate: AnyObject {
 protocol TerminalViewModel: ObservableObject {
     /// The tree of terminal surfaces (splits) within the view. This is mutated by TerminalView
     /// and children. This should be @Published.
-    var surfaceTree: SplitTree<Void.SurfaceView> { get set }
+    var surfaceTree: SplitTree<VD.SurfaceView> { get set }
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
@@ -39,7 +39,7 @@ protocol TerminalViewModel: ObservableObject {
 
 /// The main terminal view. This terminal view supports splits.
 struct TerminalView<ViewModel: TerminalViewModel>: View {
-    @ObservedObject var void: Void.App
+    @ObservedObject var void: VD.App
 
     // The required view model
     @ObservedObject var viewModel: ViewModel
@@ -48,7 +48,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     weak var delegate: (any TerminalViewDelegate)?
 
     /// The most recently focused surface, equal to `focusedSurface` when it is non-nil.
-    @State private var lastFocusedSurface: Weak<Void.SurfaceView>?
+    @State private var lastFocusedSurface: Weak<VD.SurfaceView>?
 
     // This seems like a crutch after switching from SwiftUI to AppKit lifecycle.
     @FocusState private var focused: Bool
@@ -75,7 +75,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 VStack(spacing: 0) {
                     // If we're running in debug mode we show a warning so that users
                     // know that performance will be degraded.
-                    if Void.info.mode == VOID_BUILD_MODE_DEBUG || Void.info.mode == VOID_BUILD_MODE_RELEASE_SAFE {
+                    if VD.info.mode == VOID_BUILD_MODE_DEBUG || VD.info.mode == VOID_BUILD_MODE_RELEASE_SAFE {
                         DebugBuildWarningView()
                     }
 

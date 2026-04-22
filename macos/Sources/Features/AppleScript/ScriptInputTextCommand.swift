@@ -1,6 +1,6 @@
 import AppKit
 
-/// Handler for the `input text` AppleScript command defined in `Void.sdef`.
+/// Handler for the `input text` AppleScript command defined in `VD.sdef`.
 ///
 /// Cocoa scripting instantiates this class because the command's `<cocoa>` element
 /// specifies `class="VoidScriptInputTextCommand"`. The runtime calls

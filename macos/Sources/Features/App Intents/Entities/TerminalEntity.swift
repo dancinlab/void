@@ -39,19 +39,19 @@ struct TerminalEntity: AppEntity {
 
     /// Returns the view associated with this entity. This may no longer exist.
     @MainActor
-    var surfaceView: Void.SurfaceView? {
+    var surfaceView: VD.SurfaceView? {
         Self.defaultQuery.all.first { $0.id == self.id }
     }
 
     @MainActor
-    var surfaceModel: Void.Surface? {
+    var surfaceModel: VD.Surface? {
         surfaceView?.surfaceModel
     }
 
     static var defaultQuery = TerminalQuery()
 
     @MainActor
-    init(_ view: Void.SurfaceView) {
+    init(_ view: VD.SurfaceView) {
         self.id = view.id
         self.title = view.title
         self.workingDirectory = view.pwd
@@ -114,7 +114,7 @@ struct TerminalQuery: EntityStringQuery, EnumerableEntityQuery {
     }
 
     @MainActor
-    var all: [Void.SurfaceView] {
+    var all: [VD.SurfaceView] {
         // Find all of our terminal windows. This will include the quick terminal
         // but only if it was previously opened.
         let controllers = NSApp.windows.compactMap {

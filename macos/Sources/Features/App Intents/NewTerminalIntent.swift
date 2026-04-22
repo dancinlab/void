@@ -63,12 +63,12 @@ struct NewTerminalIntent: AppIntent {
         }
         let void = appDelegate.void
 
-        var config = Void.SurfaceConfiguration()
+        var config = VD.SurfaceConfiguration()
 
         // We don't run command as "command" and instead use "initialInput" so
         // that we can get all the login scripts to setup things like PATH.
         if let command {
-            config.initialInput = "\(Void.Shell.quote(command)); exit\n"
+            config.initialInput = "\(VD.Shell.quote(command)); exit\n"
         }
 
         // If we were given a working directory then open that directory
@@ -87,7 +87,7 @@ struct NewTerminalIntent: AppIntent {
         }
 
         // Determine if we have a parent and get it
-        let parent: Void.SurfaceView?
+        let parent: VD.SurfaceView?
         if let parentParam = self.parent {
             guard let view = parentParam.surfaceView else {
                 throw VoidIntentError.surfaceNotFound
@@ -153,7 +153,7 @@ enum NewTerminalLocation: String {
     case splitUp = "split:up"
     case splitDown = "split:down"
 
-    var splitDirection: SplitTree<Void.SurfaceView>.NewDirection? {
+    var splitDirection: SplitTree<VD.SurfaceView>.NewDirection? {
         switch self {
         case .splitLeft: return .left
         case .splitRight: return .right

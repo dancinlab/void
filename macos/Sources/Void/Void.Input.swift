@@ -3,7 +3,7 @@ import Cocoa
 import SwiftUI
 import VoidKit
 
-extension Void {
+extension VD {
     struct Input {}
 
     // MARK: Keyboard Shortcuts
@@ -45,7 +45,7 @@ extension Void {
 
         return KeyboardShortcut(
             key,
-            modifiers: EventModifiers(nsFlags: Void.eventModifierFlags(mods: trigger.mods)))
+            modifiers: EventModifiers(nsFlags: VD.eventModifierFlags(mods: trigger.mods)))
     }
 
     // MARK: Mods
@@ -103,9 +103,9 @@ extension Void {
     ]
 }
 
-// MARK: Void.Input.BindingFlags
+// MARK: VD.Input.BindingFlags
 
-extension Void.Input {
+extension VD.Input {
     /// `void_binding_flags_e`
     struct BindingFlags: OptionSet, Sendable {
         let rawValue: UInt32
@@ -129,9 +129,9 @@ extension Void.Input {
     }
 }
 
-// MARK: Void.Input.KeyEvent
+// MARK: VD.Input.KeyEvent
 
-extension Void.Input {
+extension VD.Input {
     /// `void_input_key_s`
     struct KeyEvent {
         let action: Action
@@ -224,9 +224,9 @@ extension Void.Input {
     }
 }
 
-// MARK: Void.Input.Action
+// MARK: VD.Input.Action
 
-extension Void.Input {
+extension VD.Input {
     /// `void_input_action_e`
     enum Action: String, CaseIterable {
         case release
@@ -243,19 +243,19 @@ extension Void.Input {
     }
 }
 
-extension Void.Input.Action: AppEnum {
+extension VD.Input.Action: AppEnum {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Key Action")
 
-    static var caseDisplayRepresentations: [Void.Input.Action: DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [VD.Input.Action: DisplayRepresentation] = [
         .release: "Release",
         .press: "Press",
         .repeat: "Repeat"
     ]
 }
 
-// MARK: Void.Input.MouseEvent
+// MARK: VD.Input.MouseEvent
 
-extension Void.Input {
+extension VD.Input {
     /// Represents a mouse input event with button state, button type, and modifier keys.
     struct MouseButtonEvent {
         let action: MouseState
@@ -338,9 +338,9 @@ extension Void.Input {
     }
 }
 
-// MARK: Void.Input.MouseState
+// MARK: VD.Input.MouseState
 
-extension Void.Input {
+extension VD.Input {
     /// `void_input_mouse_state_e`
     enum MouseState: String, CaseIterable {
         case release
@@ -355,18 +355,18 @@ extension Void.Input {
     }
 }
 
-extension Void.Input.MouseState: AppEnum {
+extension VD.Input.MouseState: AppEnum {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Mouse State")
 
-    static var caseDisplayRepresentations: [Void.Input.MouseState: DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [VD.Input.MouseState: DisplayRepresentation] = [
         .release: "Release",
         .press: "Press"
     ]
 }
 
-// MARK: Void.Input.MouseButton
+// MARK: VD.Input.MouseButton
 
-extension Void.Input {
+extension VD.Input {
     /// `void_input_mouse_button_e`
     enum MouseButton: String, CaseIterable {
         case unknown
@@ -420,26 +420,26 @@ extension Void.Input {
     }
 }
 
-extension Void.Input.MouseButton: AppEnum {
+extension VD.Input.MouseButton: AppEnum {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Mouse Button")
 
-    static var caseDisplayRepresentations: [Void.Input.MouseButton: DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [VD.Input.MouseButton: DisplayRepresentation] = [
         .unknown: "Unknown",
         .left: "Left",
         .right: "Right",
         .middle: "Middle"
     ]
 
-    static var allCases: [Void.Input.MouseButton] = [
+    static var allCases: [VD.Input.MouseButton] = [
         .left,
         .right,
         .middle,
     ]
 }
 
-// MARK: Void.Input.ScrollMods
+// MARK: VD.Input.ScrollMods
 
-extension Void.Input {
+extension VD.Input {
     /// `void_input_scroll_mods_t` - Scroll event modifiers
     ///
     /// This is a packed bitmask that contains precision and momentum information
@@ -477,9 +477,9 @@ extension Void.Input {
     }
 }
 
-// MARK: Void.Input.Momentum
+// MARK: VD.Input.Momentum
 
-extension Void.Input {
+extension VD.Input {
     /// `void_input_mouse_momentum_e` - Momentum phase for scroll events
     enum Momentum: UInt8, CaseIterable {
         case none = 0
@@ -504,10 +504,10 @@ extension Void.Input {
     }
 }
 
-extension Void.Input.Momentum: AppEnum {
+extension VD.Input.Momentum: AppEnum {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Scroll Momentum")
 
-    static var caseDisplayRepresentations: [Void.Input.Momentum: DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [VD.Input.Momentum: DisplayRepresentation] = [
         .none: "None",
         .began: "Began",
         .stationary: "Stationary",
@@ -521,7 +521,7 @@ extension Void.Input.Momentum: AppEnum {
 #if canImport(AppKit)
 import AppKit
 
-extension Void.Input.Momentum {
+extension VD.Input.Momentum {
     /// Create a Momentum from an NSEvent.Phase
     init(_ phase: NSEvent.Phase) {
         switch phase {
@@ -537,9 +537,9 @@ extension Void.Input.Momentum {
 }
 #endif
 
-// MARK: Void.Input.Mods
+// MARK: VD.Input.Mods
 
-extension Void.Input {
+extension VD.Input {
     /// `void_input_mods_e`
     struct Mods: OptionSet {
         let rawValue: UInt32
@@ -568,18 +568,18 @@ extension Void.Input {
         }
 
         init(nsFlags: NSEvent.ModifierFlags) {
-            self.init(cMods: Void.voidMods(nsFlags))
+            self.init(cMods: VD.voidMods(nsFlags))
         }
 
         var nsFlags: NSEvent.ModifierFlags {
-            Void.eventModifierFlags(mods: cMods)
+            VD.eventModifierFlags(mods: cMods)
         }
     }
 }
 
-// MARK: Void.Input.Key
+// MARK: VD.Input.Key
 
-extension Void.Input {
+extension VD.Input {
     /// `void_input_key_e`
     enum Key: String {
         // Writing System Keys
@@ -1176,11 +1176,11 @@ extension Void.Input {
     }
 }
 
-extension Void.Input.Key: AppEnum {
+extension VD.Input.Key: AppEnum {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Key")
 
     // Only include keys that have Mac keycodes for App Intents
-    static var allCases: [Void.Input.Key] {
+    static var allCases: [VD.Input.Key] {
         return [
             // Letters (A-Z)
             .a, .b, .c, .d, .e, .f, .g, .h, .i, .j, .k, .l, .m, .n, .o, .p, .q, .r, .s, .t, .u, .v, .w, .x, .y, .z,
@@ -1226,7 +1226,7 @@ extension Void.Input.Key: AppEnum {
         ]
     }
 
-    static var caseDisplayRepresentations: [Void.Input.Key: DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [VD.Input.Key: DisplayRepresentation] = [
         // Letters (A-Z)
         .a: "A", .b: "B", .c: "C", .d: "D", .e: "E", .f: "F", .g: "G", .h: "H", .i: "I", .j: "J",
         .k: "K", .l: "L", .m: "M", .n: "N", .o: "O", .p: "P", .q: "Q", .r: "R", .s: "S", .t: "T",

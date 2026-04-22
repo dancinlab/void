@@ -1,11 +1,11 @@
 import Foundation
 
-/// AppleScript record support for `Void.SurfaceConfiguration`.
+/// AppleScript record support for `VD.SurfaceConfiguration`.
 ///
 /// This keeps scripting conversion at the data-structure boundary so AppleScript
 /// can pass records by value (`new surface configuration`, assign, copy, mutate)
 /// without introducing an additional wrapper type.
-extension Void.SurfaceConfiguration: ScriptRecord {
+extension VD.SurfaceConfiguration: ScriptRecord {
     init(scriptRecord source: NSDictionary?) throws {
         self.init()
 

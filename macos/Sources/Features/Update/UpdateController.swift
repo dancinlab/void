@@ -2,7 +2,7 @@ import Sparkle
 import Cocoa
 import Combine
 
-/// Standard controller for managing Sparkle updates in Void.
+/// Standard controller for managing Sparkle updates in VD.
 ///
 /// This controller wraps SPUStandardUpdaterController to provide a simpler interface
 /// for managing updates with Void's custom driver and delegate. It handles

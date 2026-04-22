@@ -2,10 +2,10 @@ import SwiftUI
 import UserNotifications
 import VoidKit
 
-extension Void {
+extension VD {
     /// Render a terminal for the active app in the environment.
     struct Terminal: View {
-        @EnvironmentObject private var void: Void.App
+        @EnvironmentObject private var void: VD.App
 
         var body: some View {
             if let app = self.void.app {
@@ -52,7 +52,7 @@ extension Void {
         @ObservedObject private var secureInput = SecureInput.shared
         #endif
 
-        @EnvironmentObject private var void: Void.App
+        @EnvironmentObject private var void: VD.App
         @Environment(\.voidLastFocusedSurface) private var lastFocusedSurface
 
         private var isFocusedSurface: Bool {
@@ -165,7 +165,7 @@ extension Void {
                         searchState: searchState,
                         onClose: {
 #if canImport(AppKit)
-                            Void.moveFocus(to: surfaceView)
+                            VD.moveFocus(to: surfaceView)
 #endif
                             surfaceView.searchState = nil
                         }
@@ -262,8 +262,8 @@ extension Void {
     struct SurfaceResizeOverlay: View {
         let geoSize: CGSize
         let size: void_surface_size_s
-        let overlay: Void.Config.ResizeOverlay
-        let position: Void.Config.ResizeOverlayPosition
+        let overlay: VD.Config.ResizeOverlay
+        let position: VD.Config.ResizeOverlayPosition
         let duration: UInt
         let focusInstant: ContinuousClock.Instant?
 
@@ -408,7 +408,7 @@ extension Void {
                         if searchState.needle.isEmpty {
                             onClose()
                         } else {
-                            Void.moveFocus(to: surfaceView)
+                            VD.moveFocus(to: surfaceView)
                         }
                     }
 #endif
@@ -1172,34 +1172,34 @@ extension Void {
 // MARK: Surface Environment Keys
 
 private struct VoidSurfaceViewKey: EnvironmentKey {
-    static let defaultValue: Void.SurfaceView? = nil
+    static let defaultValue: VD.SurfaceView? = nil
 }
 
 private struct VoidLastFocusedSurfaceKey: EnvironmentKey {
     /// Optional read-only last-focused surface reference. If a surface view is currently focused this
     /// is equal to the currently focused surface.
-    static let defaultValue: Weak<Void.SurfaceView>? = nil
+    static let defaultValue: Weak<VD.SurfaceView>? = nil
 }
 
 extension EnvironmentValues {
-    var voidSurfaceView: Void.SurfaceView? {
+    var voidSurfaceView: VD.SurfaceView? {
         get { self[VoidSurfaceViewKey.self] }
         set { self[VoidSurfaceViewKey.self] = newValue }
     }
 
-    var voidLastFocusedSurface: Weak<Void.SurfaceView>? {
+    var voidLastFocusedSurface: Weak<VD.SurfaceView>? {
         get { self[VoidLastFocusedSurfaceKey.self] }
         set { self[VoidLastFocusedSurfaceKey.self] = newValue }
     }
 }
 
 extension View {
-    func voidSurfaceView(_ surfaceView: Void.SurfaceView?) -> some View {
+    func voidSurfaceView(_ surfaceView: VD.SurfaceView?) -> some View {
         environment(\.voidSurfaceView, surfaceView)
     }
 
     /// The most recently focused surface (can be currently focused if the surface is currently focused).
-    func voidLastFocusedSurface(_ surfaceView: Weak<Void.SurfaceView>?) -> some View {
+    func voidLastFocusedSurface(_ surfaceView: Weak<VD.SurfaceView>?) -> some View {
         environment(\.voidLastFocusedSurface, surfaceView)
     }
 }
@@ -1207,13 +1207,13 @@ extension View {
 // MARK: Surface Focus Keys
 
 extension FocusedValues {
-    var voidSurfaceView: Void.SurfaceView? {
+    var voidSurfaceView: VD.SurfaceView? {
         get { self[FocusedVoidSurface.self] }
         set { self[FocusedVoidSurface.self] = newValue }
     }
 
     struct FocusedVoidSurface: FocusedValueKey {
-        typealias Value = Void.SurfaceView
+        typealias Value = VD.SurfaceView
     }
 
     var voidSurfacePwd: String? {

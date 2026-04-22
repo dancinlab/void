@@ -1,6 +1,6 @@
 import AppKit
 
-/// Handler for the `send key` AppleScript command defined in `Void.sdef`.
+/// Handler for the `send key` AppleScript command defined in `VD.sdef`.
 ///
 /// Cocoa scripting instantiates this class because the command's `<cocoa>` element
 /// specifies `class="VoidScriptKeyEventCommand"`. The runtime calls
@@ -35,13 +35,13 @@ final class ScriptKeyEventCommand: NSScriptCommand {
             return nil
         }
 
-        guard let key = Void.Input.Key(rawValue: keyName) else {
+        guard let key = VD.Input.Key(rawValue: keyName) else {
             scriptErrorNumber = errAECoercionFail
             scriptErrorString = "Unknown key name: \(keyName)"
             return nil
         }
 
-        let action: Void.Input.Action
+        let action: VD.Input.Action
         if let actionCode = evaluatedArguments?["action"] as? UInt32 {
             switch actionCode {
             case "GIpr".fourCharCode: action = .press
@@ -52,9 +52,9 @@ final class ScriptKeyEventCommand: NSScriptCommand {
             action = .press
         }
 
-        let mods: Void.Input.Mods
+        let mods: VD.Input.Mods
         if let modsString = evaluatedArguments?["modifiers"] as? String {
-            guard let parsed = Void.Input.Mods(scriptModifiers: modsString) else {
+            guard let parsed = VD.Input.Mods(scriptModifiers: modsString) else {
                 scriptErrorNumber = errAECoercionFail
                 scriptErrorString = "Unknown modifier in: \(modsString)"
                 return nil
@@ -64,7 +64,7 @@ final class ScriptKeyEventCommand: NSScriptCommand {
             mods = []
         }
 
-        let keyEvent = Void.Input.KeyEvent(
+        let keyEvent = VD.Input.KeyEvent(
             key: key,
             action: action,
             mods: mods

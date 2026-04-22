@@ -8,7 +8,7 @@ struct ColorizedVoidIcon {
     let ghostColor: NSColor
 
     /// The frame type to use
-    let frame: Void.MacOSIconFrame
+    let frame: VD.MacOSIconFrame
 
     /// Make a custom colorized void icon.
     func makeImage(in bundle: Bundle) -> NSImage? {
@@ -90,7 +90,7 @@ extension ColorizedVoidIcon: Codable {
                 debugDescription: "Failed to decode ghost color from \(ghostColorHex)"
             )
         }
-        let frame = try container.decode(Void.MacOSIconFrame.self, forKey: .frame)
+        let frame = try container.decode(VD.MacOSIconFrame.self, forKey: .frame)
         self.init(screenColors: screenColors, ghostColor: ghostColor, frame: frame)
     }
 

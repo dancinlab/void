@@ -1,6 +1,6 @@
 import VoidKit
 
-extension Void {
+extension VD {
     /// `void_command_s`
     struct Command: Sendable {
         /// The title of the command.

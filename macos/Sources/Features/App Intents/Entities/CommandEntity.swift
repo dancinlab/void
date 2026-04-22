@@ -19,7 +19,7 @@ struct CommandEntity: AppEntity {
     var action: String
 
     /// The underlying data model
-    let command: Void.Command
+    let command: VD.Command
 
     /// A command identifier is a composite key based on the terminal and action.
     struct ID: Hashable {
@@ -40,7 +40,7 @@ struct CommandEntity: AppEntity {
 
     static var defaultQuery = CommandQuery()
 
-    init(_ command: Void.Command, for terminal: TerminalEntity) {
+    init(_ command: VD.Command, for terminal: TerminalEntity) {
         self.id = .init(terminalId: terminal.id, actionKey: command.actionKey)
         self.command = command
         self.title = command.title

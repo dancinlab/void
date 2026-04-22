@@ -1,7 +1,7 @@
 // This file contains the configuration types for Void so that alternate targets
 // can get typed information without depending on all the dependencies of VoidKit.
 
-extension Void {
+extension VD {
     /// A configuration path value that may be optional or required.
     struct ConfigPath: Sendable {
         let path: String

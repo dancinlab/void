@@ -1,7 +1,7 @@
 import Foundation
 import VoidKit
 
-extension Void {
+extension VD {
     class OSSurfaceView: OSView, ObservableObject {
         typealias ID = UUID
 
@@ -109,13 +109,13 @@ extension Void {
 
 // MARK: Search State
 
-extension Void.OSSurfaceView {
+extension VD.OSSurfaceView {
     class SearchState: ObservableObject {
         @Published var needle: String = ""
         @Published var selected: UInt?
         @Published var total: UInt?
 
-        init(from startSearch: Void.Action.StartSearch) {
+        init(from startSearch: VD.Action.StartSearch) {
             self.needle = startSearch.needle ?? ""
         }
     }

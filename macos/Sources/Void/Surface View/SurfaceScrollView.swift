@@ -15,7 +15,7 @@ import Combine
 class SurfaceScrollView: NSView {
     private let scrollView: NSScrollView
     private let documentView: NSView
-    private let surfaceView: Void.SurfaceView
+    private let surfaceView: VD.SurfaceView
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var isLiveScrolling = false
@@ -25,7 +25,7 @@ class SurfaceScrollView: NSView {
     /// on the same row.
     private var lastSentRow: Int?
 
-    init(contentSize: CGSize, surfaceView: Void.SurfaceView) {
+    init(contentSize: CGSize, surfaceView: VD.SurfaceView) {
         self.surfaceView = surfaceView
         // The scroll view is our outermost view that controls all our scrollbar
         // rendering and behavior.
@@ -297,7 +297,7 @@ class SurfaceScrollView: NSView {
     /// - `offset`: First visible row (0 = top of history)
     /// - `len`: Number of visible rows (viewport height)
     private func handleScrollbarUpdate(_ notification: Notification) {
-        guard let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? Void.Action.Scrollbar else {
+        guard let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? VD.Action.Scrollbar else {
             return
         }
         surfaceView.scrollbar = scrollbar

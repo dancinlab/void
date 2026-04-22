@@ -7,7 +7,7 @@ extension NSAppearance {
     }
 
     /// Initialize a desired NSAppearance for the Void configuration.
-    convenience init?(voidConfig config: Void.Config) {
+    convenience init?(voidConfig config: VD.Config) {
         guard let theme = config.windowTheme else { return nil }
         switch theme {
         case "dark":

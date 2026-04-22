@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-extension Void {
+extension VD {
     /// The manager that's responsible for updating shortcuts of Void's app menu
     @MainActor
     class MenuShortcutManager {
@@ -20,7 +20,7 @@ extension Void {
 
         /// Syncs a single menu shortcut for the given action. The action string is the same
         /// action string used for the Void configuration.
-        func syncMenuShortcut(_ config: Void.Config, action: String?, menuItem: NSMenuItem?) {
+        func syncMenuShortcut(_ config: VD.Config, action: String?, menuItem: NSMenuItem?) {
             guard let menu = menuItem else { return }
 
             if !updateMenuShortcut(config, action: action, menuItem: menu) {
@@ -73,12 +73,12 @@ extension Void {
     }
 }
 
-private extension Void.MenuShortcutManager {
+private extension VD.MenuShortcutManager {
     /// Syncs a single menu shortcut for the given action. The action string is the same
     /// action string used for the Void configuration.
     ///
     /// - Returns: Whether the menu item is updated and saved in ``menuItemsByShortcut``
-    func updateMenuShortcut(_ config: Void.Config, action: String?, menuItem menu: NSMenuItem) -> Bool {
+    func updateMenuShortcut(_ config: VD.Config, action: String?, menuItem menu: NSMenuItem) -> Bool {
         guard
             let action,
             let shortcut = config.keyboardShortcut(for: action),
@@ -98,7 +98,7 @@ private extension Void.MenuShortcutManager {
     }
 }
 
-extension Void.MenuShortcutManager {
+extension VD.MenuShortcutManager {
     /// Hashable key for a menu shortcut match, normalized for quick lookup.
     struct MenuShortcutKey: Hashable {
         private static let shortcutModifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
@@ -144,7 +144,7 @@ extension Void.MenuShortcutManager {
         /// Create from a swiftUI `KeyboardShortcut`
         init?(_ shortcut: KeyboardShortcut) {
             // Void configured shortcuts are already normalized
-            // in `Void.keyboardShortcut(for:)`, see also gh-#12039
+            // in `VD.keyboardShortcut(for:)`, see also gh-#12039
             let keyEquivalent = shortcut.key.character.description
             let modifierMask = NSEvent.ModifierFlags(swiftUIFlags: shortcut.modifiers)
             self.init(keyEquivalent: keyEquivalent, modifiers: modifierMask)

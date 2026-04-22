@@ -4,7 +4,7 @@ struct QuickTerminalRestorableState: TerminalRestorable {
     static var version: Int { 1 }
 
     let focusedSurface: String?
-    let surfaceTree: SplitTree<Void.SurfaceView>
+    let surfaceTree: SplitTree<VD.SurfaceView>
     let screenStateEntries: QuickTerminalScreenStateCache.Entries
 
     init(from controller: QuickTerminalController) {
@@ -18,8 +18,8 @@ struct QuickTerminalRestorableState: TerminalRestorable {
         self = other
     }
 
-    var baseConfig: Void.SurfaceConfiguration? {
-        var config = Void.SurfaceConfiguration()
+    var baseConfig: VD.SurfaceConfiguration? {
+        var config = VD.SurfaceConfiguration()
         config.environmentVariables["VOID_QUICK_TERMINAL"] = "1"
         return config
     }

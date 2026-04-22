@@ -464,7 +464,7 @@ class TerminalWindow: NSWindow {
     // MARK: Positioning And Styling
 
     /// This is called by the controller when there is a need to reset the window appearance.
-    func syncAppearance(_ surfaceConfig: Void.SurfaceView.DerivedConfig) {
+    func syncAppearance(_ surfaceConfig: VD.SurfaceView.DerivedConfig) {
         // If our window is not visible, then we do nothing. Some things such as blurring
         // have no effect if the window is not visible. Ultimately, we'll have this called
         // at some point when a surface becomes focused.
@@ -512,7 +512,7 @@ class TerminalWindow: NSWindow {
     /// change the alpha channel again manually.
     var preferredBackgroundColor: NSColor? {
         if let terminalController, !terminalController.surfaceTree.isEmpty {
-            let surface: Void.SurfaceView?
+            let surface: VD.SurfaceView?
 
             // If our focused surface borders the top then we prefer its background color
             if let focusedSurface = terminalController.focusedSurface,
@@ -583,11 +583,11 @@ class TerminalWindow: NSWindow {
 
     struct DerivedConfig {
         let title: String?
-        let backgroundBlur: Void.Config.BackgroundBlur
+        let backgroundBlur: VD.Config.BackgroundBlur
         let backgroundColor: NSColor
         let backgroundOpacity: Double
-        let macosWindowButtons: Void.MacOSWindowButtons
-        let macosTitlebarStyle: Void.Config.MacOSTitlebarStyle
+        let macosWindowButtons: VD.MacOSWindowButtons
+        let macosTitlebarStyle: VD.Config.MacOSTitlebarStyle
         let windowCornerRadius: CGFloat
 
         init() {
@@ -600,7 +600,7 @@ class TerminalWindow: NSWindow {
             self.windowCornerRadius = 16
         }
 
-        init(_ config: Void.Config) {
+        init(_ config: VD.Config) {
             self.title = config.title
             self.backgroundColor = NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity

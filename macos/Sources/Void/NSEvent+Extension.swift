@@ -27,8 +27,8 @@ extension NSEvent {
         // producing text. We apply a simple heuristic here that has worked for years
         // so far: control and command never contribute to the translation of text,
         // assume everything else did.
-        key_ev.mods = Void.voidMods(modifierFlags)
-        key_ev.consumed_mods = Void.voidMods(
+        key_ev.mods = VD.voidMods(modifierFlags)
+        key_ev.consumed_mods = VD.voidMods(
             (translationMods ?? modifierFlags)
                 .subtracting([.control, .command]))
 
@@ -47,10 +47,10 @@ extension NSEvent {
         return key_ev
     }
 
-    /// Returns the text to set for a key event for Void.
+    /// Returns the text to set for a key event for VD.
     ///
     /// This namely contains logic to avoid control characters, since we handle control character
-    /// mapping manually within Void.
+    /// mapping manually within VD.
     var voidCharacters: String? {
         // If we have no characters associated with this event we do nothing.
         guard let characters else { return nil }
@@ -65,7 +65,7 @@ extension NSEvent {
             }
 
             // If we have a single value in the PUA, then it's a function key and
-            // we don't want to send PUA ranges down to Void.
+            // we don't want to send PUA ranges down to VD.
             if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
                 return nil
             }

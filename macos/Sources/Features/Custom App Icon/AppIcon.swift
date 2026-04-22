@@ -17,7 +17,7 @@ enum AppIcon: Equatable, Codable, Sendable {
     case customStyle(_ icon: ColorizedVoidIcon)
 
 #if !DOCK_TILE_PLUGIN
-    init?(config: Void.Config) {
+    init?(config: VD.Config) {
         switch config.macosIcon {
         case .official:
             return nil

@@ -51,7 +51,7 @@ extension NSWindow {
         var error: NSError?
         let success = VoidAddTabbedWindowSafely(self, child, ordered.rawValue, &error)
         if let error {
-            Void.logger.error("addTabbedWindow failed: \(error.localizedDescription)")
+            VD.logger.error("addTabbedWindow failed: \(error.localizedDescription)")
         }
 
         return success

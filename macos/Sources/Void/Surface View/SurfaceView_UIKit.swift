@@ -1,7 +1,7 @@
 import SwiftUI
 import VoidKit
 
-extension Void {
+extension VD {
     /// The UIView implementation for a terminal surface.
     class SurfaceView: OSSurfaceView {
         // The current title of the surface as defined by the pty. This can be

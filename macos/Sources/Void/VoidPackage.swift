@@ -11,7 +11,7 @@ extension void_command_s: @unchecked @retroactive Sendable {}
 /// may be unsafe but the value itself is safe to send across threads.
 extension void_surface_t: @unchecked @retroactive Sendable {}
 
-extension Void {
+extension VD {
     // The user notification category identifier
     static let userNotificationCategory = "com.mitchellh.void.userNotification"
 
@@ -21,7 +21,7 @@ extension Void {
 
 // MARK: Build Info
 
-extension Void {
+extension VD {
     struct Info {
         var mode: void_build_mode_e
         var version: String
@@ -41,7 +41,7 @@ extension Void {
 
 // MARK: General Helpers
 
-extension Void {
+extension VD {
     enum LaunchSource: String {
         case cli
         case app
@@ -64,7 +64,7 @@ extension Void {
 
 // MARK: Swift Types for C Types
 
-extension Void {
+extension VD {
     class AllocatedString {
         private let cString: void_string_s
 
@@ -84,7 +84,7 @@ extension Void {
     }
 }
 
-extension Void {
+extension VD {
     enum SetFloatWIndow {
         case on
         case off
@@ -219,7 +219,7 @@ extension Void {
 #if canImport(AppKit)
 // MARK: SplitFocusDirection Extensions
 
-extension Void.SplitFocusDirection {
+extension VD.SplitFocusDirection {
     /// Convert to a SplitTree.FocusDirection for the given ViewType.
     func toSplitTreeFocusDirection<ViewType>() -> SplitTree<ViewType>.FocusDirection {
         switch self {
@@ -245,7 +245,7 @@ extension Void.SplitFocusDirection {
 }
 #endif
 
-extension Void {
+extension VD {
     /// The type of a clipboard request
     enum ClipboardRequest {
         /// A direct paste of clipboard contents
@@ -378,7 +378,7 @@ extension Notification.Name {
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This
 // namespace was the old namespace.
-extension Void.Notification {
+extension VD.Notification {
     /// Used to pass a configuration along when creating a new tab/window/split.
     static let NewSurfaceConfigKey = "com.mitchellh.void.newSurfaceConfig"
 

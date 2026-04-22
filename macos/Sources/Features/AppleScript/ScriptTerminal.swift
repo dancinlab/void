@@ -6,7 +6,7 @@ import AppKit
 /// AppleScript objects through Objective-C runtime names/selectors, not Swift
 /// protocol conformance.
 ///
-/// Mapping from `Void.sdef`:
+/// Mapping from `VD.sdef`:
 /// - `class terminal` -> this class (`@objc(VoidAppleScriptTerminal)`).
 /// - `property id` -> `@objc(id)` getter below.
 /// - `property title` -> `@objc(title)` getter below.
@@ -22,9 +22,9 @@ final class ScriptTerminal: NSObject {
     /// Weak reference to the underlying surface. Package-visible so that
     /// other AppleScript command handlers (e.g. `ScriptSplitCommand`) can
     /// access the live surface without exposing it to ObjC/AppleScript.
-    weak var surfaceView: Void.SurfaceView?
+    weak var surfaceView: VD.SurfaceView?
 
-    init(surfaceView: Void.SurfaceView) {
+    init(surfaceView: VD.SurfaceView) {
         self.surfaceView = surfaceView
     }
 
@@ -99,10 +99,10 @@ final class ScriptTerminal: NSObject {
             return nil
         }
 
-        let baseConfig: Void.SurfaceConfiguration?
+        let baseConfig: VD.SurfaceConfiguration?
         if let scriptRecord = command.evaluatedArguments?["configuration"] as? NSDictionary {
             do {
-                baseConfig = try Void.SurfaceConfiguration(scriptRecord: scriptRecord)
+                baseConfig = try VD.SurfaceConfiguration(scriptRecord: scriptRecord)
             } catch {
                 command.scriptErrorNumber = errAECoercionFail
                 command.scriptErrorString = error.localizedDescription
@@ -193,7 +193,7 @@ final class ScriptTerminal: NSObject {
     }
 }
 
-/// Converts four-character codes from the `split direction` enumeration in `Void.sdef`
+/// Converts four-character codes from the `split direction` enumeration in `VD.sdef`
 /// to `SplitTree.NewDirection` values.
 enum ScriptSplitDirection {
     case right
@@ -211,7 +211,7 @@ enum ScriptSplitDirection {
         }
     }
 
-    var splitDirection: SplitTree<Void.SurfaceView>.NewDirection {
+    var splitDirection: SplitTree<VD.SurfaceView>.NewDirection {
         switch self {
         case .right: .right
         case .left: .left

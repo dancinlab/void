@@ -61,9 +61,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
-    init(_ void: Void.App,
-         withBaseConfig base: Void.SurfaceConfiguration? = nil,
-         withSurfaceTree tree: SplitTree<Void.SurfaceView>? = nil,
+    init(_ void: VD.App,
+         withBaseConfig base: VD.SurfaceConfiguration? = nil,
+         withSurfaceTree tree: SplitTree<VD.SurfaceView>? = nil,
          parent: NSWindow? = nil
     ) {
         // The window we manage is not restorable if we've specified a command
@@ -83,7 +83,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         center.addObserver(
             self,
             selector: #selector(onToggleFullscreen),
-            name: Void.Notification.voidToggleFullscreen,
+            name: VD.Notification.voidToggleFullscreen,
             object: nil)
         center.addObserver(
             self,
@@ -93,7 +93,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         center.addObserver(
             self,
             selector: #selector(onGotoTab),
-            name: Void.Notification.voidGotoTab,
+            name: VD.Notification.voidGotoTab,
             object: nil)
         center.addObserver(
             self,
@@ -168,7 +168,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     // MARK: Base Controller Overrides
 
-    override func surfaceTreeDidChange(from: SplitTree<Void.SurfaceView>, to: SplitTree<Void.SurfaceView>) {
+    override func surfaceTreeDidChange(from: SplitTree<VD.SurfaceView>, to: SplitTree<VD.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
 
         // Whenever our surface tree changes in any way (new split, close split, etc.)
@@ -187,9 +187,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     override func replaceSurfaceTree(
-        _ newTree: SplitTree<Void.SurfaceView>,
-        moveFocusTo newView: Void.SurfaceView? = nil,
-        moveFocusFrom oldView: Void.SurfaceView? = nil,
+        _ newTree: SplitTree<VD.SurfaceView>,
+        moveFocusTo newView: VD.SurfaceView? = nil,
+        moveFocusFrom oldView: VD.SurfaceView? = nil,
         undoAction: String? = nil
     ) {
         // We have a special case if our tree is empty to close our tab immediately.
@@ -247,8 +247,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// The "new window" action.
     static func newWindow(
-        _ void: Void.App,
-        withBaseConfig baseConfig: Void.SurfaceConfiguration? = nil,
+        _ void: VD.App,
+        withBaseConfig baseConfig: VD.SurfaceConfiguration? = nil,
         withParent explicitParent: NSWindow? = nil
     ) -> TerminalController {
         let c = TerminalController.init(void, withBaseConfig: baseConfig)
@@ -335,8 +335,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     ///   - position: Optional screen position (top-left corner) for the new window.
     ///               If nil, the window will cascade from the last cascade point.
     static func newWindow(
-        _ void: Void.App,
-        tree: SplitTree<Void.SurfaceView>,
+        _ void: VD.App,
+        tree: SplitTree<VD.SurfaceView>,
         position: NSPoint? = nil,
         confirmUndo: Bool = true,
     ) -> TerminalController {
@@ -394,9 +394,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     static func newTab(
-        _ void: Void.App,
+        _ void: VD.App,
         from parent: NSWindow? = nil,
-        withBaseConfig baseConfig: Void.SurfaceConfiguration? = nil
+        withBaseConfig baseConfig: VD.SurfaceConfiguration? = nil
     ) -> TerminalController? {
         // Making sure that we're dealing with a TerminalController. If not,
         // then we just create a new window.
@@ -523,7 +523,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Get our managed configuration object out
         guard let config = notification.userInfo?[
             Notification.Name.VoidConfigChangeKey
-        ] as? Void.Config else { return }
+        ] as? VD.Config else { return }
 
         // If this is an app-level config update then we update some things.
         if notification.object == nil {
@@ -605,7 +605,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         syncAppearance(focusedSurface.derivedConfig)
     }
 
-    private func syncAppearance(_ surfaceConfig: Void.SurfaceView.DerivedConfig) {
+    private func syncAppearance(_ surfaceConfig: VD.SurfaceView.DerivedConfig) {
         // Let our window handle its own appearance
         guard let window = window as? TerminalWindow else { return }
 
@@ -649,7 +649,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// This is called anytime a node in the surface tree is being removed.
     override func closeSurface(
-        _ node: SplitTree<Void.SurfaceView>.Node,
+        _ node: SplitTree<VD.SurfaceView>.Node,
         withConfirmation: Bool = true
     ) {
         // If this isn't the root then we're dealing with a split closure.
@@ -970,14 +970,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The state that we require to recreate a TerminalController from an undo.
     struct UndoState {
         let frame: NSRect
-        let surfaceTree: SplitTree<Void.SurfaceView>
+        let surfaceTree: SplitTree<VD.SurfaceView>
         let focusedSurface: UUID?
         let tabIndex: Int?
         weak var tabGroup: NSWindowTabGroup?
         let tabColor: TerminalTabColor
     }
 
-    convenience init(_ void: Void.App, with undoState: UndoState) {
+    convenience init(_ void: VD.App, with undoState: UndoState) {
         self.init(void, withSurfaceTree: undoState.surfaceTree)
 
         // Show the window and restore its frame
@@ -1007,14 +1007,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             if let focusedUUID = undoState.focusedSurface,
                let focusTarget = surfaceTree.first(where: { $0.id == focusedUUID }) {
                 DispatchQueue.main.async {
-                    Void.moveFocus(to: focusTarget, from: nil)
+                    VD.moveFocus(to: focusTarget, from: nil)
                 }
             } else if let focusedSurface = surfaceTree.first {
                 // No prior focused surface or we can't find it, let's focus
                 // the first.
                 self.focusedSurface = focusedSurface
                 DispatchQueue.main.async {
-                    Void.moveFocus(to: focusedSurface, from: nil)
+                    VD.moveFocus(to: focusedSurface, from: nil)
                 }
             }
         }
@@ -1385,7 +1385,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     // MARK: - TerminalViewDelegate
 
-    override func focusedSurfaceDidChange(to: Void.SurfaceView?) {
+    override func focusedSurfaceDidChange(to: VD.SurfaceView?) {
         super.focusedSurfaceDidChange(to: to)
 
         // We always cancel our event listener
@@ -1405,7 +1405,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             .store(in: &surfaceAppearanceCancellables)
     }
 
-    private func syncAppearanceOnPropertyChange(_ surface: Void.SurfaceView?) {
+    private func syncAppearanceOnPropertyChange(_ surface: VD.SurfaceView?) {
         guard let surface else { return }
         DispatchQueue.main.async { [weak self, weak surface] in
             guard let surface else { return }
@@ -1418,12 +1418,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     // MARK: - Notifications
 
     @objc private func onMoveTab(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
         guard let window = self.window else { return }
 
         // Get the move action
-        guard let action = notification.userInfo?[Notification.Name.VoidMoveTabKey] as? Void.Action.MoveTab else { return }
+        guard let action = notification.userInfo?[Notification.Name.VoidMoveTabKey] as? VD.Action.MoveTab else { return }
         guard action.amount != 0 else { return }
 
         // Determine our current selected index
@@ -1481,12 +1481,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @objc private func onGotoTab(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
         guard let window = self.window else { return }
 
         // Get the tab index from the notification
-        guard let tabEnumAny = notification.userInfo?[Void.Notification.GotoTabKey] else { return }
+        guard let tabEnumAny = notification.userInfo?[VD.Notification.GotoTabKey] else { return }
         guard let tabEnum = tabEnumAny as? void_action_goto_tab_e else { return }
         let tabIndex: Int32 = tabEnum.rawValue
 
@@ -1533,46 +1533,46 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @objc private func onCloseTab(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
         closeTab(self)
     }
 
     @objc private func onCloseOtherTabs(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
         closeOtherTabs(self)
     }
 
     @objc private func onCloseTabsOnTheRight(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
         closeTabsOnTheRight(self)
     }
 
     @objc private func onCloseWindow(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
         closeWindow(self)
     }
 
     @objc private func onResetWindowSize(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
         returnToDefaultSize(nil)
     }
 
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
 
         // Get the fullscreen mode we want to toggle
         let fullscreenMode: FullscreenMode
-        if let any = notification.userInfo?[Void.Notification.FullscreenModeKey],
+        if let any = notification.userInfo?[VD.Notification.FullscreenModeKey],
            let mode = any as? FullscreenMode {
             fullscreenMode = mode
         } else {
-            Void.logger.warning("no fullscreen mode specified or invalid mode, doing nothing")
+            VD.logger.warning("no fullscreen mode specified or invalid mode, doing nothing")
             return
         }
 
@@ -1581,8 +1581,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     struct DerivedConfig {
         let backgroundColor: Color
-        let macosWindowButtons: Void.MacOSWindowButtons
-        let macosTitlebarStyle: Void.Config.MacOSTitlebarStyle
+        let macosWindowButtons: VD.MacOSWindowButtons
+        let macosTitlebarStyle: VD.Config.MacOSTitlebarStyle
         let maximize: Bool
         let windowPositionX: Int16?
         let windowPositionY: Int16?
@@ -1596,7 +1596,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             self.windowPositionY = nil
         }
 
-        init(_ config: Void.Config) {
+        init(_ config: VD.Config) {
             self.backgroundColor = config.backgroundColor
             self.macosWindowButtons = config.macosWindowButtons
             self.macosTitlebarStyle = config.macosTitlebarStyle

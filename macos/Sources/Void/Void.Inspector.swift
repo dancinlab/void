@@ -1,8 +1,8 @@
 import VoidKit
 import Metal
 
-extension Void {
-    /// Represents the inspector for a surface within Void.
+extension VD {
+    /// Represents the inspector for a surface within VD.
     ///
     /// Wraps a `void_inspector_t`
     final class Inspector: Sendable {

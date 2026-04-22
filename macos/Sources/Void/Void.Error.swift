@@ -1,4 +1,4 @@
-extension Void {
+extension VD {
     /// Possible errors from internal Void calls.
     enum Error: Swift.Error, CustomLocalizedStringResourceConvertible {
         case apiFailed

@@ -1,6 +1,6 @@
 import AppKit
 
-/// Handler for the `send mouse scroll` AppleScript command defined in `Void.sdef`.
+/// Handler for the `send mouse scroll` AppleScript command defined in `VD.sdef`.
 ///
 /// Cocoa scripting instantiates this class because the command's `<cocoa>` element
 /// specifies `class="VoidScriptMouseScrollCommand"`. The runtime calls
@@ -43,7 +43,7 @@ final class ScriptMouseScrollCommand: NSScriptCommand {
 
         let precision = evaluatedArguments?["precision"] as? Bool ?? false
 
-        let momentum: Void.Input.Momentum
+        let momentum: VD.Input.Momentum
         if let momentumCode = evaluatedArguments?["momentum"] as? UInt32 {
             switch momentumCode {
             case "SMno".fourCharCode: momentum = .none
@@ -59,7 +59,7 @@ final class ScriptMouseScrollCommand: NSScriptCommand {
             momentum = .none
         }
 
-        let scrollEvent = Void.Input.MouseScrollEvent(
+        let scrollEvent = VD.Input.MouseScrollEvent(
             x: x,
             y: y,
             mods: .init(precision: precision, momentum: momentum)

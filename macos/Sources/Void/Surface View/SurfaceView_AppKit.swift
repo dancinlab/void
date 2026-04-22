@@ -5,7 +5,7 @@ import CoreText
 import UserNotifications
 import VoidKit
 
-extension Void {
+extension VD {
     /// The NSView implementation for a terminal surface.
     class SurfaceView: OSSurfaceView, Codable, Identifiable {
         // The current title of the surface as defined by the pty. This can be
@@ -141,10 +141,10 @@ extension Void {
 
         // Returns the inspector instance for this surface, or nil if the
         // surface has been closed or no inspector is active.
-        var inspector: Void.Inspector? {
+        var inspector: VD.Inspector? {
             guard let surface = self.surface else { return nil }
             guard let cInspector = void_surface_inspector(surface) else { return nil }
-            return Void.Inspector(cInspector: cInspector)
+            return VD.Inspector(cInspector: cInspector)
         }
 
         // True if the inspector should be visible
@@ -161,7 +161,7 @@ extension Void {
         ///
         /// Note: eventually, all surface access will be through this, but presently its in a transition
         /// state so we're mixing this with direct surface access.
-        private(set) var surfaceModel: Void.Surface?
+        private(set) var surfaceModel: VD.Surface?
 
         /// Returns the underlying C value for the surface. See "note" on surfaceModel.
         override var surface: void_surface_t? {
@@ -169,7 +169,7 @@ extension Void {
         }
         /// Current scrollbar state, cached here for persistence across rebuilds
         /// of the SwiftUI view hierarchy, for example when changing splits
-        var scrollbar: Void.Action.Scrollbar?
+        var scrollbar: VD.Action.Scrollbar?
 
         // Notification identifiers associated with this surface
         var notificationIdentifiers: Set<String> = []
@@ -286,22 +286,22 @@ extension Void {
             center.addObserver(
                 self,
                 selector: #selector(onUpdateRendererHealth),
-                name: Void.Notification.didUpdateRendererHealth,
+                name: VD.Notification.didUpdateRendererHealth,
                 object: self)
             center.addObserver(
                 self,
                 selector: #selector(voidDidContinueKeySequence),
-                name: Void.Notification.didContinueKeySequence,
+                name: VD.Notification.didContinueKeySequence,
                 object: self)
             center.addObserver(
                 self,
                 selector: #selector(voidDidEndKeySequence),
-                name: Void.Notification.didEndKeySequence,
+                name: VD.Notification.didEndKeySequence,
                 object: self)
             center.addObserver(
                 self,
                 selector: #selector(voidDidChangeKeyTable),
-                name: Void.Notification.didChangeKeyTable,
+                name: VD.Notification.didChangeKeyTable,
                 object: self)
             center.addObserver(
                 self,
@@ -346,10 +346,10 @@ extension Void {
                 void_surface_new(app, &surface_cfg_c)
             }
             guard let surface = surface else {
-                self.error = Void.Error.apiFailed
+                self.error = VD.Error.apiFailed
                 return
             }
-            self.surfaceModel = Void.Surface(cSurface: surface)
+            self.surfaceModel = VD.Surface(cSurface: surface)
 
             // Setup our tracking area so we get mouse moved events
             updateTrackingAreas()
@@ -677,7 +677,7 @@ extension Void {
         }
 
         @objc private func voidDidContinueKeySequence(notification: SwiftUI.Notification) {
-            guard let keyAny = notification.userInfo?[Void.Notification.KeySequenceKey] else { return }
+            guard let keyAny = notification.userInfo?[VD.Notification.KeySequenceKey] else { return }
             guard let key = keyAny as? KeyboardShortcut else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.keySequence.append(key)
@@ -691,7 +691,7 @@ extension Void {
         }
 
         @objc private func voidDidChangeKeyTable(notification: SwiftUI.Notification) {
-            guard let action = notification.userInfo?[Void.Notification.KeyTableKey] as? Void.Action.KeyTable else { return }
+            guard let action = notification.userInfo?[VD.Notification.KeyTableKey] as? VD.Action.KeyTable else { return }
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -710,7 +710,7 @@ extension Void {
             // Get our managed configuration object out
             guard let config = notification.userInfo?[
                 SwiftUI.Notification.Name.VoidConfigChangeKey
-            ] as? Void.Config else { return }
+            ] as? VD.Config else { return }
 
             // Update our derived config
             DispatchQueue.main.async { [weak self] in
@@ -721,7 +721,7 @@ extension Void {
         @objc private func voidColorDidChange(_ notification: SwiftUI.Notification) {
             guard let change = notification.userInfo?[
                 SwiftUI.Notification.Name.VoidColorChangeKey
-            ] as? Void.Action.ColorChange else { return }
+            ] as? VD.Action.ColorChange else { return }
 
             switch change.kind {
             case .background:
@@ -838,7 +838,7 @@ extension Void {
 
         override func mouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return }
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
             void_surface_mouse_button(surface, VOID_MOUSE_PRESS, VOID_MOUSE_LEFT, mods)
         }
 
@@ -855,7 +855,7 @@ extension Void {
 
             // If we have an active surface, report the event
             guard let surface = self.surface else { return }
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
             void_surface_mouse_button(surface, VOID_MOUSE_RELEASE, VOID_MOUSE_LEFT, mods)
 
             // Release pressure
@@ -864,22 +864,22 @@ extension Void {
 
         override func otherMouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return }
-            let mods = Void.voidMods(event.modifierFlags)
-            let button = Void.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
+            let mods = VD.voidMods(event.modifierFlags)
+            let button = VD.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
             void_surface_mouse_button(surface, VOID_MOUSE_PRESS, button.cMouseButton, mods)
         }
 
         override func otherMouseUp(with event: NSEvent) {
             guard let surface = self.surface else { return }
-            let mods = Void.voidMods(event.modifierFlags)
-            let button = Void.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
+            let mods = VD.voidMods(event.modifierFlags)
+            let button = VD.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
             void_surface_mouse_button(surface, VOID_MOUSE_RELEASE, button.cMouseButton, mods)
         }
 
         override func rightMouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return super.rightMouseDown(with: event) }
 
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
             if void_surface_mouse_button(
                 surface,
                 VOID_MOUSE_PRESS,
@@ -897,7 +897,7 @@ extension Void {
         override func rightMouseUp(with event: NSEvent) {
             guard let surface = self.surface else { return super.rightMouseUp(with: event) }
 
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
             if void_surface_mouse_button(
                 surface,
                 VOID_MOUSE_RELEASE,
@@ -925,7 +925,7 @@ extension Void {
             // super important because we set it to -1/-1 on mouseExit and
             // lots of mouse logic (i.e. whether to send mouse reports) depend
             // on the position being in the viewport if it is.
-            let mouseEvent = Void.Input.MousePosEvent(
+            let mouseEvent = VD.Input.MousePosEvent(
                 x: pos.x,
                 y: frame.height - pos.y,
                 mods: .init(nsFlags: event.modifierFlags)
@@ -946,7 +946,7 @@ extension Void {
             }
 
             // Negative values indicate cursor has left the viewport
-            let mouseEvent = Void.Input.MousePosEvent(
+            let mouseEvent = VD.Input.MousePosEvent(
                 x: -1,
                 y: -1,
                 mods: .init(nsFlags: event.modifierFlags)
@@ -961,7 +961,7 @@ extension Void {
             guard let surfaceModel else { return }
 
             // Convert window position to view position. Note (0, 0) is bottom left.
-            let mouseEvent = Void.Input.MousePosEvent(
+            let mouseEvent = VD.Input.MousePosEvent(
                 x: pos.x,
                 y: frame.height - pos.y,
                 mods: .init(nsFlags: event.modifierFlags)
@@ -975,7 +975,7 @@ extension Void {
                window.isKeyWindow &&
                     !self.focused &&
                     controller.focusFollowsMouse {
-                Void.moveFocus(to: self)
+                VD.moveFocus(to: self)
             }
         }
 
@@ -1006,7 +1006,7 @@ extension Void {
                 // TODO(mitchellh): do we have to scale the x/y here by window scale factor?
             }
 
-            let scrollEvent = Void.Input.MouseScrollEvent(
+            let scrollEvent = VD.Input.MouseScrollEvent(
                 x: x,
                 y: y,
                 mods: .init(precision: precision, momentum: .init(event.momentumPhase))
@@ -1044,10 +1044,10 @@ extension Void {
             bell = false
 
             // We need to translate the mods (maybe) to handle configs such as option-as-alt
-            let translationModsVoid = Void.eventModifierFlags(
+            let translationModsVoid = VD.eventModifierFlags(
                 mods: void_surface_key_translation_mods(
                     surface,
-                    Void.voidMods(event.modifierFlags)
+                    VD.voidMods(event.modifierFlags)
                 )
             )
 
@@ -1328,7 +1328,7 @@ extension Void {
 
             // The keyAction function will do this AGAIN below which sucks to repeat
             // but this is super cheap and flagsChanged isn't that common.
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
 
             // If the key that pressed this is active, its a press, else release.
             var action = VOID_ACTION_RELEASE
@@ -1624,7 +1624,7 @@ extension Void {
             content.subtitle = self.title
             content.body = body
             content.sound = UNNotificationSound.default
-            content.categoryIdentifier = Void.userNotificationCategory
+            content.categoryIdentifier = VD.userNotificationCategory
             content.userInfo = [
                 "surface": self.id.uuidString,
                 "requireFocus": requireFocus,
@@ -1669,18 +1669,18 @@ extension Void {
             guard self.notificationIdentifiers.remove(id) != nil else { return }
             if focus {
                 self.window?.makeKeyAndOrderFront(self)
-                Void.moveFocus(to: self)
+                VD.moveFocus(to: self)
             }
         }
 
         struct DerivedConfig {
             let backgroundColor: Color
             let backgroundOpacity: Double
-            let backgroundBlur: Void.Config.BackgroundBlur
+            let backgroundBlur: VD.Config.BackgroundBlur
             let macosWindowShadow: Bool
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
-            let scrollbar: Void.Config.Scrollbar
+            let scrollbar: VD.Config.Scrollbar
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1692,7 +1692,7 @@ extension Void {
                 self.scrollbar = .system
             }
 
-            init(_ config: Void.Config) {
+            init(_ config: VD.Config) {
                 self.backgroundColor = config.backgroundColor
                 self.backgroundOpacity = config.backgroundOpacity
                 self.backgroundBlur = config.backgroundBlur
@@ -1722,7 +1722,7 @@ extension Void {
 
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let uuid = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
-            var config = Void.SurfaceConfiguration()
+            var config = VD.SurfaceConfiguration()
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
@@ -1751,7 +1751,7 @@ extension Void {
 
 // MARK: - NSTextInputClient
 
-extension Void.SurfaceView: NSTextInputClient {
+extension VD.SurfaceView: NSTextInputClient {
     func hasMarkedText() -> Bool {
         return markedText.length > 0
     }
@@ -1806,7 +1806,7 @@ extension Void.SurfaceView: NSTextInputClient {
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        // Void.logger.warning("pressure substring range=\(range) selectedRange=\(self.selectedRange())")
+        // VD.logger.warning("pressure substring range=\(range) selectedRange=\(self.selectedRange())")
         guard let surface = self.surface else { return nil }
 
         // If the range is empty then we don't need to return anything
@@ -1968,7 +1968,7 @@ extension Void.SurfaceView: NSTextInputClient {
 // MARK: Services
 
 // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/SysServices/Articles/using.html
-extension Void.SurfaceView: NSServicesMenuRequestor {
+extension VD.SurfaceView: NSServicesMenuRequestor {
     override func validRequestor(
         forSendType sendType: NSPasteboard.PasteboardType?,
         returnType: NSPasteboard.PasteboardType?
@@ -2044,7 +2044,7 @@ extension Void.SurfaceView: NSServicesMenuRequestor {
 
 // MARK: NSMenuItemValidation
 
-extension Void.SurfaceView: NSMenuItemValidation {
+extension VD.SurfaceView: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(pasteSelection):
@@ -2067,7 +2067,7 @@ extension Void.SurfaceView: NSMenuItemValidation {
 
 // MARK: NSDraggingDestination
 
-extension Void.SurfaceView {
+extension VD.SurfaceView {
     static let dropTypes: Set<NSPasteboard.PasteboardType> = [
         .string,
         .fileURL,
@@ -2094,13 +2094,13 @@ extension Void.SurfaceView {
         let content: String?
         if let url = pb.string(forType: .URL) {
             // URLs first, they get escaped as-is.
-            content = Void.Shell.escape(url)
+            content = VD.Shell.escape(url)
         } else if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL],
            urls.count > 0 {
             // File URLs next. They get escaped individually and then joined by a
             // space if there are multiple.
             content = urls
-                .map { Void.Shell.escape($0.path) }
+                .map { VD.Shell.escape($0.path) }
                 .joined(separator: " ")
         } else if let str = pb.string(forType: .string) {
             // Strings are not escaped because they may be copy/pasting a
@@ -2126,7 +2126,7 @@ extension Void.SurfaceView {
 
 // MARK: Accessibility
 
-extension Void.SurfaceView {
+extension VD.SurfaceView {
     /// Indicates that this view should be exposed to accessibility tools like VoiceOver.
     /// By returning true, we make the terminal surface accessible to screen readers
     /// and other assistive technologies.

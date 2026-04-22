@@ -31,7 +31,7 @@ struct CyclingIconView: View {
     }
 
     @ViewBuilder
-    private func iconView(for icon: Void.MacOSIcon?) -> some View {
+    private func iconView(for icon: VD.MacOSIcon?) -> some View {
         let iconImage: Image = switch icon?.assetName {
         case let assetName?: Image(assetName)
         case nil: voidIconImage()

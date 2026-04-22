@@ -54,7 +54,7 @@ struct KeyEventIntent: AppIntent {
         description: "The key to send to the terminal.",
         default: .enter
     )
-    var key: Void.Input.Key
+    var key: VD.Input.Key
 
     @Parameter(
         title: "Modifier(s)",
@@ -68,7 +68,7 @@ struct KeyEventIntent: AppIntent {
         description: "A key press or release.",
         default: .press
     )
-    var action: Void.Input.Action
+    var action: VD.Input.Action
 
     @Parameter(
         title: "Terminal",
@@ -91,12 +91,12 @@ struct KeyEventIntent: AppIntent {
             throw VoidIntentError.surfaceNotFound
         }
 
-        // Convert KeyEventMods array to Void.Input.Mods
-        let voidMods = mods.reduce(Void.Input.Mods()) { result, mod in
+        // Convert KeyEventMods array to VD.Input.Mods
+        let voidMods = mods.reduce(VD.Input.Mods()) { result, mod in
             result.union(mod.voidMod)
         }
 
-        let keyEvent = Void.Input.KeyEvent(
+        let keyEvent = VD.Input.KeyEvent(
             key: key,
             action: action,
             mods: voidMods
@@ -118,14 +118,14 @@ struct MouseButtonIntent: AppIntent {
         description: "The mouse button to press or release.",
         default: .left
     )
-    var button: Void.Input.MouseButton
+    var button: VD.Input.MouseButton
 
     @Parameter(
         title: "Action",
         description: "Whether to press or release the button.",
         default: .press
     )
-    var action: Void.Input.MouseState
+    var action: VD.Input.MouseState
 
     @Parameter(
         title: "Modifier(s)",
@@ -155,12 +155,12 @@ struct MouseButtonIntent: AppIntent {
             throw VoidIntentError.surfaceNotFound
         }
 
-        // Convert KeyEventMods array to Void.Input.Mods
-        let voidMods = mods.reduce(Void.Input.Mods()) { result, mod in
+        // Convert KeyEventMods array to VD.Input.Mods
+        let voidMods = mods.reduce(VD.Input.Mods()) { result, mod in
             result.union(mod.voidMod)
         }
 
-        let mouseEvent = Void.Input.MouseButtonEvent(
+        let mouseEvent = VD.Input.MouseButtonEvent(
             action: action,
             button: button,
             mods: voidMods
@@ -218,12 +218,12 @@ struct MousePosIntent: AppIntent {
             throw VoidIntentError.surfaceNotFound
         }
 
-        // Convert KeyEventMods array to Void.Input.Mods
-        let voidMods = mods.reduce(Void.Input.Mods()) { result, mod in
+        // Convert KeyEventMods array to VD.Input.Mods
+        let voidMods = mods.reduce(VD.Input.Mods()) { result, mod in
             result.union(mod.voidMod)
         }
 
-        let mousePosEvent = Void.Input.MousePosEvent(
+        let mousePosEvent = VD.Input.MousePosEvent(
             x: x,
             y: y,
             mods: voidMods
@@ -263,9 +263,9 @@ struct MouseScrollIntent: AppIntent {
     @Parameter(
         title: "Momentum Phase",
         description: "The momentum phase for inertial scrolling.",
-        default: Void.Input.Momentum.none
+        default: VD.Input.Momentum.none
     )
-    var momentum: Void.Input.Momentum
+    var momentum: VD.Input.Momentum
 
     @Parameter(
         title: "Terminal",
@@ -288,7 +288,7 @@ struct MouseScrollIntent: AppIntent {
             throw VoidIntentError.surfaceNotFound
         }
 
-        let scrollEvent = Void.Input.MouseScrollEvent(
+        let scrollEvent = VD.Input.MouseScrollEvent(
             x: x,
             y: y,
             mods: .init(precision: precision, momentum: momentum)
@@ -316,7 +316,7 @@ enum KeyEventMods: String, AppEnum, CaseIterable {
         .command: "Command"
     ]
 
-    var voidMod: Void.Input.Mods {
+    var voidMod: VD.Input.Mods {
         switch self {
         case .shift: .shift
         case .control: .ctrl

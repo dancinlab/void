@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ChildExitedMessageBar: View {
-    let msg: Void.ChildExitedMessage
+    let msg: VD.ChildExitedMessage
     @State private var isHovered: Bool = false
 
     var body: some View {
@@ -30,7 +30,7 @@ struct ChildExitedMessageBar: View {
     }
 }
 
-private extension Void.ChildExitedMessage.Level {
+private extension VD.ChildExitedMessage.Level {
     var foregroundColor: Color {
         .primary
     }

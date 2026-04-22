@@ -3,7 +3,7 @@ import AppKit
 /// Requests permission for Shortcuts app to interact with Void
 ///
 /// This function displays a permission dialog asking the user to allow Shortcuts
-/// to interact with Void. The permission is automatically cached for 10 minutes
+/// to interact with VD. The permission is automatically cached for 10 minutes
 /// if the user selects "Allow", meaning subsequent intent calls won't show the dialog
 /// again during that time period.
 /// 

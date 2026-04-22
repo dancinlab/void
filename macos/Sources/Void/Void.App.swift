@@ -6,13 +6,13 @@ protocol VoidAppDelegate: AnyObject {
     #if os(macOS)
     /// Called when a callback needs access to a specific surface. This should return nil
     /// when the surface is no longer valid.
-    func findSurface(forUUID uuid: UUID) -> Void.SurfaceView?
+    func findSurface(forUUID uuid: UUID) -> VD.SurfaceView?
     #endif
 }
 
-extension Void {
+extension VD {
     // IMPORTANT: THIS IS NOT DONE.
-    // This is a refactor/redo of Void.AppState so that it supports both macOS and iOS
+    // This is a refactor/redo of VD.AppState so that it supports both macOS and iOS
     class App: ObservableObject {
         enum Readiness: String {
             case loading, error, ready
@@ -119,7 +119,7 @@ extension Void {
         }
 
         static func openConfig() {
-            let str = Void.AllocatedString(void_config_open_path()).string
+            let str = VD.AllocatedString(void_config_open_path()).string
             guard !str.isEmpty else { return }
             #if os(macOS)
             let fileURL = URL(fileURLWithPath: str).absoluteString
@@ -148,7 +148,7 @@ extension Void {
             // Hard or full updates have to reload the full configuration
             let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
-                Void.logger.warning("failed to reload configuration")
+                VD.logger.warning("failed to reload configuration")
                 return
             }
 
@@ -168,7 +168,7 @@ extension Void {
             // config. We free it after the call.
             let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
-                Void.logger.warning("failed to reload configuration")
+                VD.logger.warning("failed to reload configuration")
                 return
             }
 
@@ -350,7 +350,7 @@ extension Void {
         ) {
             let surface = self.surfaceUserdata(from: userdata)
             guard let valueStr = String(cString: string!, encoding: .utf8) else { return }
-            guard let request = Void.ClipboardRequest.from(request: request) else { return }
+            guard let request = VD.ClipboardRequest.from(request: request) else { return }
             NotificationCenter.default.post(
                 name: Notification.confirmClipboard,
                 object: surface,
@@ -386,7 +386,7 @@ extension Void {
 
             // Convert the C array to Swift array
             let contentArray = (0..<len).compactMap { i in
-                Void.ClipboardContent.from(content: content[i])
+                VD.ClipboardContent.from(content: content[i])
             }
             guard !contentArray.isEmpty else { return }
 
@@ -420,7 +420,7 @@ extension Void {
                 object: surface,
                 userInfo: [
                     Notification.ConfirmClipboardStrKey: textPlainContent.data,
-                    Notification.ConfirmClipboardRequestKey: Void.ClipboardRequest.osc_52_write(pasteboard),
+                    Notification.ConfirmClipboardRequestKey: VD.ClipboardRequest.osc_52_write(pasteboard),
                 ]
             )
         }
@@ -479,7 +479,7 @@ extension Void {
                 break
 
             default:
-                Void.logger.warning("unknown action target=\(target.tag.rawValue)")
+                VD.logger.warning("unknown action target=\(target.tag.rawValue)")
                 return false
             }
 
@@ -666,7 +666,7 @@ extension Void {
             case VOID_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
             default:
-                Void.logger.warning("unknown action action=\(action.tag.rawValue)")
+                VD.logger.warning("unknown action action=\(action.tag.rawValue)")
                 return false
             }
 
@@ -701,7 +701,7 @@ extension Void {
         private static func openURL(
             _ v: void_action_open_url_s
         ) -> Bool {
-            let action = Void.Action.OpenURL(c: v)
+            let action = VD.Action.OpenURL(c: v)
 
             // If the URL doesn't have a valid scheme we assume its a file path. The URL
             // initializer will gladly take invalid URLs (e.g. plain file paths) and turn
@@ -849,7 +849,7 @@ extension Void {
             switch target.tag {
             case VOID_TARGET_APP:
                 // New split does nothing with an app target
-                Void.logger.warning("new split does nothing with an app target")
+                VD.logger.warning("new split does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -897,7 +897,7 @@ extension Void {
         private static func closeTab(_ app: void_app_t, target: void_target_s, mode: void_action_close_tab_mode_e) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("close tabs does nothing with an app target")
+                VD.logger.warning("close tabs does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -938,7 +938,7 @@ extension Void {
         private static func closeWindow(_ app: void_app_t, target: void_target_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("close window does nothing with an app target")
+                VD.logger.warning("close window does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -966,14 +966,14 @@ extension Void {
             mode raw: void_action_fullscreen_e) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("toggle fullscreen does nothing with an app target")
+                VD.logger.warning("toggle fullscreen does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 guard let mode = FullscreenMode.from(void: raw) else {
-                    Void.logger.warning("unknown fullscreen mode raw=\(raw.rawValue)")
+                    VD.logger.warning("unknown fullscreen mode raw=\(raw.rawValue)")
                     return
                 }
                 NotificationCenter.default.post(
@@ -994,7 +994,7 @@ extension Void {
             target: void_target_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("toggle command palette does nothing with an app target")
+                VD.logger.warning("toggle command palette does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1016,7 +1016,7 @@ extension Void {
         ) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("toggle maximize does nothing with an app target")
+                VD.logger.warning("toggle maximize does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1048,7 +1048,7 @@ extension Void {
                 // Technically we could still request app attention here but there
                 // are no known cases where the bell is rang with an app target so
                 // I think its better to warn.
-                Void.logger.warning("ring bell does nothing with an app target")
+                VD.logger.warning("ring bell does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1070,7 +1070,7 @@ extension Void {
             v: void_action_readonly_e) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("set readonly does nothing with an app target")
+                VD.logger.warning("set readonly does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1095,7 +1095,7 @@ extension Void {
             move: void_action_move_tab_s) -> Bool {
                 switch target.tag {
                 case VOID_TARGET_APP:
-                    Void.logger.warning("move tab does nothing with an app target")
+                    VD.logger.warning("move tab does nothing with an app target")
                     return false
 
                 case VOID_TARGET_SURFACE:
@@ -1126,7 +1126,7 @@ extension Void {
             tab: void_action_goto_tab_e) -> Bool {
                 switch target.tag {
                 case VOID_TARGET_APP:
-                    Void.logger.warning("goto tab does nothing with an app target")
+                    VD.logger.warning("goto tab does nothing with an app target")
                     return false
 
                 case VOID_TARGET_SURFACE:
@@ -1158,7 +1158,7 @@ extension Void {
             direction: void_action_goto_split_e) -> Bool {
                 switch target.tag {
                 case VOID_TARGET_APP:
-                    Void.logger.warning("goto split does nothing with an app target")
+                    VD.logger.warning("goto split does nothing with an app target")
                     return false
 
                 case VOID_TARGET_SURFACE:
@@ -1178,7 +1178,7 @@ extension Void {
                     // Check if a split actually exists in the target direction before
                     // returning true. This ensures performable keybinds only consume
                     // the key event when we actually perform navigation.
-                    let focusDirection: SplitTree<Void.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
+                    let focusDirection: SplitTree<VD.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
                     guard controller.surfaceTree.focusTarget(for: focusDirection, from: targetNode) != nil else {
                         return false
                     }
@@ -1248,7 +1248,7 @@ extension Void {
                     // Also focus the terminal surface within the window
                     if let controller = candidate.windowController as? BaseTerminalController,
                        let surface = controller.focusedSurface {
-                        Void.moveFocus(to: surface)
+                        VD.moveFocus(to: surface)
                     }
                     return true
                 }
@@ -1264,7 +1264,7 @@ extension Void {
             resize: void_action_resize_split_s) -> Bool {
                 switch target.tag {
                 case VOID_TARGET_APP:
-                    Void.logger.warning("resize split does nothing with an app target")
+                    VD.logger.warning("resize split does nothing with an app target")
                     return false
 
                 case VOID_TARGET_SURFACE:
@@ -1297,7 +1297,7 @@ extension Void {
             target: void_target_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("equalize splits does nothing with an app target")
+                VD.logger.warning("equalize splits does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1318,7 +1318,7 @@ extension Void {
             target: void_target_s) -> Bool {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("toggle split zoom does nothing with an app target")
+                VD.logger.warning("toggle split zoom does nothing with an app target")
                 return false
 
             case VOID_TARGET_SURFACE:
@@ -1347,7 +1347,7 @@ extension Void {
             mode: void_action_inspector_e) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("toggle inspector does nothing with an app target")
+                VD.logger.warning("toggle inspector does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1370,7 +1370,7 @@ extension Void {
             n: void_action_desktop_notification_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("desktop notification does nothing with an app target")
+                VD.logger.warning("desktop notification does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1393,7 +1393,7 @@ extension Void {
             let center = UNUserNotificationCenter.current()
             center.requestAuthorization(options: [.alert, .sound]) { _, error in
                 if let error = error {
-                    Void.logger.error("Error while requesting notification authorization: \(error)")
+                    VD.logger.error("Error while requesting notification authorization: \(error)")
                 }
             }
 
@@ -1414,7 +1414,7 @@ extension Void {
         ) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("command finished does nothing with an app target")
+                VD.logger.warning("command finished does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1493,7 +1493,7 @@ extension Void {
 
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("toggle float window does nothing with an app target")
+                VD.logger.warning("toggle float window does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1527,7 +1527,7 @@ extension Void {
         ) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("toggle background opacity does nothing with an app target")
+                VD.logger.warning("toggle background opacity does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1590,7 +1590,7 @@ extension Void {
             v: void_action_set_title_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("set title does nothing with an app target")
+                VD.logger.warning("set title does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1611,7 +1611,7 @@ extension Void {
         ) -> Bool {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("set tab title does nothing with an app target")
+                VD.logger.warning("set tab title does nothing with an app target")
                 return false
 
             case VOID_TARGET_SURFACE:
@@ -1678,7 +1678,7 @@ extension Void {
             case .surface:
                 switch target.tag {
                 case VOID_TARGET_APP:
-                    Void.logger.warning("set title prompt does nothing with an app target")
+                    VD.logger.warning("set title prompt does nothing with an app target")
                     return false
 
                 case VOID_TARGET_SURFACE:
@@ -1723,7 +1723,7 @@ extension Void {
             v: void_action_pwd_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("pwd change does nothing with an app target")
+                VD.logger.warning("pwd change does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1743,7 +1743,7 @@ extension Void {
             shape: void_action_mouse_shape_e) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("set mouse shapes nothing with an app target")
+                VD.logger.warning("set mouse shapes nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1762,7 +1762,7 @@ extension Void {
             v: void_action_mouse_visibility_e) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("set mouse shapes nothing with an app target")
+                VD.logger.warning("set mouse shapes nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1790,7 +1790,7 @@ extension Void {
             v: void_action_mouse_over_link_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("mouse over link does nothing with an app target")
+                VD.logger.warning("mouse over link does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1815,7 +1815,7 @@ extension Void {
             v: void_action_initial_size_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("initial size does nothing with an app target")
+                VD.logger.warning("initial size does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1833,7 +1833,7 @@ extension Void {
             target: void_target_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("reset window size does nothing with an app target")
+                VD.logger.warning("reset window size does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1855,7 +1855,7 @@ extension Void {
             v: void_action_cell_size_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("mouse over link does nothing with an app target")
+                VD.logger.warning("mouse over link does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1877,7 +1877,7 @@ extension Void {
             target: void_target_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("mouse over link does nothing with an app target")
+                VD.logger.warning("mouse over link does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1899,7 +1899,7 @@ extension Void {
             v: void_action_renderer_health_e) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("mouse over link does nothing with an app target")
+                VD.logger.warning("mouse over link does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1924,7 +1924,7 @@ extension Void {
             v: void_action_key_sequence_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("key sequence does nothing with an app target")
+                VD.logger.warning("key sequence does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1956,13 +1956,13 @@ extension Void {
             v: void_action_key_table_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("key table does nothing with an app target")
+                VD.logger.warning("key table does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                guard let action = Void.Action.KeyTable(c: v) else { return }
+                guard let action = VD.Action.KeyTable(c: v) else { return }
 
                 NotificationCenter.default.post(
                     name: Notification.didChangeKeyTable,
@@ -1981,7 +1981,7 @@ extension Void {
             v: void_action_progress_report_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("progress report does nothing with an app target")
+                VD.logger.warning("progress report does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -1990,14 +1990,14 @@ extension Void {
                 guard let config = (NSApplication.shared.delegate as? AppDelegate)?.void.config else { return }
 
                 guard config.progressStyle else {
-                    Void.logger.debug("progress_report action blocked by config")
+                    VD.logger.debug("progress_report action blocked by config")
                     DispatchQueue.main.async {
                         surfaceView.progressReport = nil
                     }
                     return
                 }
 
-                let progressReport = Void.Action.ProgressReport(c: v)
+                let progressReport = VD.Action.ProgressReport(c: v)
                 DispatchQueue.main.async {
                     if progressReport.state == .remove {
                         surfaceView.progressReport = nil
@@ -2017,14 +2017,14 @@ extension Void {
             v: void_action_scrollbar_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("scrollbar does nothing with an app target")
+                VD.logger.warning("scrollbar does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
-                let scrollbar = Void.Action.Scrollbar(c: v)
+                let scrollbar = VD.Action.Scrollbar(c: v)
                 NotificationCenter.default.post(
                     name: .voidDidUpdateScrollbar,
                     object: surfaceView,
@@ -2044,21 +2044,21 @@ extension Void {
             v: void_action_start_search_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("start_search does nothing with an app target")
+                VD.logger.warning("start_search does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
-                let startSearch = Void.Action.StartSearch(c: v)
+                let startSearch = VD.Action.StartSearch(c: v)
                 DispatchQueue.main.async {
                     if let searchState = surfaceView.searchState {
                         if let needle = startSearch.needle, !needle.isEmpty {
                             searchState.needle = needle
                         }
                     } else {
-                        surfaceView.searchState = Void.SurfaceView.SearchState(from: startSearch)
+                        surfaceView.searchState = VD.SurfaceView.SearchState(from: startSearch)
                     }
 
                     NotificationCenter.default.post(name: .voidSearchFocus, object: surfaceView)
@@ -2074,7 +2074,7 @@ extension Void {
             target: void_target_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("end_search does nothing with an app target")
+                VD.logger.warning("end_search does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -2096,7 +2096,7 @@ extension Void {
             v: void_action_search_total_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("search_total does nothing with an app target")
+                VD.logger.warning("search_total does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -2119,7 +2119,7 @@ extension Void {
             v: void_action_search_selected_s) {
             switch target.tag {
             case VOID_TARGET_APP:
-                Void.logger.warning("search_selected does nothing with an app target")
+                VD.logger.warning("search_selected does nothing with an app target")
                 return
 
             case VOID_TARGET_SURFACE:
@@ -2213,7 +2213,7 @@ extension Void {
             change: void_action_color_change_s) {
                 switch target.tag {
                 case VOID_TARGET_APP:
-                    Void.logger.warning("color change does nothing with an app target")
+                    VD.logger.warning("color change does nothing with an app target")
                     return
 
                 case VOID_TARGET_SURFACE:
@@ -2242,7 +2242,7 @@ extension Void {
                   let surface = delegate?.findSurface(forUUID: uuid) else { return }
 
             switch response.actionIdentifier {
-            case UNNotificationDefaultActionIdentifier, Void.userNotificationActionShow:
+            case UNNotificationDefaultActionIdentifier, VD.userNotificationActionShow:
                 // The user clicked on a notification
                 surface.handleUserNotification(notification: response.notification, focus: true)
             case UNNotificationDismissActionIdentifier:

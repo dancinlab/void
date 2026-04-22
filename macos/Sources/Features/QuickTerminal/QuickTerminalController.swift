@@ -13,7 +13,7 @@ class QuickTerminalController: BaseTerminalController {
     /// The current state of the quick terminal
     private(set) var visible: Bool = false
 
-    /// The previously running application when the terminal is shown. This is NEVER Void.
+    /// The previously running application when the terminal is shown. This is NEVER VD.
     /// If this is set then when the quick terminal is animated out then we will restore this
     /// application to the front.
     private var previousApp: NSRunningApplication?
@@ -38,9 +38,9 @@ class QuickTerminalController: BaseTerminalController {
     let restorable: Bool
     private var restorationState: QuickTerminalRestorableState?
 
-    init(_ void: Void.App,
+    init(_ void: VD.App,
          position: QuickTerminalPosition = .top,
-         baseConfig base: Void.SurfaceConfiguration? = nil,
+         baseConfig base: VD.SurfaceConfiguration? = nil,
          restorationState: QuickTerminalRestorableState? = nil,
     ) {
         self.position = position
@@ -68,7 +68,7 @@ class QuickTerminalController: BaseTerminalController {
         center.addObserver(
             self,
             selector: #selector(onToggleFullscreen(notification:)),
-            name: Void.Notification.voidToggleFullscreen,
+            name: VD.Notification.voidToggleFullscreen,
             object: nil)
         center.addObserver(
             self,
@@ -84,7 +84,7 @@ class QuickTerminalController: BaseTerminalController {
         center.addObserver(
             self,
             selector: #selector(onNewTab),
-            name: Void.Notification.voidNewTab,
+            name: VD.Notification.voidNewTab,
             object: nil)
         center.addObserver(
             self,
@@ -252,7 +252,7 @@ class QuickTerminalController: BaseTerminalController {
 
     // MARK: Base Controller Overrides
 
-    override func focusSurface(_ view: Void.SurfaceView) {
+    override func focusSurface(_ view: VD.SurfaceView) {
         if visible {
             // If we're visible, we just focus the surface as normal.
             super.focusSurface(view)
@@ -262,13 +262,13 @@ class QuickTerminalController: BaseTerminalController {
         guard surfaceTree.contains(view) else { return }
         // Set the target surface as focused
         DispatchQueue.main.async {
-            Void.moveFocus(to: view)
+            VD.moveFocus(to: view)
         }
         // Animation completion handler will handle window/app activation
         animateIn()
     }
 
-    override func surfaceTreeDidChange(from: SplitTree<Void.SurfaceView>, to: SplitTree<Void.SurfaceView>) {
+    override func surfaceTreeDidChange(from: SplitTree<VD.SurfaceView>, to: SplitTree<VD.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
 
         // If our surface tree is nil then we animate the window out. We
@@ -288,7 +288,7 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     override func closeSurface(
-        _ node: SplitTree<Void.SurfaceView>.Node,
+        _ node: SplitTree<VD.SurfaceView>.Node,
         withConfirmation: Bool = true
     ) {
         // If this isn't the root then we're dealing with a split closure.
@@ -369,10 +369,10 @@ class QuickTerminalController: BaseTerminalController {
                     }
                 }
             } else {
-                var config = Void.SurfaceConfiguration()
+                var config = VD.SurfaceConfiguration()
                 config.environmentVariables["VOID_QUICK_TERMINAL"] = "1"
 
-                let view = Void.SurfaceView(void_app, baseConfig: config)
+                let view = VD.SurfaceView(void_app, baseConfig: config)
                 surfaceTree = SplitTree(view: view)
                 focusedSurface = view
             }
@@ -669,7 +669,7 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     @objc private func onToggleFullscreen(notification: SwiftUI.Notification) {
-        guard let target = notification.object as? Void.SurfaceView else { return }
+        guard let target = notification.object as? VD.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
         onToggleFullscreen()
     }
@@ -704,7 +704,7 @@ class QuickTerminalController: BaseTerminalController {
         // Get our managed configuration object out
         guard let config = notification.userInfo?[
             Notification.Name.VoidConfigChangeKey
-        ] as? Void.Config else { return }
+        ] as? VD.Config else { return }
 
         // Update our derived config
         self.derivedConfig = DerivedConfig(config)
@@ -715,7 +715,7 @@ class QuickTerminalController: BaseTerminalController {
     }
 
     @objc private func onNewTab(notification: SwiftUI.Notification) {
-        guard let surfaceView = notification.object as? Void.SurfaceView else { return }
+        guard let surfaceView = notification.object as? VD.SurfaceView else { return }
         guard let window = surfaceView.window else { return }
         guard window.windowController is QuickTerminalController else { return }
         // Tabs aren't supported with Quick Terminals or derivatives
@@ -729,7 +729,7 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
         let quickTerminalSize: QuickTerminalSize
         let backgroundOpacity: Double
-        let backgroundBlur: Void.Config.BackgroundBlur
+        let backgroundBlur: VD.Config.BackgroundBlur
 
         init() {
             self.quickTerminalScreen = .main
@@ -741,7 +741,7 @@ class QuickTerminalController: BaseTerminalController {
             self.backgroundBlur = .disabled
         }
 
-        init(_ config: Void.Config) {
+        init(_ config: VD.Config) {
             self.quickTerminalScreen = config.quickTerminalScreen
             self.quickTerminalAnimationDuration = config.quickTerminalAnimationDuration
             self.quickTerminalAutoHide = config.quickTerminalAutoHide

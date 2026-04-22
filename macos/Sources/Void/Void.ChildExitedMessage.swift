@@ -2,7 +2,7 @@ import Foundation
 import VoidKit
 import SwiftUI
 
-extension Void {
+extension VD {
     struct ChildExitedMessage {
         enum Level {
             case success, error

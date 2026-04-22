@@ -4,7 +4,7 @@ import AppKit
 import UIKit
 #endif
 
-extension Void.SurfaceView {
+extension VD.SurfaceView {
     #if canImport(AppKit)
     /// A snapshot image of the current surface view.
     var asImage: NSImage? {

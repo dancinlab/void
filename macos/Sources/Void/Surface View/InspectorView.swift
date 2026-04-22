@@ -3,10 +3,10 @@ import MetalKit
 import SwiftUI
 import VoidKit
 
-extension Void {
+extension VD {
     /// InspectableSurface is a type of Surface view that allows an inspector to be attached.
     struct InspectableSurface: View {
-        @EnvironmentObject var void: Void.App
+        @EnvironmentObject var void: VD.App
 
         /// Same as SurfaceWrapper, see the doc comments there.
         @ObservedObject var surfaceView: SurfaceView
@@ -49,7 +49,7 @@ extension Void {
                         inspectorFocus = true
                     }
                 } else {
-                    Void.moveFocus(to: surfaceView)
+                    VD.moveFocus(to: surfaceView)
                 }
             }
         }
@@ -98,7 +98,7 @@ extension Void {
             didSet { surfaceViewDidChange() }
         }
 
-        private var inspector: Void.Inspector? {
+        private var inspector: VD.Inspector? {
             guard let surfaceView = self.surfaceView else { return nil }
             return surfaceView.inspector
         }
@@ -226,25 +226,25 @@ extension Void {
 
         override func mouseDown(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
             inspector.mouseButton(VOID_MOUSE_PRESS, button: VOID_MOUSE_LEFT, mods: mods)
         }
 
         override func mouseUp(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
             inspector.mouseButton(VOID_MOUSE_RELEASE, button: VOID_MOUSE_LEFT, mods: mods)
         }
 
         override func rightMouseDown(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
             inspector.mouseButton(VOID_MOUSE_PRESS, button: VOID_MOUSE_RIGHT, mods: mods)
         }
 
         override func rightMouseUp(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
             inspector.mouseButton(VOID_MOUSE_RELEASE, button: VOID_MOUSE_RIGHT, mods: mods)
         }
 
@@ -321,7 +321,7 @@ extension Void {
 
             // The keyAction function will do this AGAIN below which sucks to repeat
             // but this is super cheap and flagsChanged isn't that common.
-            let mods = Void.voidMods(event.modifierFlags)
+            let mods = VD.voidMods(event.modifierFlags)
 
             // If the key that pressed this is active, its a press, else release
             var action = VOID_ACTION_RELEASE
@@ -332,8 +332,8 @@ extension Void {
 
         private func keyAction(_ action: void_input_action_e, event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            guard let key = Void.Input.Key(keyCode: event.keyCode) else { return }
-            let mods = Void.voidMods(event.modifierFlags)
+            guard let key = VD.Input.Key(keyCode: event.keyCode) else { return }
+            let mods = VD.voidMods(event.modifierFlags)
             inspector.key(action, key: key.cKey, mods: mods)
         }
 

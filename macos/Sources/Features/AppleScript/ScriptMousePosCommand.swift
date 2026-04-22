@@ -1,6 +1,6 @@
 import AppKit
 
-/// Handler for the `send mouse position` AppleScript command defined in `Void.sdef`.
+/// Handler for the `send mouse position` AppleScript command defined in `VD.sdef`.
 ///
 /// Cocoa scripting instantiates this class because the command's `<cocoa>` element
 /// specifies `class="VoidScriptMousePosCommand"`. The runtime calls
@@ -41,9 +41,9 @@ final class ScriptMousePosCommand: NSScriptCommand {
             return nil
         }
 
-        let mods: Void.Input.Mods
+        let mods: VD.Input.Mods
         if let modsString = evaluatedArguments?["modifiers"] as? String {
-            guard let parsed = Void.Input.Mods(scriptModifiers: modsString) else {
+            guard let parsed = VD.Input.Mods(scriptModifiers: modsString) else {
                 scriptErrorNumber = errAECoercionFail
                 scriptErrorString = "Unknown modifier in: \(modsString)"
                 return nil
@@ -53,7 +53,7 @@ final class ScriptMousePosCommand: NSScriptCommand {
             mods = []
         }
 
-        let mousePosEvent = Void.Input.MousePosEvent(
+        let mousePosEvent = VD.Input.MousePosEvent(
             x: x,
             y: y,
             mods: mods

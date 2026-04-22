@@ -1,7 +1,7 @@
 import Cocoa
 import VoidKit
 
-extension Void {
+extension VD {
     /// A comparable event.
     struct ComparableKeyEvent: Equatable {
         let keyCode: UInt16

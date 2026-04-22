@@ -41,7 +41,7 @@ extension NSPasteboard {
         if let urls = readObjects(forClasses: [NSURL.self]) as? [URL],
            urls.count > 0 {
             return urls
-                .map { $0.isFileURL ? Void.Shell.escape($0.path) : $0.absoluteString }
+                .map { $0.isFileURL ? VD.Shell.escape($0.path) : $0.absoluteString }
                 .joined(separator: " ")
         }
 

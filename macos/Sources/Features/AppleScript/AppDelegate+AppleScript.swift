@@ -4,7 +4,7 @@ import AppKit
 //
 // Cocoa scripting is mostly convention-based: we do not register handlers in
 // code, we expose Objective-C selectors with names Cocoa derives from
-// `Void.sdef`.
+// `VD.sdef`.
 //
 // In practical terms:
 // - An `<element>` in `sdef` maps to an ObjC collection accessor.
@@ -12,7 +12,7 @@ import AppKit
 // - Some `<command>` declarations map to `handle...ScriptCommand:`.
 //
 // This file implements the selectors Cocoa expects on `NSApplication`, which is
-// the runtime object behind the `application` class in `Void.sdef`.
+// the runtime object behind the `application` class in `VD.sdef`.
 
 // MARK: - Windows
 
@@ -149,7 +149,7 @@ extension NSApplication {
         guard validateScript(command: command) else { return nil }
 
         do {
-            let configuration = try Void.SurfaceConfiguration(
+            let configuration = try VD.SurfaceConfiguration(
                 scriptRecord: command.evaluatedArguments?["configuration"] as? NSDictionary
             )
             return configuration.dictionaryRepresentation
@@ -178,10 +178,10 @@ extension NSApplication {
             return nil
         }
 
-        let baseConfig: Void.SurfaceConfiguration?
+        let baseConfig: VD.SurfaceConfiguration?
         if let scriptRecord = command.evaluatedArguments?["configuration"] as? NSDictionary {
             do {
-                baseConfig = try Void.SurfaceConfiguration(scriptRecord: scriptRecord)
+                baseConfig = try VD.SurfaceConfiguration(scriptRecord: scriptRecord)
             } catch {
                 command.scriptErrorNumber = errAECoercionFail
                 command.scriptErrorString = error.localizedDescription
@@ -236,10 +236,10 @@ extension NSApplication {
             return nil
         }
 
-        let baseConfig: Void.SurfaceConfiguration?
+        let baseConfig: VD.SurfaceConfiguration?
         if let scriptRecord = command.evaluatedArguments?["configuration"] as? NSDictionary {
             do {
-                baseConfig = try Void.SurfaceConfiguration(scriptRecord: scriptRecord)
+                baseConfig = try VD.SurfaceConfiguration(scriptRecord: scriptRecord)
             } catch {
                 command.scriptErrorNumber = errAECoercionFail
                 command.scriptErrorString = error.localizedDescription
@@ -317,7 +317,7 @@ extension NSApplication {
 
     /// Discovers all currently alive terminal surfaces across normal and quick
     /// terminal windows. This powers both terminal enumeration and ID lookup.
-    fileprivate var allSurfaceViews: [Void.SurfaceView] {
+    fileprivate var allSurfaceViews: [VD.SurfaceView] {
         allTerminalControllers
             .flatMap { $0.surfaceTree.root?.leaves() ?? [] }
     }

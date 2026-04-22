@@ -1,11 +1,11 @@
 import SwiftUI
 import VoidKit
 
-extension Void {
+extension VD {
     struct Action {}
 }
 
-extension Void.Action {
+extension VD.Action {
     struct ColorChange {
         let kind: Kind
         let color: Color
@@ -165,7 +165,7 @@ extension Void.Action {
 }
 
 // Putting the initializer in an extension preserves the automatic one.
-extension Void.Action.ProgressReport {
+extension VD.Action.ProgressReport {
     init(c: void_action_progress_report_s) {
         self.state = State(c.state)
         self.progress = c.progress >= 0 ? UInt8(c.progress) : nil

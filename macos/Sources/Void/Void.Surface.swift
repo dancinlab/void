@@ -1,7 +1,7 @@
 import VoidKit
 
-extension Void {
-    /// Represents a single surface within Void.
+extension VD {
+    /// Represents a single surface within VD.
     ///
     /// NOTE(mitchellh): This is a work-in-progress class as part of a general refactor
     /// of our Void data model. At the time of writing there's still a ton of surface

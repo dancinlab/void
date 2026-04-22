@@ -1,6 +1,6 @@
 import AppKit
 
-/// Handler for the `send mouse button` AppleScript command defined in `Void.sdef`.
+/// Handler for the `send mouse button` AppleScript command defined in `VD.sdef`.
 ///
 /// Cocoa scripting instantiates this class because the command's `<cocoa>` element
 /// specifies `class="VoidScriptMouseButtonCommand"`. The runtime calls
@@ -36,7 +36,7 @@ final class ScriptMouseButtonCommand: NSScriptCommand {
             return nil
         }
 
-        let action: Void.Input.MouseState
+        let action: VD.Input.MouseState
         if let actionCode = evaluatedArguments?["action"] as? UInt32 {
             switch actionCode {
             case "GIpr".fourCharCode: action = .press
@@ -47,9 +47,9 @@ final class ScriptMouseButtonCommand: NSScriptCommand {
             action = .press
         }
 
-        let mods: Void.Input.Mods
+        let mods: VD.Input.Mods
         if let modsString = evaluatedArguments?["modifiers"] as? String {
-            guard let parsed = Void.Input.Mods(scriptModifiers: modsString) else {
+            guard let parsed = VD.Input.Mods(scriptModifiers: modsString) else {
                 scriptErrorNumber = errAECoercionFail
                 scriptErrorString = "Unknown modifier in: \(modsString)"
                 return nil
@@ -59,7 +59,7 @@ final class ScriptMouseButtonCommand: NSScriptCommand {
             mods = []
         }
 
-        let mouseEvent = Void.Input.MouseButtonEvent(
+        let mouseEvent = VD.Input.MouseButtonEvent(
             action: action,
             button: button.voidButton,
             mods: mods
@@ -70,7 +70,7 @@ final class ScriptMouseButtonCommand: NSScriptCommand {
     }
 }
 
-/// Four-character codes matching the `mouse button` enumeration in `Void.sdef`.
+/// Four-character codes matching the `mouse button` enumeration in `VD.sdef`.
 private enum ScriptMouseButtonValue {
     case left
     case right
@@ -85,7 +85,7 @@ private enum ScriptMouseButtonValue {
         }
     }
 
-    var voidButton: Void.Input.MouseButton {
+    var voidButton: VD.Input.MouseButton {
         switch self {
         case .left: .left
         case .right: .right

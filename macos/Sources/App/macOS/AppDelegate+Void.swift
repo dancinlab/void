@@ -4,8 +4,8 @@ import AppKit
 
 /// This implements the Void app delegate protocol which is used by the Void
 /// APIs for app-global information.
-extension AppDelegate: Void.Delegate {
-    func voidSurface(id: UUID) -> Void.SurfaceView? {
+extension AppDelegate: VD.Delegate {
+    func voidSurface(id: UUID) -> VD.SurfaceView? {
         for window in NSApp.windows {
             guard let controller = window.windowController as? BaseTerminalController else {
                 continue

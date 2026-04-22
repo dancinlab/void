@@ -47,7 +47,7 @@ class ServiceProvider: NSObject {
         )
 
         for url in directoryURLs {
-            var config = Void.SurfaceConfiguration()
+            var config = VD.SurfaceConfiguration()
             config.workingDirectory = url.path(percentEncoded: false)
 
             switch target {

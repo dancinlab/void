@@ -96,7 +96,7 @@ class AppDelegate: NSObject,
     private var derivedConfig: DerivedConfig = DerivedConfig()
 
     /// The void global state. Only one per process.
-    let void: Void.App
+    let void: VD.App
 
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
@@ -153,13 +153,13 @@ class AppDelegate: NSObject,
 
     private let appIconUpdater = AppIconUpdater()
 
-    @MainActor private lazy var menuShortcutManager = Void.MenuShortcutManager()
+    @MainActor private lazy var menuShortcutManager = VD.MenuShortcutManager()
 
     override init() {
 #if DEBUG
-        void = Void.App(configPath: ProcessInfo.processInfo.environment["VOID_CONFIG_PATH"])
+        void = VD.App(configPath: ProcessInfo.processInfo.environment["VOID_CONFIG_PATH"])
 #else
-        void = Void.App()
+        void = VD.App()
 #endif
         super.init()
 
@@ -261,24 +261,24 @@ class AppDelegate: NSObject,
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(voidNewWindow(_:)),
-            name: Void.Notification.voidNewWindow,
+            name: VD.Notification.voidNewWindow,
             object: nil)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(voidNewTab(_:)),
-            name: Void.Notification.voidNewTab,
+            name: VD.Notification.voidNewTab,
             object: nil)
 
         // Configure user notifications
         let actions = [
-            UNNotificationAction(identifier: Void.userNotificationActionShow, title: "Show")
+            UNNotificationAction(identifier: VD.userNotificationActionShow, title: "Show")
         ]
 
         let center = UNUserNotificationCenter.current()
 
         center.setNotificationCategories([
             UNNotificationCategory(
-                identifier: Void.userNotificationCategory,
+                identifier: VD.userNotificationCategory,
                 actions: actions,
                 intentIdentifiers: [],
                 options: [.customDismissAction]
@@ -309,7 +309,7 @@ class AppDelegate: NSObject,
         // Setup signal handlers
         setupSignals()
 
-        switch Void.launchSource {
+        switch VD.launchSource {
         case .app:
             // Don't have to do anything.
             break
@@ -463,7 +463,7 @@ class AppDelegate: NSObject,
         var requiresConfirm: Bool = false
 
         // Initialize the surface config which will be used to create the tab or window for the opened file.
-        var config = Void.SurfaceConfiguration()
+        var config = VD.SurfaceConfiguration()
 
         if isDirectory.boolValue {
             // When opening a directory, check the configuration to decide
@@ -482,7 +482,7 @@ class AppDelegate: NSObject,
             // profile/rc files for the shell, which is super important on macOS
             // due to things like Homebrew. Instead, we set the command to
             // `<filename>; exit` which is what Terminal and iTerm2 do.
-            config.initialInput = "\(Void.Shell.quote(filename)); exit\n"
+            config.initialInput = "\(VD.Shell.quote(filename)); exit\n"
 
             // For commands executed directly, we want to ensure we wait after exit
             // because in most cases scripts don't block on exit and we don't want
@@ -541,7 +541,7 @@ class AppDelegate: NSObject,
         let sigusr2 = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
         sigusr2.setEventHandler { [weak self] in
             guard let self else { return }
-            Void.logger.info("reloading configuration in response to SIGUSR2")
+            VD.logger.info("reloading configuration in response to SIGUSR2")
             self.void.reloadConfig()
         }
 
@@ -620,7 +620,7 @@ class AppDelegate: NSObject,
         // Build our event input and call void
         if void_app_key(void, event.voidKeyEvent(VOID_ACTION_PRESS)) {
             // The key was used so we want to stop it from going to our Mac app
-            Void.logger.debug("local key event handled event=\(event)")
+            VD.logger.debug("local key event handled event=\(event)")
             return nil
         }
 
@@ -643,7 +643,7 @@ class AppDelegate: NSObject,
         // Get our managed configuration object out
         guard let config = notification.userInfo?[
             Notification.Name.VoidConfigChangeKey
-        ] as? Void.Config else { return }
+        ] as? VD.Config else { return }
 
         voidConfigDidChange(config: config)
     }
@@ -721,21 +721,21 @@ class AppDelegate: NSObject,
     }
 
     @objc private func voidNewWindow(_ notification: Notification) {
-        let configAny = notification.userInfo?[Void.Notification.NewSurfaceConfigKey]
-        let config = configAny as? Void.SurfaceConfiguration
+        let configAny = notification.userInfo?[VD.Notification.NewSurfaceConfigKey]
+        let config = configAny as? VD.SurfaceConfiguration
         _ = TerminalController.newWindow(void, withBaseConfig: config)
     }
 
     @objc private func voidNewTab(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Void.SurfaceView else { return }
+        guard let surfaceView = notification.object as? VD.SurfaceView else { return }
         guard let window = surfaceView.window else { return }
 
         // We only want to listen to new tabs if the focused parent is
         // a regular terminal controller.
         guard window.windowController is TerminalController else { return }
 
-        let configAny = notification.userInfo?[Void.Notification.NewSurfaceConfigKey]
-        let config = configAny as? Void.SurfaceConfiguration
+        let configAny = notification.userInfo?[VD.Notification.NewSurfaceConfigKey]
+        let config = configAny as? VD.SurfaceConfiguration
 
         _ = TerminalController.newTab(void, from: window, withBaseConfig: config)
     }
@@ -750,7 +750,7 @@ class AppDelegate: NSObject,
         NSApp.dockTile.display()
     }
 
-    private func voidConfigDidChange(config: Void.Config) {
+    private func voidConfigDidChange(config: VD.Config) {
         // Update the config we need to store
         self.derivedConfig = DerivedConfig(config)
 
@@ -819,7 +819,7 @@ class AppDelegate: NSObject,
         }
 
         // We need to handle our global event tap depending on if there are global
-        // events that we care about in Void.
+        // events that we care about in VD.
         if void_app_has_global_keybinds(void.app!) {
             if timeSinceLaunch > 5 {
                 // If the process has been running for awhile we enable right away
@@ -841,11 +841,11 @@ class AppDelegate: NSObject,
     }
 
     /// Sync the appearance of our app with the theme specified in the config.
-    private func syncAppearance(config: Void.Config) {
+    private func syncAppearance(config: VD.Config) {
         NSApplication.shared.appearance = .init(voidConfig: config)
     }
 
-    private func updateAppIcon(from config: Void.Config) {
+    private func updateAppIcon(from config: VD.Config) {
         Task.detached {
             await self.appIconUpdater.update(icon: AppIcon(config: config))
         }
@@ -910,7 +910,7 @@ class AppDelegate: NSObject,
 
     // MARK: - VoidAppDelegate
 
-    func findSurface(forUUID uuid: UUID) -> Void.SurfaceView? {
+    func findSurface(forUUID uuid: UUID) -> VD.SurfaceView? {
         for c in TerminalController.all {
             for view in c.surfaceTree where view.id == uuid {
                 return view
@@ -922,7 +922,7 @@ class AppDelegate: NSObject,
 
     // MARK: - Global State
 
-    func setSecureInput(_ mode: Void.SetSecureInput) {
+    func setSecureInput(_ mode: VD.SetSecureInput) {
         let input = SecureInput.shared
         switch mode {
         case .on:
@@ -941,7 +941,7 @@ class AppDelegate: NSObject,
     // MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        Void.App.openConfig()
+        VD.App.openConfig()
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {
@@ -1036,7 +1036,7 @@ class AppDelegate: NSObject,
             self.quickTerminalPosition = .top
         }
 
-        init(_ config: Void.Config) {
+        init(_ config: VD.Config) {
             self.initialWindow = config.initialWindow
             self.shouldQuitAfterLastWindowClosed = config.shouldQuitAfterLastWindowClosed
             self.quickTerminalPosition = config.quickTerminalPosition
@@ -1144,7 +1144,7 @@ extension AppDelegate {
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Void configuration.
-    @MainActor private func syncMenuShortcuts(_ config: Void.Config) {
+    @MainActor private func syncMenuShortcuts(_ config: VD.Config) {
         guard void.readiness == .ready else { return }
 
         menuShortcutManager.reset()
@@ -1214,7 +1214,7 @@ extension AppDelegate {
         reloadDockMenu()
     }
 
-    @MainActor private func syncMenuShortcut(_ config: Void.Config, action: String, menuItem: NSMenuItem?) {
+    @MainActor private func syncMenuShortcut(_ config: VD.Config, action: String, menuItem: NSMenuItem?) {
         menuShortcutManager.syncMenuShortcut(config, action: action, menuItem: menuItem)
     }
 

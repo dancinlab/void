@@ -5,7 +5,7 @@ import CoreTransferable
 import UniformTypeIdentifiers
 
 /// Conformance to `Transferable` enables drag-and-drop.
-extension Void.SurfaceView: Transferable {
+extension VD.SurfaceView: Transferable {
     static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(contentType: .voidSurfaceId) { surface in
             withUnsafeBytes(of: surface.id.uuid) { Data($0) }
@@ -33,7 +33,7 @@ extension Void.SurfaceView: Transferable {
     @MainActor
     static func find(uuid: UUID) -> Self? {
         #if canImport(AppKit)
-        guard let del = NSApp.delegate as? Void.Delegate else { return nil }
+        guard let del = NSApp.delegate as? VD.Delegate else { return nil }
         return del.voidSurface(id: uuid) as? Self
         #elseif canImport(UIKit)
         // We should be able to use UIApplication here.

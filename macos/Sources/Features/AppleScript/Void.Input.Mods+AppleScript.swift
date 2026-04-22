@@ -1,5 +1,5 @@
-extension Void.Input.Mods {
-    /// Parses a comma-separated modifier string into `Void.Input.Mods`.
+extension VD.Input.Mods {
+    /// Parses a comma-separated modifier string into `VD.Input.Mods`.
     ///
     /// Recognized names: `shift`, `control`, `option`, `command`.
     /// Returns `nil` if any unrecognized modifier name is encountered.

@@ -9,16 +9,16 @@ enum TerminalSplitOperation {
     case drop(Drop)
 
     struct Resize {
-        let node: SplitTree<Void.SurfaceView>.Node
+        let node: SplitTree<VD.SurfaceView>.Node
         let ratio: Double
     }
 
     struct Drop {
         /// The surface being dragged.
-        let payload: Void.SurfaceView
+        let payload: VD.SurfaceView
 
         /// The surface it was dragged onto
-        let destination: Void.SurfaceView
+        let destination: VD.SurfaceView
 
         /// The zone it was dropped to determine how to split the destination.
         let zone: TerminalSplitDropZone
@@ -26,7 +26,7 @@ enum TerminalSplitOperation {
 }
 
 struct TerminalSplitTreeView: View {
-    let tree: SplitTree<Void.SurfaceView>
+    let tree: SplitTree<VD.SurfaceView>
     let action: (TerminalSplitOperation) -> Void
 
     var body: some View {
@@ -45,9 +45,9 @@ struct TerminalSplitTreeView: View {
 }
 
 private struct TerminalSplitSubtreeView: View {
-    @EnvironmentObject var void: Void.App
+    @EnvironmentObject var void: VD.App
 
-    let node: SplitTree<Void.SurfaceView>.Node
+    let node: SplitTree<VD.SurfaceView>.Node
     var isRoot: Bool = false
     let action: (TerminalSplitOperation) -> Void
 
@@ -87,7 +87,7 @@ private struct TerminalSplitSubtreeView: View {
 }
 
 private struct TerminalSplitLeaf: View {
-    let surfaceView: Void.SurfaceView
+    let surfaceView: VD.SurfaceView
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
 
@@ -96,7 +96,7 @@ private struct TerminalSplitLeaf: View {
 
     var body: some View {
         GeometryReader { geometry in
-            Void.InspectableSurface(
+            VD.InspectableSurface(
                 surfaceView: surfaceView,
                 isSplit: isSplit)
             .background {
@@ -119,7 +119,7 @@ private struct TerminalSplitLeaf: View {
                         .allowsHitTesting(false)
                 }
             }
-            .onPreferenceChange(Void.DraggingSurfaceKey.self) { value in
+            .onPreferenceChange(VD.DraggingSurfaceKey.self) { value in
                 isSelfDragging = value == surfaceView.id
                 if isSelfDragging {
                     dropState = .idle
@@ -138,7 +138,7 @@ private struct TerminalSplitLeaf: View {
     private struct SplitDropDelegate: DropDelegate {
         @Binding var dropState: DropState
         let viewSize: CGSize
-        let destinationSurface: Void.SurfaceView
+        let destinationSurface: VD.SurfaceView
         let action: (TerminalSplitOperation) -> Void
 
         func validateDrop(info: DropInfo) -> Bool {
@@ -171,7 +171,7 @@ private struct TerminalSplitLeaf: View {
             guard let provider = providers.first else { return false }
 
             // Capture action before the async closure
-            _ = provider.loadTransferable(type: Void.SurfaceView.self) { [weak destinationSurface] result in
+            _ = provider.loadTransferable(type: VD.SurfaceView.self) { [weak destinationSurface] result in
                 switch result {
                 case .success(let sourceSurface):
                     DispatchQueue.main.async {

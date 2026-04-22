@@ -2,7 +2,7 @@ import SwiftUI
 
 /// This delegate is notified of the completion result of the clipboard confirmation dialog.
 protocol ClipboardConfirmationViewDelegate: AnyObject {
-    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action, _ request: Void.ClipboardRequest)
+    func clipboardConfirmationComplete(_ action: ClipboardConfirmationView.Action, _ request: VD.ClipboardRequest)
 }
 
 /// The SwiftUI view for showing a clipboard confirmation dialog.
@@ -11,7 +11,7 @@ struct ClipboardConfirmationView: View {
         case cancel
         case confirm
 
-        static func text(_ action: Action, _ reason: Void.ClipboardRequest) -> String {
+        static func text(_ action: Action, _ reason: VD.ClipboardRequest) -> String {
             switch (action, reason) {
             case (.cancel, .paste):
                 return "Cancel"
@@ -29,7 +29,7 @@ struct ClipboardConfirmationView: View {
     let contents: String
 
     /// The type of the clipboard request
-    let request: Void.ClipboardRequest
+    let request: VD.ClipboardRequest
 
     /// Optional delegate to get results. If this is nil, then this view will never close on its own.
     weak var delegate: ClipboardConfirmationViewDelegate?

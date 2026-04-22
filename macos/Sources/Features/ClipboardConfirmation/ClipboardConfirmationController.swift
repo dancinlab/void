@@ -11,11 +11,11 @@ class ClipboardConfirmationController: NSWindowController {
 
     let surface: void_surface_t
     let contents: String
-    let request: Void.ClipboardRequest
+    let request: VD.ClipboardRequest
     let state: UnsafeMutableRawPointer?
     weak private var delegate: ClipboardConfirmationViewDelegate?
 
-    init(surface: void_surface_t, contents: String, request: Void.ClipboardRequest, state: UnsafeMutableRawPointer?, delegate: ClipboardConfirmationViewDelegate) {
+    init(surface: void_surface_t, contents: String, request: VD.ClipboardRequest, state: UnsafeMutableRawPointer?, delegate: ClipboardConfirmationViewDelegate) {
         self.surface = surface
         self.contents = contents
         self.request = request

@@ -139,7 +139,7 @@ class TitlebarTabsVenturaTerminalWindow: TerminalWindow {
 
     // MARK: Appearance
 
-    override func syncAppearance(_ surfaceConfig: Void.SurfaceView.DerivedConfig) {
+    override func syncAppearance(_ surfaceConfig: VD.SurfaceView.DerivedConfig) {
         super.syncAppearance(surfaceConfig)
         // override appearance based on the terminal's background color
         if let preferredBackgroundColor {
