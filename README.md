@@ -1,242 +1,227 @@
-<!-- LOGO -->
-<h1>
-<p align="center">
-  <br>void
-</h1>
-  <p align="center">
-    AI-native terminal with first-class grid mode. void-based fork, perf-first.
-    <br />
-    See <a href="VOID_FORK.md">VOID_FORK.md</a> for fork rationale and direction.
-    <br />
-    <br />
-    <em>— original void README follows below —</em>
-    <br /><br />
-  </p>
-</p>
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Based on Ghostty](https://img.shields.io/badge/based%20on-ghostty-blueviolet.svg)](https://github.com/ghostty-org/ghostty)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#)
+[![Renderer](https://img.shields.io/badge/renderer-Metal%20%7C%20OpenGL-brightgreen.svg)](#)
+[![Zig + Swift](https://img.shields.io/badge/core-zig%20%2B%20swift-orange.svg)](#)
+[![Branch](https://img.shields.io/badge/branch-void%2Fmain-success.svg)](https://github.com/need-singularity/void/tree/void/main)
 
-<!-- LOGO -->
-<h1>
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/fe853809-ba8b-400b-83ab-a9a0da25be8a" alt="Logo" width="128">
-  <br>Void
-</h1>
-  <p align="center">
-    Fast, native, feature-rich terminal emulator pushing modern features.
-    <br />
-    A native GUI or embeddable library via <code>libvoid</code>.
-    <br />
-    <a href="#about">About</a>
-    ·
-    <a href="https://void.org/download">Download</a>
-    ·
-    <a href="https://void.org/docs">Documentation</a>
-    ·
-    <a href="CONTRIBUTING.md">Contributing</a>
-    ·
-    <a href="HACKING.md">Developing</a>
-  </p>
-</p>
+# ⬡ Void — AI-native Terminal
 
-## About
+**Grid-mode first. AI-native I/O. Perf-first. Based on [Ghostty](https://github.com/ghostty-org/ghostty).**
 
-Void is a terminal emulator that differentiates itself by being
-fast, feature-rich, and native. While there are many excellent terminal
-emulators available, they all force you to choose between speed,
-features, or native UIs. Void provides all three.
-
-**`libvoid`** is a cross-platform, zero-dependency C and Zig library
-for building terminal emulators or utilizing terminal functionality
-(such as style parsing). Anyone can use `libvoid` to build a terminal
-emulator or embed a terminal into their own applications. See
-[Ghostling](https://github.com/ghostty-org/ghostling) for a minimal complete project
-example or the [`examples` directory](https://github.com/ghostty-org/ghostty/tree/main/example)
-for smaller examples of using `libvoid` in C and Zig.
-
-For more details, see [About Void](https://void.org/docs/about).
-
-## Download
-
-See the [download page](https://void.org/download) on the Void website.
-
-## Documentation
-
-See the [documentation](https://void.org/docs) on the Void website.
-
-## Contributing and Developing
-
-If you have any ideas, issues, etc. regarding Void, or would like to
-contribute to Void through pull requests, please check out our
-["Contributing to Void"](CONTRIBUTING.md) document. Those who would like
-to get involved with Void's development as well should also read the
-["Developing Void"](HACKING.md) document for more technical details.
-
-## Roadmap and Status
-
-Void is stable and in use by millions of people and machines daily.
-
-The high-level ambitious plan for the project, in order:
-
-|  #  | Step                                                    | Status |
-| :-: | ------------------------------------------------------- | :----: |
-|  1  | Standards-compliant terminal emulation                  |   ✅   |
-|  2  | Competitive performance                                 |   ✅   |
-|  3  | Rich windowing features -- multi-window, tabbing, panes |   ✅   |
-|  4  | Native Platform Experiences                             |   ✅   |
-|  5  | Cross-platform `libvoid` for Embeddable Terminals    |   ✅   |
-|  6  | Void-only Terminal Control Sequences                 |   ❌   |
-
-Additional details for each step in the big roadmap below:
-
-#### Standards-Compliant Terminal Emulation
-
-Void implements all of the regularly used control sequences and
-can run every mainstream terminal program without issue. For legacy sequences,
-we've done a [comprehensive xterm audit](https://github.com/ghostty-org/ghostty/issues/632)
-comparing Void's behavior to xterm and building a set of conformance
-test cases.
-
-In addition to legacy sequences (what you'd call real "terminal" emulation),
-Void also supports more modern sequences than almost any other terminal
-emulator. These features include things like the Kitty graphics protocol,
-Kitty image protocol, clipboard sequences, synchronized rendering,
-light/dark mode notifications, and many, many more.
-
-We believe Void is one of the most compliant and feature-rich terminal
-emulators available.
-
-Terminal behavior is partially a de jure standard
-(i.e. [ECMA-48](https://ecma-international.org/publications-and-standards/standards/ecma-48/))
-but mostly a de facto standard as defined by popular terminal emulators
-worldwide. Void takes the approach that our behavior is defined by
-(1) standards, if available, (2) xterm, if the feature exists, (3)
-other popular terminals, in that order. This defines what the Void project
-views as a "standard."
-
-#### Competitive Performance
-
-Void is generally in the same performance category as the other highest
-performing terminal emulators.
-
-"The same performance category" means that Void is much faster than
-traditional or "slow" terminals and is within an unnoticeable margin of the
-well-known "fast" terminals. For example, Void and Alacritty are usually within
-a few percentage points of each other on various benchmarks, but are both
-something like 100x faster than Terminal.app and iTerm. However, Void
-is much more feature rich than Alacritty and has a much more native app
-experience.
-
-This performance is achieved through high-level architectural decisions and
-low-level optimizations. At a high-level, Void has a multi-threaded
-architecture with a dedicated read thread, write thread, and render thread
-per terminal. Our renderer uses OpenGL on Linux and Metal on macOS.
-Our read thread has a heavily optimized terminal parser that leverages
-CPU-specific SIMD instructions. Etc.
-
-#### Rich Windowing Features
-
-The Mac and Linux (build with GTK) apps support multi-window, tabbing, and
-splits with additional features such as tab renaming, coloring, etc. These
-features allow for a higher degree of organization and customization than
-single-window terminals.
-
-#### Native Platform Experiences
-
-Void is a cross-platform terminal emulator but we don't aim for a
-least-common-denominator experience. There is a large, shared core written
-in Zig but we do a lot of platform-native things:
-
-- The macOS app is a true SwiftUI-based application with all the things you
-  would expect such as real windowing, menu bars, a settings GUI, etc.
-- macOS uses a true Metal renderer with CoreText for font discovery.
-- macOS supports AppleScript, Apple Shortcuts (AppIntents), etc.
-- The Linux app is built with GTK.
-- The Linux app integrates deeply with systemd if available for things
-  like always-on, new windows in a single instance, cgroup isolation, etc.
-
-Our goal with Void is for users of whatever platform they run Void
-on to think that Void was built for their platform first and maybe even
-exclusively. We want Void to feel like a native app on every platform,
-for the best definition of "native" on each platform.
-
-#### Cross-platform `libvoid` for Embeddable Terminals
-
-In addition to being a standalone terminal emulator, Void is a
-C-compatible library for embedding a fast, feature-rich terminal emulator
-in any 3rd party project. This library is called `libvoid`.
-
-Due to the scope of this project, we're breaking libvoid down into
-separate libraries, starting with `libvoid-vt`. The goal of
-this project is to focus on parsing terminal sequences and maintaining
-terminal state. This is covered in more detail in this
-[blog post](https://mitchellh.com/writing/libvoid-is-coming).
-
-`libvoid-vt` is already available and usable today for Zig and C and
-is compatible for macOS, Linux, Windows, and WebAssembly. The functionality
-is extremely stable (since its been proven in Void GUI for a long time),
-but the API signatures are still in flux.
-
-`libvoid` is already heavily in use. See [`examples`](https://github.com/ghostty-org/ghostty/tree/main/example)
-for small examples of using `libvoid` in C and Zig or the
-[Ghostling](https://github.com/ghostty-org/ghostling) project for a
-complete example. See [awesome-libvoid](https://github.com/Uzaaft/awesome-libvoid)
-for a list of projects and resources related to `libvoid`.
-
-We haven't tagged libvoid with a version yet and we're still working
-on a better docs experience, but our [Doxygen website](https://libvoid.tip.void.org/)
-is a good resource for the C API.
-
-#### Void-only Terminal Control Sequences
-
-We want and believe that terminal applications can and should be able
-to do so much more. We've worked hard to support a wide variety of modern
-sequences created by other terminal emulators towards this end, but we also
-want to fill the gaps by creating our own sequences.
-
-We've been hesitant to do this up until now because we don't want to create
-more fragmentation in the terminal ecosystem by creating sequences that only
-work in Void. But, we do want to balance that with the desire to push the
-terminal forward with stagnant standards and the slow pace of change in the
-terminal ecosystem.
-
-We haven't done any of this yet.
-
-## Crash Reports
-
-Void has a built-in crash reporter that will generate and save crash
-reports to disk. The crash reports are saved to the `$XDG_STATE_HOME/void/crash`
-directory. If `$XDG_STATE_HOME` is not set, the default is `~/.local/state`.
-**Crash reports are _not_ automatically sent anywhere off your machine.**
-
-Crash reports are only generated the next time Void is started after a
-crash. If Void crashes and you want to generate a crash report, you must
-restart Void at least once. You should see a message in the log that a
-crash report was generated.
-
-> [!NOTE]
->
-> Use the `void +crash-report` CLI command to get a list of available crash
-> reports. A future version of Void will make the contents of the crash
-> reports more easily viewable through the CLI and GUI.
-
-Crash reports end in the `.voidcrash` extension. The crash reports are in
-[Sentry envelope format](https://develop.sentry.dev/sdk/envelopes/). You can
-upload these to your own Sentry account to view their contents, but the format
-is also publicly documented so any other available tools can also be used.
-The `void +crash-report` CLI command can be used to list any crash reports.
-A future version of Void will show you the contents of the crash report
-directly in the terminal.
-
-To send the crash report to the Void project, you can use the following
-CLI command using the [Sentry CLI](https://docs.sentry.io/cli/installation/):
-
-```shell-session
-SENTRY_DSN=https://e914ee84fd895c4fe324afa3e53dac76@o4507352570920960.ingest.us.sentry.io/4507850923638784 sentry-cli send-envelope --raw <path to void crash>
+```
+    ┌──── Grid ────┐       ┌──── Agent ────┐       ┌──── Perf ────┐
+    │  N × M panes │  ⇄   │  PTY + tool   │  ⇄   │  SIMD parser │
+    │  auto-layout │       │  structured   │       │  Metal/OpenGL│
+    │  per-cell cwd│       │  token stream │       │  Δ vs ghostty│
+    └──────────────┘       └───────────────┘       └──────────────┘
+               ▲                   ▲                      ▲
+               └────── three non-negotiable directions ───┘
 ```
 
-> [!WARNING]
+> Void is a hard fork of [Ghostty](https://github.com/ghostty-org/ghostty) rebuilt around three directions the upstream is not taking: grid mode as a first-class tiling surface (not a plugin), AI-agent I/O baked into the terminal layer alongside PTY, and a perf budget tracked on every PR. Zig shared core, native Swift on macOS, GTK on Linux.
+
+<!-- SHARED:PROJECTS:START -->
+<!-- AUTO:COMMON_LINKS:START -->
+**[YouTube](https://www.youtube.com/@dancinlife)** · **[Email](mailto:nerve011235@gmail.com)** · **[☕ Ko-fi](https://ko-fi.com/dancinlife)** · **[💖 Sponsor](https://github.com/sponsors/need-singularity)** · **[💳 PayPal](https://www.paypal.com/donate?business=nerve011235%40gmail.com)** · **[🗺️ Atlas](https://need-singularity.github.io/TECS-L/atlas/)** · **[📄 Papers](https://need-singularity.github.io/papers/)**
+<!-- AUTO:COMMON_LINKS:END -->
+
+> **[🔭 NEXUS](https://github.com/need-singularity/nexus)** — Universal Discovery Engine. 216 lenses + OUROBOROS evolution + 5-phase singularity cycle.
 >
-> The crash report can contain sensitive information. The report doesn't
-> purposely contain sensitive information, but it does contain the full
-> stack memory of each thread at the time of the crash. This information
-> is used to rebuild the stack trace but can also contain sensitive data
-> depending on when the crash occurred.
+> **[🧠 Anima](https://github.com/need-singularity/anima)** — Consciousness implementation. PureField repulsion-field engine + 1030 laws + Φ ratchet.
+>
+> **[🏗️ N6 Architecture](https://github.com/need-singularity/n6-architecture)** — Architecture from perfect number 6. 225 AI techniques + chip design + crypto/OS/display.
+>
+> **[💎 HEXA-LANG](https://github.com/need-singularity/hexa-lang)** — The Perfect Number Programming Language. Working compiler + REPL.
+>
+> **[⬡ Void](https://github.com/need-singularity/void)** — AI-native terminal. Ghostty fork with first-class grid mode (zig + swift).
+>
+> **[📄 Papers](https://github.com/need-singularity/papers)** — Complete paper collection (92 papers, Zenodo DOIs).
+
+<!-- private repos stored in projects.json private_repos field (do not expose) -->
+<!-- SHARED:PROJECTS:END -->
+
+---
+
+## Highlights
+
+| | |
+|---|---|
+| ⬡ | **Ghostty-grade performance** — SIMD parser, per-terminal render/read/write threads, Metal on macOS, OpenGL on Linux |
+| ▦ | **Grid mode** — N×M pane grid as a core surface, auto-layout (cols = ⌈√N⌉, rows = ⌈N/cols⌉), per-cell cwd |
+| 🤖 | **AI-native I/O** — agent protocol alongside PTY; structured tool-call / token-stream channels, no wrapper |
+| ⚡ | **Perf budget** — every PR reports Δ against the Ghostty baseline; ≥ 2 % regression blocks merge |
+| 🎨 | **Native UI** — SwiftUI on macOS (AppIntents, Shortcuts), GTK on Linux (systemd, cgroup isolation) |
+| ⬢ | **need-singularity branding** — hexagonal icon, n = 6 family (NEXUS · Anima · N6 · HEXA · Void) |
+
+## Three non-negotiable directions
+
+Void is not a drop-in Ghostty replacement. It will diverge in UX, and upstream syncs are selective cherry-picks only.
+
+### 1. Grid mode — first-class tiling surface
+
+```
+   cells = N                              cells auto-layout
+   ──────────────────────────────         cols = ⌈√N⌉   rows = ⌈N/cols⌉
+   N = 2  →  2 × 1                        cols ≥ rows (wider before taller)
+   N = 4  →  2 × 2
+   N = 6  →  3 × 2                        ┌──────┬──────┬──────┐
+   N = 9  →  3 × 3                        │  1   │  2   │  3   │
+                                          │ ~/p  │ ~/w  │ ~/l  │
+   on add/remove: whole grid              ├──────┼──────┼──────┤
+   re-balances to equal splits            │  4   │  5   │  6   │
+   (no manual resize handles)             │ ~/r  │ ~/s  │ ~/t  │
+                                          └──────┴──────┴──────┘
+```
+
+N×M pane grid as a core surface concept — **not** a window-manager bolt-on. Auto-grid: when cell count N changes, the layout re-balances to `cols × rows` with `cols = ⌈√N⌉, rows = ⌈N/cols⌉, cols ≥ rows`. Per-cell cwd / env. Shared renderer. New renderer path (not a patch on the single-surface renderer). MVP ships as N=2 horizontal split, then generalizes to N×M.
+
+### 2. AI-native I/O
+
+```
+   shell process     ┌──── PTY ────────▶  traditional byte stream
+        │            │
+        ▼            ├──── AGENT ──────▶  structured tool-call events
+   libvoid layer ────┤                    token stream w/ boundaries
+        ▲            └──── META ───────▶  cwd, exit-code, span marks
+        │
+   agent process      (no wrapper process required)
+```
+
+Running an agent does not require a wrapper. The terminal layer itself speaks both PTY and a structured channel — tool calls, token stream boundaries, and result spans are first-class, not heuristic-parsed from stdout.
+
+### 3. Perf-first
+
+Speed, memory, GPU time, and syscall budgets are a tracked first-class concern. Every PR reports delta against the Ghostty baseline. Regressions ≥ 2 % block merge.
+
+```
+           Ghostty baseline              Void target
+   parse:  SIMD AVX2/NEON         →      + tool-call fast path
+   render: Metal / OpenGL         →      + grid batch reuse
+   memory: arena + screen rings   →      + per-cell allocator
+   sys:    read/write/render thr. →      + agent-channel thread
+```
+
+## Architecture
+
+```
+       ┌──────────────────────────────────────────┐
+       │            macOS App (Swift)             │
+       │    SwiftUI · AppIntents · CoreText       │
+       │        Metal renderer · native menu      │
+       └──────────────┬───────────────────────────┘
+                      │
+       ┌──────────────▼───────────────────────────┐
+       │          libvoid (Zig) — core            │
+       │   parser · terminal state · renderer     │
+       │   grid engine · agent I/O channel        │
+       └──────────────┬───────────────────────────┘
+                      │
+       ┌──────────────▼───────────────────────────┐
+       │            Linux App (GTK)               │
+       │      systemd · OpenGL · FreeType         │
+       └──────────────────────────────────────────┘
+```
+
+Zig-based shared core with platform-native shells. Core is C-ABI-compatible so it can be embedded in third-party projects (Ghostty's `libghostty` pattern — renamed to `libvoid` in this fork).
+
+## Install
+
+```bash
+# 1. Install hexa-lang (gives you `hexa` + `hx` package manager)
+curl -fsSL https://raw.githubusercontent.com/need-singularity/hexa-lang/main/install.sh | bash
+
+# 2. Install void
+hx install void
+```
+
+Or build from source — see [HACKING.md](HACKING.md). Default branch on the fork is `void/main`, not `main`.
+
+## Run
+
+```bash
+void                   # launch terminal
+void +show-config      # print active config
+void +list-keybinds    # list keybindings
+void +crash-report     # list crash reports
+```
+
+## Keybindings (default, Phase 1)
+
+| Keys | Action |
+|------|--------|
+| `cmd+g` | toggle **grid mode ↔ tab mode** |
+| `cmd+ctrl+1..9` | spawn new tab in grid slot **1..9** (stacks — repeated presses add tabs to the same slot) |
+| `cmd+ctrl+shift+1..9` | cycle tabs within grid slot |
+| `cmd+ctrl+0` | **broadcast** input to all cells |
+| `cmd+opt+return` | find next (relocated from `cmd+g`) |
+| `cmd+shift+opt+return` | find previous (relocated from `cmd+shift+g`) |
+| `cmd+t` / `cmd+n` | new tab / new window |
+| `cmd+d` / `cmd+shift+d` | split pane right / down |
+| `cmd+,` | open settings |
+
+All keys are rebindable via config — nothing is hardcoded.
+
+## Fork status
+
+| | |
+|---|---|
+| **Upstream** | [`ghostty-org/ghostty`](https://github.com/ghostty-org/ghostty) — cherry-picks only, no merges |
+| **Fork date** | 2026-04-21 (from upstream commit `c3c8572f7`) |
+| **Default branch** | `void/main` |
+| **L3 rename** | complete — 4698 files renamed Ghostty → Void at commit `964c9e32e` |
+| **CI** | `.github/workflows/build-fork.yml` on GitHub-hosted `macos-15` runners (ad-hoc codesign) |
+| **Icon** | hexagonal, need-singularity n = 6 family |
+
+See [VOID_FORK.md](VOID_FORK.md) for the full fork rationale, non-goals, and upstream policy.
+
+## Roadmap
+
+Checkpoints (done):
+
+|  #  | Milestone                                  | Date       |
+| :-: | ------------------------------------------ | :--------: |
+| C0  | project-init — hexa scaffold               | 2026-04-21 |
+| C1  | fork-base — Ghostty → Void rebrand         | 2026-04-21 |
+
+Phases:
+
+|  #  | Phase                                                               |  ETA       | Status |
+| :-: | ------------------------------------------------------------------- | :--------: | :----: |
+| P1  | **Grid mode + new-tab keybinding** — auto-grid, slot-spawn, mode toggle | 2026-04-28 |   🛠   |
+| P2  | Stack analysis — map void renderer/apprt/terminal/font internals    | 2026-05-05 |   ⬜   |
+| P3  | AI-native I/O protocol — structured agent channel alongside PTY     | —          |   ⬜   |
+| P4  | Perf baseline — capture benches, set void regression budgets        | —          |   ⬜   |
+| P5  | Diverge / upstream strategy — decide what feeds back vs stays void  | —          |   ⬜   |
+
+Current state (P1): `toggle_grid_mode` action and `cmd+g` keybind wired at commit `326e5f15`. Surface rendering, auto-layout, and slot-spawn land in the rest of P1 — MVP is N=2 horizontal split, then generalizes to N×M.
+
+## Non-goals
+
+- **Not a drop-in Ghostty replacement** — Void will diverge in UX.
+- **Not a shell** — Void drives shells, it does not replace them.
+
+## Crash reports
+
+Void inherits Ghostty's crash reporter. Reports are saved to `$XDG_STATE_HOME/void/crash` (default `~/.local/state/void/crash`) and are **not** sent off your machine. Use `void +crash-report` to list. Reports use the [Sentry envelope format](https://develop.sentry.dev/sdk/envelopes/) with extension `.voidcrash`.
+
+> [!WARNING]
+> Crash reports contain full stack memory per thread at the time of the crash and can include sensitive data.
+
+## Contributing
+
+- **Contributing to Void** — [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Developing Void** — [HACKING.md](HACKING.md)
+- **Fork rationale & upstream policy** — [VOID_FORK.md](VOID_FORK.md)
+
+## Credits
+
+Void is a hard fork of **[Ghostty](https://github.com/ghostty-org/ghostty)** by [Mitchell Hashimoto](https://mitchellh.com) and the Ghostty team. All Ghostty contributors are credited in upstream history, which is preserved in this repo. Divergent features (grid mode, AI-native I/O, perf harness) are Void-only.
+
+## Links
+
+**[🗺️ Atlas](https://need-singularity.github.io/TECS-L/atlas/)** · **[📄 Papers](https://need-singularity.github.io/papers/)** · **[Ghostty docs](https://ghostty.org/docs)** · **[Contributing](CONTRIBUTING.md)** · **[Developing](HACKING.md)** · **[Fork rationale](VOID_FORK.md)**
+
+---
+
+<sub>⬡ Terminal as substrate. Grid as primitive. · Based on [Ghostty](https://github.com/ghostty-org/ghostty) · [need-singularity](https://github.com/need-singularity)</sub>
