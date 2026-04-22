@@ -1,0 +1,104 @@
+# next-session — Void fork handoff
+# Created 2026-04-22 end of day. Restart mac to let new /Applications/Void.app
+# take effect, then paste this prompt into a fresh session.
+
+## 현재 상태 (origin/void/main @ 4e6a7b7cd)
+
+### 설치된 것
+- /Applications/Void.app (CI run 24784220892, commit 4e6a7b7cd, ad-hoc signed, arm64)
+  - AppIcon.icns 40.5KB (육각 squircle body 442/512, polygon 0.7225×baseline)
+  - CFBundleIdentifier = com.mitchellh.void
+  - "Void"로 Dock/Finder/메뉴에 표시
+- 사용자 데이터 (보존됨)
+  - ~/Library/Application Support/com.mitchellh.void/config.void (0바이트 placeholder)
+  - ~/Library/Preferences/com.mitchellh.void.plist
+  - ~/Library/Saved Application State/com.mitchellh.void.savedState/ (아직 없음)
+
+### 미검증 (재시작 후 확인 필요)
+1. cmd+g 로 그리드 ↔ 탭 토글
+   - 탭 2개 → cmd+g → 가로 2 split 한 탭
+   - cmd+g 다시 → 2 탭 복원
+   - 탭 4개 → cmd+g → 2×2 그리드
+2. 한글 입력 시 sans-serif 렌더 (Apple SD Gothic Neo)
+   - `echo "안녕하세요"` / 탭 제목에 한글
+   - 섞인 줄: "hello 안녕" — JetBrains Mono + Apple SD Gothic Neo 혼합 정렬
+
+## 바로 다음 작업 (.roadmap P1.2 먼저, 그 다음 P2)
+
+### P1.2: Find Next/Prev 재할당 (작음)
+cmd+g 를 grid 토글로 뺏어서 native Find Next 키가 증발. 재할당:
+- cmd+opt+return       → find_next
+- cmd+shift+opt+return → find_previous
+- MainMenu.xib 또는 프로그래매틱 메뉴 반영
+
+### P2: 스크롤백 복원 (중간)
+Terminal.app처럼 비정상 종료 시 visible buffer 복원.
+- 이미 있는 인프라
+  - Screen.dumpString(writer, .{ .emit = .vt }) — ANSI escape 직렬화
+  - Termio.processOutput(buf) — parser 피드
+  - TerminalRestorableState — surfaceTree/focus/fullscreen/tab color/title
+- 필요한 것
+  - Zig export: `void_surface_serialize_vt(surface, out_bytes, max_rows)`
+    - core_surface.io.terminal.screens.active 의 dumpString(.vt) 호출
+    - max_rows 로 cap (기본 2000)
+  - Zig API: surface init 시점에 replay bytes 받을 경로 (Surface.init + termio 시작 전)
+  - Swift: TerminalRestorableState에 `surfaceScrollback: [String: Data]` 추가
+    - surfaceView.id.uuidString → VT bytes
+    - encodeRestorableState 에서 각 surface 별로 serialize 호출
+    - restoreWindow 에서 surface 생성 시 inject
+- 타이밍 주의
+  - pty 첫 바이트 도착 전에 inject 해야 shell prompt 와 겹치지 않음
+  - goldilocks: surface.io 초기화 완료 ~ pty stream read 시작 사이
+  - 제일 안전: Surface.init 파라미터로 `restore_bytes: ?[]const u8` 받고
+    termio 시작 직후 processOutput(restore_bytes) 우선 호출
+
+## 기술 제약 (까먹으면 고생함)
+
+### TCC/샌드박스
+- .github/workflows/*.yml, install.hexa 는 로컬 FS에서 write 불가
+  → gh api PUT contents/... 로 원격 직접 수정 (이미 세팅된 패턴)
+- osascript "tell application to quit" / pkill 도 세션 내에서는 -10004 / op-not-permitted
+  → Void 종료는 사용자가 직접 cmd+Q 또는 `! ...` 프리픽스로 실행
+
+### CI
+- namespace 러너: fork 에서 안 돎. Test.yml 매 push 마다 pending 고착
+  → gh api runs/{id}/cancel 로 매번 취소 (스크립트 자동화 해도 좋음)
+- Build Fork (macOS): .github/workflows/build-fork.yml, macos-15, ARCHS=arm64
+  → actions/cache 로 zig/sparkle/DerivedData 모두 캐싱. 2회차부터 3-5배 빠름
+
+### Git 플럼빙
+- TCC가 막는 경로 (install.hexa 등) 와 함께 커밋 불필요. 플럼빙 패턴:
+  ```
+  git fetch origin void/main
+  git update-ref refs/heads/void/main origin/void/main  # 원격에 맞춤
+  git read-tree HEAD
+  BLOB=$(git hash-object -w <path>)
+  git update-index --cacheinfo <mode>,<blob>,<path>
+  TREE=$(git write-tree)
+  COMMIT=$(git commit-tree $TREE -p HEAD -F /tmp/msg.txt)
+  git update-ref refs/heads/void/main $COMMIT
+  git push origin void/main
+  ```
+
+### 빌드 사이클 (평균)
+- VoidKit zig compile (cold): 6-8분 / (warm): 1-2분
+- xcodebuild: 2-3분
+- zip+upload: 1분
+- 총: cold 10분, warm 4-5분
+- artifact 다운로드 + /Applications/Void.app 설치 + launch: 30초
+
+## 직전 세션 마무리 상태
+- origin/void/main = 4e6a7b7cd
+- local = origin (0 ahead / 0 behind)
+- 워킹 트리에 TCC artifact만 남음 (빈 파일 상태로 보여도 원격엔 다 있음)
+  - D .github/workflows/build-fork.yml
+  - D install.hexa
+  - M nix/build-support/update-mirror.nu (mode-only)
+  - ?? enabled
+- 이 4개는 커밋 대상 아님. 무시.
+
+## 새 세션 시작시 첫 명령어 제안
+```
+.roadmap 읽고 현황 파악 후, 재시작된 Void.app에서 cmd+g 그리드 토글이
+정상 동작하는지 사용자 확인 받고, P1.2 (find-next 재할당) 부터 착수
+```

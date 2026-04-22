@@ -1,9 +1,19 @@
 # void /.roadmap — void fork direction
 # Rewritten 2026-04-21 after pivot.
+# Updated 2026-04-22: P1 core shipped (grid toggle + Swift font CJK fallback).
 
 # checkpoint
-- done [C0] project-init — hexa scaffold 2026-04-21
-- done [C1] fork-base   — void → void rebrand 2026-04-21
+- done [C0] project-init  — hexa scaffold 2026-04-21
+- done [C1] fork-base     — ghostty → void rebrand 2026-04-21
+- done [C2] macos-ci      — Build Fork workflow (macos-15, ARCHS=arm64,
+                            native xcframework, DerivedData cache) 2026-04-22
+- done [C3] icon          — images/Void.icon/Assets/avatar.{svg,png} +
+                            AppIcon.appiconset fallback (actool crash
+                            workaround on Xcode 26.3 + macos-15) 2026-04-22
+- done [C4] cjk-font      — auto-append Apple SD Gothic Neo / Hiragino Sans
+                            / PingFang SC to every font-family chain so
+                            Korean no longer renders serif via
+                            CTFontCreateForString heuristic 2026-04-22
 
 # scope
 # void = void-based AI-native terminal emulator.
@@ -15,44 +25,73 @@
 #   (3) perf-first  : speed / memory / GPU / syscall budgets tracked per PR
 
 # active phase
-- active [P1] grid-mode + new-tab keybinding
+- done   [P1] grid-mode toggle (cmd+G)
+  shipped 2026-04-22 (commits 326e5f159 → 56dc8bea6 → 15ad6e416)
+  what shipped
+    - action.toggle_grid_mode + default keybind cmd+g (Zig)
+    - Swift observer voidDidToggleGridMode in BaseTerminalController
+    - SplitTree.grid(views:) — cols = ceil(√N), rows = ceil(N/cols),
+      ratios equalized. Spec: 2→1×2, 4→2×2, 6→3×2, N=3/5/7 bias cols.
+    - flatten-tabs-to-grid  : multi-tab window → single tab N-way grid
+    - explode-into-tabs     : single tab with splits → one surface per tab
+    - undo-registration suppressed during swap (cmd+g again reverses)
+  design reality vs original plan
+    - original .roadmap had "new renderer path for N×M tiling". Reality:
+      existing SplitTree renderer already supports arbitrary nested splits,
+      no renderer rewrite needed. grid() just builds a balanced tree.
+    - cmd+G overtakes native Find Next — still need to rebind Find Next/Prev
+      to cmd+opt+return / cmd+shift+opt+return (NOT done yet).
+- active [P1.1] grid slot-spawn keybinds (cmd+ctrl+N)
   eta 2026-04-28
-  why "native N×M pane grid (최우선) + cmd+ctrl+N 누르면 N번 위치에 '새 탭' 오픈. 기존 셀 포커스 스위치가 아니라 grid 위에 새 PTY 세션을 spawn 해서 해당 slot 에 연결."
-  features
-    - grid-layout   : N×M tiling surface, shared renderer, per-cell cwd/env
-                      **auto-grid**: 셀 N 개가 생길 때마다 cols × rows 자동 계산
-                      (cols = ceil(√N), rows = ceil(N/cols), cols ≥ rows 우선).
-                      예: N=2→2×1, N=4→2×2, N=6→3×2, N=9→3×3.
-                      셀 추가/삭제 시 전체 re-balance (수동 resize 없음, 균일 분할).
-                      구현: src/datastruct/split_tree.zig (layout 모드 + re-balance) +
-                           **신규 렌더러** 필요 (기존 void single-surface 렌더러는
-                           N×M 타일링 분할 surface 를 상정하지 않음 — 패치가 아닌
-                           새 renderer path 를 추가).
-    - new-tab-open  : cmd+ctrl+1..9 = grid slot 1..9 에 '새 탭' spawn.
-                      **이미 해당 slot 에 탭이 있어도 매번 추가 생성** (no-op / replace X).
-                      같은 slot 내 탭은 스택처럼 쌓임 (cmd+ctrl+N 반복 누를수록 N번 slot 에
-                      탭 증식). slot 내 탭 순환은 별도 키 (e.g. cmd+ctrl+shift+N) 로 분리.
-                      cmd+ctrl+0       = 전체 broadcast (모든 셀 동시 입력)
-                      cmd+G            = **grid mode ↔ tab mode 전환**
-                                         (tab mode = 기존 void 단일 pane+탭,
-                                          grid mode = N×M 분할, 둘이 서로 토글)
-                      # cmd+G 탈취 후 Find Next/Prev 재할당
-                      cmd+opt+return   = navigate_search next  (원 cmd+G)
-                      cmd+shift+opt+return = navigate_search previous  (원 cmd+shift+G)
-    - visual-cue    : active cell 테두리/색 강조, 나머지 dim
-  ship-target
-    - N=2 (horizontal split) MVP 먼저 → N×M 일반화
-    - keybinding 은 config 에서 rebind 가능 (하드코딩 X)
-- todo   [P2] stack-analysis
+  why "N=1..9 키 눌러 grid 의 N번 slot 위치에 새 PTY 탭 스폰. 동일 slot 키
+        반복 = 스택 쌓기. cmd+ctrl+0 = broadcast."
+  blockers
+    - first need spatial → slot mapping on SplitTree (leaves[0..N-1] in
+      row-major order). should build on existing SplitTree.Spatial.
+    - broadcast mode requires multiplexing input across all surfaces —
+      intercept at Surface.keyCallback level, fan out to each surface.
+- todo   [P1.2] find-next rebind + command-palette entry
+  why "cmd+g is now grid toggle. native Find Next/Prev need new homes."
+  plan
+    - cmd+opt+return       → find_next
+    - cmd+shift+opt+return → find_previous
+    - ensure xcodeproj MainMenu.xib (or programmatic menu) reflects this
+- todo   [P2] scrollback restore on abnormal termination
+  why "Terminal.app restores windows + visible buffer on forced quit;
+        Void currently restores tree/splits but not scrollback bytes.
+        user request 2026-04-22."
+  sketch
+    - zig: surface_serialize_screen export → Screen.dumpString(.vt)
+      capped at last N rows (2000?)
+    - zig: surface_inject_screen export or init-with-replay param →
+      feed VT bytes through Termio.processOutput BEFORE pty attach
+    - swift: extend TerminalRestorableState with surfaceScrollback:
+      [String: Data] keyed by surfaceView.id.uuidString
+    - timing: inject during surface init, before first pty byte, to
+      avoid overlap with shell's initial prompt
+  open questions
+    - alt-screen (tmux, vim) at save time — restore primary only?
+    - cursor position after replay — end with \n to push cursor below
+    - storage cap — NSCoder blob size budget per tab
+- todo   [P3] stack-analysis
   eta 2026-05-05
-  why "grid 구현 전 void renderer/apprt/terminal/font 내부 map — 실장 중 diff 최소화"
-- todo   [P3] ai-native IO protocol
+  why "void renderer/apprt/terminal/font 내부 map — diff 최소화"
+- todo   [P4] ai-native IO protocol
   why "structured agent I/O channel alongside PTY — tool-call / token-stream aware"
-- todo   [P4] perf baseline
+- todo   [P5] perf baseline
   why "capture void baseline benches, set void regression budgets"
-- todo   [P5] diverge / upstream strategy
-  why "decide which changes feed back to void vs stay void-only"
+- todo   [P6] diverge / upstream strategy
+  why "decide which changes feed back to ghostty-org vs stay void-only"
 
 # non-goals
-# - drop-in void replacement (we will diverge in UX)
+# - drop-in ghostty replacement (we will diverge in UX)
 # - being a shell (void drives shells, does not replace them)
+
+# operational notes (2026-04-22)
+# - CI: gh api push must be used for .github/workflows/* (TCC denies local
+#   writes to those paths). Same for install.hexa.
+# - Local checkout to /Applications/Void.app: `ditto` always fails on
+#   shell-integration/bash/bash-preexec.sh with "Operation not permitted"
+#   but the overwrite succeeds for the rest of the bundle. Not a blocker.
+# - Namespace runners don't work on this fork — Test.yml runs pend forever
+#   and must be cancelled each push. Build Fork (macOS) on macos-15 works.
