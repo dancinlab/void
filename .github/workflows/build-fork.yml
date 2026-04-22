@@ -1,0 +1,80 @@
+name: Build Fork (macOS)
+
+on:
+  push:
+    branches: [void/main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: build-fork-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      ZIG_VERSION: "0.15.2"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: |
+          # Pick latest installed Xcode; project requires 26.x
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26* 2>/dev/null | sort -r | head -1)" || \
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_16* 2>/dev/null | sort -r | head -1)" || true
+          xcodebuild -version
+
+      - name: Install Zig ${{ env.ZIG_VERSION }}
+        run: |
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            arm64) ZIG_ARCH=aarch64 ;;
+            x86_64) ZIG_ARCH=x86_64 ;;
+            *) echo "unknown arch $ARCH"; exit 1 ;;
+          esac
+          URL="https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-macos-${ZIG_VERSION}.tar.xz"
+          curl -fsSL "$URL" -o /tmp/zig.tar.xz
+          mkdir -p "$HOME/zig" && tar -xJf /tmp/zig.tar.xz -C "$HOME/zig" --strip-components=1
+          echo "$HOME/zig" >> "$GITHUB_PATH"
+          "$HOME/zig/zig" version
+
+      - name: Build VoidKit framework
+        run: zig build -Doptimize=ReleaseFast -Demit-macos-app=false
+
+      - name: Setup Sparkle
+        env:
+          SPARKLE_VERSION: "2.9.0"
+        run: |
+          mkdir -p .action/sparkle
+          cd .action/sparkle
+          curl -fsSL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-for-Swift-Package-Manager.zip" -o sparkle.zip
+          unzip -q sparkle.zip
+          echo "$(pwd)/bin" >> "$GITHUB_PATH"
+
+      - name: Build Void.app (ad-hoc signed)
+        run: |
+          cd macos
+          xcodebuild -project Void.xcodeproj \
+            -target Void \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM=""
+
+      - name: Zip artifact
+        run: |
+          cd macos/build/Release
+          ditto -c -k --sequesterRsrc --keepParent Void.app /tmp/Void.app.zip
+
+      - name: Upload Void.app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Void-app-${{ github.sha }}
+          path: /tmp/Void.app.zip
+          if-no-files-found: error
+          retention-days: 14
