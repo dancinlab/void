@@ -34,8 +34,6 @@
 >
 > **[💎 HEXA-LANG](https://github.com/need-singularity/hexa-lang)** — The Perfect Number Programming Language. Working compiler + REPL.
 >
-> **[⬡ Void](https://github.com/need-singularity/void)** — AI-native terminal. Ghostty fork with first-class grid mode (zig + swift).
->
 > **[📄 Papers](https://github.com/need-singularity/papers)** — Complete paper collection (92 papers, Zenodo DOIs).
 
 <!-- private repos stored in projects.json private_repos field (do not expose) -->
