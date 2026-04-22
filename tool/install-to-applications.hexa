@@ -1,0 +1,60 @@
+// tool/install-to-applications.hexa — copy void Ghostty.app into /Applications.
+// @allow-bare-exec
+//
+// Why this exists:
+//   Claude Code harness cannot rm inside /Applications/*.app (macOS App
+//   Management / TCC) — if a harness call partially deleted the old bundle
+//   it leaves a broken shell Finder can't open. This script wipes + re-
+//   copies from the local build output via ditto, falling back to sudo
+//   when plain rm is blocked.
+//
+// Usage (from repo root):
+//   hexa tool/install-to-applications.hexa                   # normal
+//   sudo hexa tool/install-to-applications.hexa              # if TCC blocks rm
+//   HX_PKG_DIR=/path/to/void hexa tool/install-to-applications.hexa  # override src
+
+fn exists_dir(p: string) -> bool {
+    let r = to_string(exec("test -d '" + p + "' && echo y || echo n")).trim()
+    return r == "y"
+}
+
+fn run_or_die(cmd: string) {
+    let result = exec_with_status(cmd)
+    if result[1] != 0 {
+        eprintln("FAILED: " + cmd)
+        exit(1)
+    }
+}
+
+fn main() {
+    let pkg_raw = to_string(exec("printenv HX_PKG_DIR 2>/dev/null")).trim()
+    let pkg_dir = if pkg_raw != "" { pkg_raw } else { to_string(exec("pwd")).trim() }
+    let src = pkg_dir + "/macos/build/ReleaseLocal/Ghostty.app"
+    let dst = "/Applications/Ghostty.app"
+
+    if !exists_dir(src) {
+        eprintln("error: " + src + " not found.")
+        eprintln("run first:  zig build -Demit-macos-app -Doptimize=ReleaseFast")
+        exit(1)
+    }
+
+    println("⬡ install: " + src + " → " + dst)
+
+    if exists_dir(dst) {
+        println("   wiping existing " + dst)
+        let rm_res = exec_with_status("rm -rf '" + dst + "' 2>/dev/null")
+        if rm_res[1] != 0 {
+            // typical cause: macOS App Management TCC on signed bundle.
+            // fallback to sudo (will prompt for password in interactive shell).
+            println("   rm failed (TCC App Management) — retry with sudo")
+            run_or_die("sudo rm -rf '" + dst + "'")
+        }
+    }
+
+    run_or_die("ditto '" + src + "' '" + dst + "'")
+    println("⬡ copied. codesign verify:")
+    let cs = to_string(exec("codesign --verify --verbose=2 '" + dst + "' 2>&1 | tail -3"))
+    println(cs)
+    println("⬡ launching:")
+    run_or_die("open -a '" + dst + "'")
+}
