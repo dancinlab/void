@@ -170,5 +170,3 @@ fn main() {
 
     println("done.")
 }
-
-main()
