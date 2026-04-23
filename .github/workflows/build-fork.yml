@@ -112,7 +112,7 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent Void.app /tmp/Void.app.zip
 
       - name: Upload Void.app
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Void-app-${{ github.sha }}
           path: /tmp/Void.app.zip
