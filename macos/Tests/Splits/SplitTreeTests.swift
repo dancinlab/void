@@ -663,4 +663,74 @@ struct SplitTreeTests {
         nodeIds.insert(s.right.structuralIdentity)
         #expect(nodeIds.count == 2)
     }
+
+    // MARK: - Grid layout
+
+    /// Inspect the root split's direction without traversing — the grid
+    /// builder uses the *outer* (stack) direction as the major axis.
+    private func rootDirection<V>(_ tree: SplitTree<V>) -> SplitTree<V>.Direction? {
+        guard case .split(let s) = tree.root else { return nil }
+        return s.direction
+    }
+
+    @Test func gridSingleViewIsLeaf() {
+        let v = MockView()
+        let tree = SplitTree<MockView>.grid(views: [v])
+        guard case .leaf(let leaf) = tree.root else {
+            Issue.record("expected single leaf")
+            return
+        }
+        #expect(leaf == v)
+    }
+
+    @Test func gridLeafOrderMatchesInput() {
+        let views = (0..<6).map { _ in MockView() }
+        let tree = SplitTree<MockView>.grid(views: views)
+        #expect(Array(tree) == views)
+    }
+
+    @Test func gridLandscapeStacksRowsVertically() {
+        // N=6 landscape: 3 columns × 2 rows. Rows are joined horizontally,
+        // then stacked top-to-bottom — so the root split is vertical.
+        let views = (0..<6).map { _ in MockView() }
+        let tree = SplitTree<MockView>.grid(views: views, prefersTall: false)
+        #expect(rootDirection(tree) == .vertical)
+    }
+
+    @Test func gridPortraitStacksColumnsHorizontally() {
+        // N=6 portrait: 2 columns × 3 rows. Columns are joined vertically,
+        // then stacked left-to-right — root split is horizontal.
+        let views = (0..<6).map { _ in MockView() }
+        let tree = SplitTree<MockView>.grid(views: views, prefersTall: true)
+        #expect(rootDirection(tree) == .horizontal)
+    }
+
+    @Test func gridTwoViewsLandscapeIsHorizontalSplit() {
+        // N=2 landscape: a single row of 2 → root is the row itself, horizontal.
+        let v1 = MockView()
+        let v2 = MockView()
+        let tree = SplitTree<MockView>.grid(views: [v1, v2], prefersTall: false)
+        #expect(rootDirection(tree) == .horizontal)
+        #expect(Array(tree) == [v1, v2])
+    }
+
+    @Test func gridTwoViewsPortraitIsVerticalSplit() {
+        // N=2 portrait: a single column of 2 → root is vertical.
+        let v1 = MockView()
+        let v2 = MockView()
+        let tree = SplitTree<MockView>.grid(views: [v1, v2], prefersTall: true)
+        #expect(rootDirection(tree) == .vertical)
+    }
+
+    @Test func gridLandscapeAndPortraitArePermutationsOfEachOther() {
+        // The leaf order is preserved regardless of orientation; only the
+        // splitting direction flips. This is the property that makes
+        // cmd+1..N consistent across orientation.
+        let views = (0..<5).map { _ in MockView() }
+        let landscape = SplitTree<MockView>.grid(views: views, prefersTall: false)
+        let portrait = SplitTree<MockView>.grid(views: views, prefersTall: true)
+        #expect(Array(landscape) == views)
+        #expect(Array(portrait) == views)
+        #expect(rootDirection(landscape) != rootDirection(portrait))
+    }
 }
