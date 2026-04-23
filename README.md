@@ -4,6 +4,7 @@
 [![Renderer](https://img.shields.io/badge/renderer-Metal%20%7C%20OpenGL-brightgreen.svg)](#)
 [![Zig + Swift](https://img.shields.io/badge/core-zig%20%2B%20swift-orange.svg)](#)
 [![Branch](https://img.shields.io/badge/branch-void%2Fmain-success.svg)](https://github.com/need-singularity/void/tree/void/main)
+[![Discord](https://img.shields.io/badge/discord-join-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/u2spd3wwU)
 
 # ⬡ Void — AI-native Terminal
 
