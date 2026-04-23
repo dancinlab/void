@@ -195,6 +195,11 @@ class BaseTerminalController: NSWindowController,
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(voidDidFocusGridCell(_:)),
+            name: VD.Notification.voidFocusGridCell,
+            object: nil)
+        center.addObserver(
+            self,
             selector: #selector(voidDidFocusSplit(_:)),
             name: VD.Notification.voidFocusSplit,
             object: nil)
@@ -657,6 +662,25 @@ class BaseTerminalController: NSWindowController,
             explodeIntoTabs(in: selfTC, focusTarget: target)
         }
         // else: single tab, single surface — no-op
+    }
+
+    /// Focus the Nth leaf surface of the current split tree. Posted by the
+    /// goto_tab action when this window has a single tab with splits (grid
+    /// mode), so users can navigate grid cells with the same cmd+1..9
+    /// shortcuts they already use for tabs.
+    @objc private func voidDidFocusGridCell(_ notification: Notification) {
+        guard let target = notification.object as? VD.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+        guard let rawIndex = notification.userInfo?[VD.Notification.GridCellIndexKey] as? Int else { return }
+        guard rawIndex >= 1 else { return }
+
+        let leaves = Array(surfaceTree)
+        guard !leaves.isEmpty else { return }
+
+        // 1-indexed; clamp to last cell so cmd+9 on a 4-cell grid lands on #4
+        // rather than being dropped (mirrors goto_tab's out-of-range behavior).
+        let finalIndex = min(rawIndex - 1, leaves.count - 1)
+        focusedSurface = leaves[finalIndex]
     }
 
     /// Collect every leaf surface across `tabs` (in tab order), build a grid SplitTree,

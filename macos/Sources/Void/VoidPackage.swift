@@ -397,6 +397,12 @@ extension VD.Notification {
     static let voidGotoTab = Notification.Name("com.mitchellh.void.gotoTab")
     static let GotoTabKey = voidGotoTab.rawValue
 
+    /// Focus the Nth leaf surface in the current window's split tree
+    /// (grid-mode reinterpretation of `goto_tab:N` when the window has a
+    /// single tab). Userinfo carries a 1-indexed `Int` under GridCellIndexKey.
+    static let voidFocusGridCell = Notification.Name("com.mitchellh.void.focusGridCell")
+    static let GridCellIndexKey = voidFocusGridCell.rawValue
+
     /// New tab. Has base surface config requested in userinfo.
     static let voidNewTab = Notification.Name("com.mitchellh.void.newTab")
 
