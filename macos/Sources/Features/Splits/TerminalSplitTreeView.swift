@@ -91,8 +91,16 @@ private struct TerminalSplitLeaf: View {
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
 
+    @FocusedValue(\.voidSurfaceView) private var focusedSurface
+
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
+
+    /// Show the focus indicator only inside a split/grid where it carries
+    /// information — a single full-window surface is unambiguously focused.
+    private var isFocusedLeaf: Bool {
+        isSplit && focusedSurface === surfaceView
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -114,6 +122,13 @@ private struct TerminalSplitLeaf: View {
                 }
             }
             .overlay {
+                // Visible focus ring for split/grid leaves. The cursor blink
+                // alone is too subtle when there are 4+ cells on screen.
+                if isFocusedLeaf {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
                 if !isSelfDragging, case .dropping(let zone) = dropState {
                     zone.overlay(in: geometry)
                         .allowsHitTesting(false)
