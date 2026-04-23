@@ -1140,11 +1140,11 @@ extension VD {
 
                     // Grid-mode reinterpretation: when this window has a single tab
                     // whose surface tree is split, there are no tabs to navigate —
-                    // reuse the same shortcut numbers (cmd+1..9 / goto_tab:N) to
-                    // focus grid cells by leaf order. Only positive 1-indexed
-                    // values apply; previous/next/last are tab-only concepts.
+                    // reuse the same shortcut numbers (cmd+1..9 / goto_tab:N and
+                    // last_tab) to focus grid cells by leaf order. Negative
+                    // sentinels (prev/next/last) are forwarded as-is so the
+                    // observer can mirror tab-mode semantics.
                     if tabCount <= 1 {
-                        guard tab.rawValue >= 1 else { return false }
                         guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
                         guard controller.surfaceTree.isSplit else { return false }
 

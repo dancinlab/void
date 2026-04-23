@@ -241,23 +241,25 @@ extension SplitTree {
 
     /// Build a grid tree from a flat list of views.
     ///
-    /// Layout rule: `cols = ceil(sqrt(N))`, `rows = ceil(N / cols)`.
-    /// - N=2 → 1×2, N=3 → 2×2 (last row 1 view), N=4 → 2×2,
-    ///   N=5 → 2×3 (last row 2 views), N=6 → 2×3, N=7..9 → 3×3.
+    /// Layout rule (landscape): `cols = ceil(sqrt(N))`, `rows = ceil(N / cols)` —
+    /// wider than tall. Pass `prefersTall: true` (e.g. portrait monitors)
+    /// to swap so `rows = ceil(sqrt(N))` and the layout grows downward first.
     /// Ratios are equalized via the existing leaf-count weighting.
-    static func grid(views: [ViewType]) -> Self {
+    static func grid(views: [ViewType], prefersTall: Bool = false) -> Self {
         guard !views.isEmpty else { return .init() }
         if views.count == 1 { return .init(view: views[0]) }
-        let cols = Int(ceil(Double(views.count).squareRoot()))
-        var rowNodes: [Node] = []
+        let major = Int(ceil(Double(views.count).squareRoot()))
+        let groupDirection: Direction = prefersTall ? .vertical : .horizontal
+        let stackDirection: Direction = prefersTall ? .horizontal : .vertical
+        var groups: [Node] = []
         var i = 0
         while i < views.count {
-            let end = Swift.min(i + cols, views.count)
-            let row = Array(views[i..<end]).map { Node.leaf(view: $0) }
-            rowNodes.append(buildBalanced(row, direction: .horizontal))
+            let end = Swift.min(i + major, views.count)
+            let group = Array(views[i..<end]).map { Node.leaf(view: $0) }
+            groups.append(buildBalanced(group, direction: groupDirection))
             i = end
         }
-        let root = buildBalanced(rowNodes, direction: .vertical)
+        let root = buildBalanced(groups, direction: stackDirection)
         return SplitTree(root: root, zoomed: nil).equalized()
     }
 

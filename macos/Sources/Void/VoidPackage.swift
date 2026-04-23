@@ -403,6 +403,12 @@ extension VD.Notification {
     static let voidFocusGridCell = Notification.Name("com.mitchellh.void.focusGridCell")
     static let GridCellIndexKey = voidFocusGridCell.rawValue
 
+    /// Add a new leaf to the current window's split tree and rebalance as a
+    /// fresh N+1 grid (grid-mode reinterpretation of `new_tab` when the window
+    /// has a single tab with splits). Object is the focused SurfaceView, used
+    /// as the source of inherited config.
+    static let voidAddGridCell = Notification.Name("com.mitchellh.void.addGridCell")
+
     /// New tab. Has base surface config requested in userinfo.
     static let voidNewTab = Notification.Name("com.mitchellh.void.newTab")
 

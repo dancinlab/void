@@ -200,6 +200,11 @@ class BaseTerminalController: NSWindowController,
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(voidDidAddGridCell(_:)),
+            name: VD.Notification.voidAddGridCell,
+            object: nil)
+        center.addObserver(
+            self,
             selector: #selector(voidDidFocusSplit(_:)),
             name: VD.Notification.voidFocusSplit,
             object: nil)
@@ -667,20 +672,67 @@ class BaseTerminalController: NSWindowController,
     /// Focus the Nth leaf surface of the current split tree. Posted by the
     /// goto_tab action when this window has a single tab with splits (grid
     /// mode), so users can navigate grid cells with the same cmd+1..9
-    /// shortcuts they already use for tabs.
+    /// shortcuts they already use for tabs. Negative sentinels mirror
+    /// tab-mode semantics (last/previous/next) so behavior matches
+    /// TerminalController.onGotoTab.
     @objc private func voidDidFocusGridCell(_ notification: Notification) {
         guard let target = notification.object as? VD.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
-        guard let rawIndex = notification.userInfo?[VD.Notification.GridCellIndexKey] as? Int else { return }
-        guard rawIndex >= 1 else { return }
+        guard let raw = notification.userInfo?[VD.Notification.GridCellIndexKey] as? Int else { return }
 
         let leaves = Array(surfaceTree)
         guard !leaves.isEmpty else { return }
 
-        // 1-indexed; clamp to last cell so cmd+9 on a 4-cell grid lands on #4
-        // rather than being dropped (mirrors goto_tab's out-of-range behavior).
-        let finalIndex = min(rawIndex - 1, leaves.count - 1)
-        focusedSurface = leaves[finalIndex]
+        let resolved: Int
+        if raw >= 1 {
+            // 1-indexed; clamp out-of-range to last cell (mirrors goto_tab).
+            resolved = min(raw - 1, leaves.count - 1)
+        } else if raw == Int(VOID_GOTO_TAB_LAST.rawValue) {
+            resolved = leaves.count - 1
+        } else if raw == Int(VOID_GOTO_TAB_PREVIOUS.rawValue) {
+            let cur = focusedSurface.flatMap { leaves.firstIndex(of: $0) } ?? 0
+            resolved = cur == 0 ? leaves.count - 1 : cur - 1
+        } else if raw == Int(VOID_GOTO_TAB_NEXT.rawValue) {
+            let cur = focusedSurface.flatMap { leaves.firstIndex(of: $0) } ?? 0
+            resolved = (cur + 1) % leaves.count
+        } else {
+            return
+        }
+
+        // Setting focusedSurface alone only updates libvoid's view of focus —
+        // VD.moveFocus actually relocates the AppKit first responder.
+        let newFocus = leaves[resolved]
+        let oldFocus = focusedSurface
+        focusedSurface = newFocus
+        DispatchQueue.main.async {
+            VD.moveFocus(to: newFocus, from: oldFocus)
+        }
+    }
+
+    /// Add a new leaf surface to the current grid and rebalance into a fresh
+    /// N+1 grid. Posted by TerminalWindow.performKeyEquivalent when cmd+T is
+    /// pressed in single-tab grid mode (the tab-mode new_tab shortcut adapted
+    /// for grid mode).
+    @objc private func voidDidAddGridCell(_ notification: Notification) {
+        guard let oldView = notification.object as? VD.SurfaceView else { return }
+        guard surfaceTree.contains(oldView) else { return }
+        guard let void_app = void.app else { return }
+        guard let surface = oldView.surface else { return }
+
+        let inheritedConfig = VD.SurfaceConfiguration(
+            from: void_surface_inherited_config(surface, VOID_SURFACE_CONTEXT_SPLIT))
+        let newView = VD.SurfaceView(void_app, baseConfig: inheritedConfig)
+
+        let leaves = Array(surfaceTree) + [newView]
+        let frameSize = self.window?.frame.size ?? .zero
+        let prefersTall = frameSize.height > frameSize.width
+        let newTree = SplitTree<VD.SurfaceView>.grid(views: leaves, prefersTall: prefersTall)
+
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: newView,
+            moveFocusFrom: oldView,
+            undoAction: "Add Grid Cell")
     }
 
     /// Collect every leaf surface across `tabs` (in tab order), build a grid SplitTree,
@@ -698,7 +750,9 @@ class BaseTerminalController: NSWindowController,
         }
         guard !allSurfaces.isEmpty else { return }
 
-        let gridTree = SplitTree<VD.SurfaceView>.grid(views: allSurfaces)
+        let frameSize = target.window?.frame.size ?? .zero
+        let prefersTall = frameSize.height > frameSize.width
+        let gridTree = SplitTree<VD.SurfaceView>.grid(views: allSurfaces, prefersTall: prefersTall)
 
         undoManager?.disableUndoRegistration {
             // Empty out every other tab FIRST so their close logic sees no surfaces
