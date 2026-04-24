@@ -823,12 +823,10 @@ class BaseTerminalController: NSWindowController,
         guard let parentWindow = controller.window else { return }
 
         undoManager?.disableUndoRegistration {
-            // Keep the first leaf in the current tab; spawn new tabs for the rest.
-            // We preserve focus on `focusTarget`: if it's leaf[0], nothing special;
-            // otherwise the new tab hosting it will be focused via makeKeyAndOrderFront.
             controller.surfaceTree = .init(view: leaves[0])
 
             var lastWindow: NSWindow = parentWindow
+            var targetWindow: NSWindow? = (focusTarget == leaves[0]) ? parentWindow : nil
             for view in leaves.dropFirst() {
                 let subtree = SplitTree<VD.SurfaceView>(view: view)
                 let newTC = TerminalController(void, withSurfaceTree: subtree)
@@ -842,13 +840,14 @@ class BaseTerminalController: NSWindowController,
                 lastWindow = newWindow
 
                 if view == focusTarget {
-                    newWindow.makeKeyAndOrderFront(self)
+                    targetWindow = newWindow
                 }
             }
 
-            if focusTarget == leaves[0] {
-                parentWindow.makeKeyAndOrderFront(self)
-            }
+            // makeKeyAndOrderFront must be the FINAL action: addTabbedWindowSafely
+            // with ordered:.above on each subsequent iteration re-fronts the tab
+            // group, displacing any earlier key window set mid-loop.
+            targetWindow?.makeKeyAndOrderFront(self)
         }
 
         baseGridLog("[ctl] explodeIntoTabs done leaves=\(leaves.count) focusTargetIsLeaf0=\(focusTarget == leaves[0])")
