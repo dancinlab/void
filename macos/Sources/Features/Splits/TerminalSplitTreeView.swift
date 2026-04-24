@@ -87,7 +87,7 @@ private struct TerminalSplitSubtreeView: View {
 }
 
 private struct TerminalSplitLeaf: View {
-    let surfaceView: VD.SurfaceView
+    @ObservedObject var surfaceView: VD.SurfaceView
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
 
@@ -100,6 +100,25 @@ private struct TerminalSplitLeaf: View {
     /// information — a single full-window surface is unambiguously focused.
     private var isFocusedLeaf: Bool {
         isSplit && focusedSurface === surfaceView
+    }
+
+    /// Per-pane top-center label showing this leaf's working directory.
+    /// Only rendered inside a split/grid — a single full-window surface
+    /// already shows its title in the window titlebar.
+    @ViewBuilder private var pwdLabel: some View {
+        if isSplit, let pwd = surfaceView.pwd, !pwd.isEmpty {
+            Text((pwd as NSString).abbreviatingWithTildeInPath)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.head)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                .padding(.top, 6)
+                .allowsHitTesting(false)
+        }
     }
 
     var body: some View {
@@ -134,6 +153,7 @@ private struct TerminalSplitLeaf: View {
                         .allowsHitTesting(false)
                 }
             }
+            .overlay(alignment: .top) { pwdLabel }
             .onPreferenceChange(VD.DraggingSurfaceKey.self) { value in
                 isSelfDragging = value == surfaceView.id
                 if isSelfDragging {
