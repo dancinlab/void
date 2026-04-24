@@ -105,15 +105,22 @@
 # @convergence-end
 
 # @convergence-start
+# state: ossified
+# id: GRID_FLATTEN_OCCLUSION_STUCK_FALSE
+# date: 2026-04-24
+# value: flattenTabsToGrid 의 **진짜 root cause** — 사용자 "cmd+N 후 타이핑 안됨 / 탭모드 전환하면 입력되있음" 증상은 occlusion 플래그가 false 에 stuck 된 것. flatten 직전 sibling 탭 window 들이 close → 각 sibling 컨트롤러의 `windowDidChangeOcclusionState` 가 `visible=false` 로 fire → `void_surface_set_occlusion(surface, false)` 호출 → libvoid 는 해당 surface 를 occluded 로 간주해 draw 생략. 그 surface 들이 host grid 로 migrate 돼도 occlusion flag 는 false 에 고착 → 키는 받지만 렌더 정지.
+# threshold: VD.SurfaceView.refreshRendererPipeline() 은 다음을 모두 수행: (1) `void_surface_set_occlusion(surface, true)` — 가장 critical, 이게 없으면 나머지 다 해도 draw 안 됨. (2) `void_surface_set_display_id(surface, newWindow.screen.displayID)` — CVDisplayLink rebind. (3) `viewDidChangeBackingProperties()` — 새 display scale. (4) `sizeDidChange` bump-and-restore — libvoid 내부 size cache 재검증 유도. (5) `needsDisplay=true` — CALayer dirty. refresh 호출 위치: (a) surfaceTreeDidChange 의 newlyAdded 감지 후 async + retry (SwiftUI mount 지연 대응), (b) viewDidMoveToWindow 동일.
+# evidence: /tmp/void-grid.log 에 `cmd+N POST isFR=true focused=true winFR=true surfaceNil=false` 모두 green → focus/key-routing 정상 확증. 사용자 "탭모드 전환하면 입력되있음" → PTY / shell 정상 실행 확증. 따라서 문제는 rendering 층. occlusion fix 단독으로 round-trip (tabs→grid→tabs→grid→cmd+N→type) 에서도 정상 렌더 확인 — 사용자 "완벽해!!!!" 최종 확증.
+# rationale: sibling window close 는 정상 flow 인데 그 때 set_occlusion(false) 가 non-idempotent effect 로 libvoid side 에 박히는 게 문제. surface 가 다른 window 로 migrate 하면 occlusion 관점은 invalid 해야 맞지만 libvoid 는 이 생명주기를 모름. Host controller 가 receive 할 때 명시적으로 reset 하는 것이 유일한 올바른 방식.
+# ref_commit: 8b416c38c (최초 viewDidMoveToWindow + refreshRendererPipeline) → 6db6f8771 (retry until window attach) → 후속 (sizeDidChange / 최종 set_occlusion(true))
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
 # state: stable
 # id: GRID_FLATTEN_RENDERER_REPUSH
 # date: 2026-04-24
-# value: flattenTabsToGrid / explodeIntoTabs 이후 migrate 된 SurfaceView 는 libvoid renderer pipeline 3가지 입력을 **강제 re-push** 해야 그리는 데 다시 살아남: (1) void_surface_set_display_id(surface, newWindow.screen.displayID) — CVDisplayLink 이 구 window 화면에 매여있음, (2) viewDidChangeBackingProperties — 새 window 의 backing scale 재적용, (3) setFrameSize bump-and-restore + needsDisplay=true — libvoid 의 "size unchanged → skip" 가드 회피 + CALayer dirty 플래그.
-# threshold: (a) VD.SurfaceView 에 `refreshRendererPipeline()` 메소드 노출. (b) BaseTerminalController.surfaceTreeDidChange 에서 `to - from` diff 로 newlyAdded surfaces 감지 → `DispatchQueue.main.async { surface.refreshRendererPipeline() }` 일괄 호출. (c) SurfaceView.viewDidMoveToWindow 에서도 동일 refresh 호출.
-# evidence: 사용자 보고 "그리드모드 cmd+N 후 타이핑 안됨 / 탭모드 전환하면 입력되있음" — 키는 도달, shell 은 실행 하나 렌더만 정지. /tmp/void-grid.log 확인: cmd+N POST isFR=true focused=true winFR=true 모두 통과 → focus/key-routing 층 정상. fix 후 (1차 cmd+g → 그리드 → cmd+N → 타이핑) 정상 동작 확인. 단 (grid → tab → grid 재진입) 에서 재발 — 이는 size-bump + needsDisplay 없으면 libvoid 가 draw 재제출 안 함. 최종 fix 적용 후 round-trip 까지 정상.
-# rationale: SwiftUI NSViewRepresentable 이 SurfaceView 를 scroll view 에 먼저 mount 한 후 scroll view 가 새 window 에 join 하는 순서로 이뤄지면 viewDidMoveToWindow 는 window==nil 시점에 한 번 호출됐다 재호출 안 될 수 있음. surfaceTreeDidChange 에서 async 로 재시도 + size-bump 강제 kick 이 모든 경로 커버.
-# ref_commit: 8b416c38c (viewDidMoveToWindow + refreshRendererPipeline 최초 도입), 후속 commit (size-bump + needsDisplay + surfaceTreeDidChange newlyAdded 감지)
-# note: round-trip 회귀 검증 자동화는 screencapture 없이 AppKit 내부로는 불가 (렌더 결과 확인이 필요). 사용자 실측 통과 시 ossified 승격.
+# value: (아카이브) GRID_FLATTEN_OCCLUSION_STUCK_FALSE 로 흡수됨. 초기 가설 — CVDisplayLink rebind 만으로 충분할 것으로 보고 시작했으나, 실제 단일 원인은 occlusion flag stuck. 세션 중 displayID / backing scale / size-bump / needsDisplay 를 모두 붙였는데 그건 필수는 아니었고 occlusion(true) 한 줄이 결정타였음. 다만 belt-and-braces 로 전부 유지 — 각자가 서로 다른 microbug 를 커버하는 관계.
 # @convergence-end
 
 # @convergence-start
