@@ -761,6 +761,30 @@ extension VD {
 
         // MARK: - NSView
 
+        /// Re-pushes renderer pipeline inputs to libvoid after a window
+        /// migration (flatten/explode). Retries with backoff until the
+        /// view's window is non-nil — SwiftUI's NSViewRepresentable may
+        /// mount the surface into its new scroll view BEFORE the scroll
+        /// view joins the target window, so a one-shot call can race.
+        func refreshRendererPipeline(attempt: Int = 0) {
+            if self.window == nil || self.surface == nil {
+                guard attempt < 10 else { return } // give up after ~2s
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(200)) { [weak self] in
+                    self?.refreshRendererPipeline(attempt: attempt + 1)
+                }
+                return
+            }
+            guard let surface = self.surface else { return }
+            void_surface_set_display_id(surface, self.window?.screen?.displayID ?? 0)
+            viewDidChangeBackingProperties()
+            let current = frame.size
+            if current.width > 1 && current.height > 1 {
+                setFrameSize(CGSize(width: current.width + 1, height: current.height))
+                setFrameSize(current)
+            }
+            self.needsDisplay = true
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             // When a SurfaceView is re-parented to a different window
