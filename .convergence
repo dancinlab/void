@@ -105,6 +105,30 @@
 # @convergence-end
 
 # @convergence-start
+# state: stable
+# id: GRID_FLATTEN_RENDERER_REPUSH
+# date: 2026-04-24
+# value: flattenTabsToGrid / explodeIntoTabs 이후 migrate 된 SurfaceView 는 libvoid renderer pipeline 3가지 입력을 **강제 re-push** 해야 그리는 데 다시 살아남: (1) void_surface_set_display_id(surface, newWindow.screen.displayID) — CVDisplayLink 이 구 window 화면에 매여있음, (2) viewDidChangeBackingProperties — 새 window 의 backing scale 재적용, (3) setFrameSize bump-and-restore + needsDisplay=true — libvoid 의 "size unchanged → skip" 가드 회피 + CALayer dirty 플래그.
+# threshold: (a) VD.SurfaceView 에 `refreshRendererPipeline()` 메소드 노출. (b) BaseTerminalController.surfaceTreeDidChange 에서 `to - from` diff 로 newlyAdded surfaces 감지 → `DispatchQueue.main.async { surface.refreshRendererPipeline() }` 일괄 호출. (c) SurfaceView.viewDidMoveToWindow 에서도 동일 refresh 호출.
+# evidence: 사용자 보고 "그리드모드 cmd+N 후 타이핑 안됨 / 탭모드 전환하면 입력되있음" — 키는 도달, shell 은 실행 하나 렌더만 정지. /tmp/void-grid.log 확인: cmd+N POST isFR=true focused=true winFR=true 모두 통과 → focus/key-routing 층 정상. fix 후 (1차 cmd+g → 그리드 → cmd+N → 타이핑) 정상 동작 확인. 단 (grid → tab → grid 재진입) 에서 재발 — 이는 size-bump + needsDisplay 없으면 libvoid 가 draw 재제출 안 함. 최종 fix 적용 후 round-trip 까지 정상.
+# rationale: SwiftUI NSViewRepresentable 이 SurfaceView 를 scroll view 에 먼저 mount 한 후 scroll view 가 새 window 에 join 하는 순서로 이뤄지면 viewDidMoveToWindow 는 window==nil 시점에 한 번 호출됐다 재호출 안 될 수 있음. surfaceTreeDidChange 에서 async 로 재시도 + size-bump 강제 kick 이 모든 경로 커버.
+# ref_commit: 8b416c38c (viewDidMoveToWindow + refreshRendererPipeline 최초 도입), 후속 commit (size-bump + needsDisplay + surfaceTreeDidChange newlyAdded 감지)
+# note: round-trip 회귀 검증 자동화는 screencapture 없이 AppKit 내부로는 불가 (렌더 결과 확인이 필요). 사용자 실측 통과 시 ossified 승격.
+# @convergence-end
+
+# @convergence-start
+# state: ossified
+# id: LS_DEBUG_BUNDLE_STALE_DISPATCH
+# date: 2026-04-24
+# value: Xcode 로 빌드된 `com.mitchellh.void.debug` 번들 (`macos/build/Debug/Void.app`, DerivedData/*/Void.app) 이 LaunchServices DB 에 등록된 채로 남으면 Dock 클릭 / Spotlight / `open Void` 가 **구 debug 바이너리로 라우팅**될 수 있음. Release 측 fix 를 /Applications/Void.app 에 설치해도 사용자는 debug 번들을 보고 있어서 "수정 안 됨" 으로 인지.
+# threshold: UI 테스트용 xcodebuild build 가 생성한 com.mitchellh.void.debug 를 발견 즉시: (1) macos/build/Debug/Void.app 삭제, (2) DerivedData/Void-*/Build/Products/ 전부 삭제, (3) `lsregister -kill -r -domain local -domain system -domain user`, (4) `lsregister -f /Applications/Void.app`, (5) `killall Dock`. `/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" .../Info.plist` 로 번들 ID 일원화 확인.
+# evidence: 사용자 "네가 띄운 창은 됨, application/void.app 에서는 안됨" 반복 보고 → 동일 바이너리 (hash 동일) 인데 launch 경로에 따라 다른 동작. lsregister dump 에 `com.mitchellh.void.debug` path 2개 확인: `.../DerivedData/.../ReleaseLocal/Void.app` + `macos/build/Debug/Void.app`. 제거 + LS rebuild 후 `com.mitchellh.void` 만 남음.
+# rationale: 번들 ID 가 다르면 macOS 는 별도 앱으로 취급 — 사용자가 "Void" 아이콘을 클릭해도 ID 매칭에 따라 완전히 다른 인스턴스가 뜸. 에이전트는 build 시 DerivedData 를 dev-only 로 간주했지만 LS 는 등록해버림. 모든 세션 끝에 debug-bundle 청소가 기본 체크리스트.
+# ref_commit: 청소는 세션 housekeeping — 커밋 없음 (파일 시스템 + LS 상태 정리)
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
 # state: in_flight
 # id: GRID_FLATTEN_RENDER_NOT_FOCUS
 # date: 2026-04-24
