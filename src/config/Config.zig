@@ -6881,6 +6881,15 @@ pub const Keybinds = struct {
             .toggle_command_palette,
         );
 
+        // Ctrl+Delete: delete the entire current line (void addition).
+        // Sends Ctrl-A (move to line start) then Ctrl-K (kill to end of line)
+        // so the whole line is erased regardless of cursor position.
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .physical = .delete }, .mods = .{ .ctrl = true } },
+            .{ .text = "\\x01\\x0b" },
+        );
+
         // Mac-specific keyboard bindings.
         if (comptime builtin.target.os.tag.isDarwin()) {
             try self.set.put(
