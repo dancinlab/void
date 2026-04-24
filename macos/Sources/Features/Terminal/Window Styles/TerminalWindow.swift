@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 import VoidKit
 
@@ -186,13 +187,19 @@ class TerminalWindow: NSWindow {
         return super.performKeyEquivalent(with: event)
     }
 
-    /// Intercept cmd+1..9 and cmd+T in single-tab grid mode and reroute to the
-    /// grid notifications. Called from both `performKeyEquivalent` and
-    /// `sendEvent` because macOS native tab handling can swallow cmd+1..9
-    /// before performKeyEquivalent reaches us. Returns nil when this isn't a
-    /// grid shortcut at all (let AppKit do its normal thing).
+    /// Intercept cmd+1..9 and cmd+T in single-tab grid mode + bare Tab
+    /// / Shift+Tab in either grid OR tab mode and reroute to the
+    /// corresponding navigation notification. Called from both
+    /// `performKeyEquivalent` and `sendEvent` because macOS native tab
+    /// handling can swallow cmd+1..9 before performKeyEquivalent reaches us.
+    /// Returns nil when this isn't a handled shortcut (let AppKit proceed).
     private func handleGridShortcut(_ event: NSEvent) -> Bool? {
         guard event.type == .keyDown else { return nil }
+
+        if let direction = Self.tabNavigationDirection(for: event) {
+            return handleTabNavigation(direction: direction)
+        }
+
         let isGoto = Self.gridGotoIndex(for: event) != nil
         let isAdd = Self.matchesGridAddCell(event)
         guard isGoto || isAdd else { return nil }
@@ -221,6 +228,59 @@ class TerminalWindow: NSWindow {
             return true
         }
         return false
+    }
+
+    /// Route Tab / Shift+Tab to the right navigator:
+    ///   - single-tab grid → cycle grid cells
+    ///   - multi-tab (regardless of grid) → cycle tabs
+    ///   - neither → nil (Tab falls through to shell autocomplete)
+    private func handleTabNavigation(direction: NavDirection) -> Bool? {
+        guard let controller = windowController as? BaseTerminalController,
+              let focused = controller.focusedSurface ?? controller.surfaceTree.first
+        else {
+            return nil
+        }
+
+        let tabCount = tabGroup?.windows.count ?? 0
+        let inGridMode = tabCount <= 1 && controller.surfaceTree.isSplit
+        let inTabMode = tabCount > 1
+
+        if inGridMode {
+            let sentinel: Int = direction == .next
+                ? Int(VOID_GOTO_TAB_NEXT.rawValue)
+                : Int(VOID_GOTO_TAB_PREVIOUS.rawValue)
+            NotificationCenter.default.post(
+                name: VD.Notification.voidFocusGridCell,
+                object: focused,
+                userInfo: [VD.Notification.GridCellIndexKey: sentinel]
+            )
+            return true
+        }
+        if inTabMode {
+            let sentinel: void_action_goto_tab_e = direction == .next
+                ? VOID_GOTO_TAB_NEXT
+                : VOID_GOTO_TAB_PREVIOUS
+            NotificationCenter.default.post(
+                name: VD.Notification.voidGotoTab,
+                object: focused,
+                userInfo: [VD.Notification.GotoTabKey: sentinel]
+            )
+            return true
+        }
+        return nil
+    }
+
+    enum NavDirection { case next, previous }
+
+    /// Match plain Tab (no modifier) → next, or Shift+Tab → previous.
+    /// Returns nil for any other combination so we don't break other
+    /// Tab-based shortcuts.
+    private static func tabNavigationDirection(for event: NSEvent) -> NavDirection? {
+        guard event.keyCode == kVK_Tab else { return nil }
+        let disallowed: NSEvent.ModifierFlags = [.command, .option, .control]
+        let mods = event.modifierFlags
+        guard mods.isDisjoint(with: disallowed) else { return nil }
+        return mods.contains(.shift) ? .previous : .next
     }
 
     /// Returns the 1-indexed target for a cmd+digit event matching the default
