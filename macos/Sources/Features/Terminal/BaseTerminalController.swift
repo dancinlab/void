@@ -851,29 +851,39 @@ class BaseTerminalController: NSWindowController,
         undoManager?.disableUndoRegistration {
             controller.surfaceTree = .init(view: leaves[0])
 
-            var lastWindow: NSWindow = parentWindow
-            var targetWindow: NSWindow? = (focusTarget == leaves[0]) ? parentWindow : nil
-            for view in leaves.dropFirst() {
-                let subtree = SplitTree<VD.SurfaceView>(view: view)
-                let newTC = TerminalController(void, withSurfaceTree: subtree)
-                guard let newWindow = newTC.window else { continue }
+            // Collapse all per-window order-in animations into a single
+            // CATransaction so the burst of tab spawns doesn't read as
+            // a pop-one-by-one cascade. Each new tab also gets
+            // animationBehavior=.none so its attach doesn't fade in.
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0
+                ctx.allowsImplicitAnimation = false
 
-                if newWindow.tabbingMode != .disallowed {
-                    lastWindow.addTabbedWindowSafely(newWindow, ordered: .above)
+                var lastWindow: NSWindow = parentWindow
+                var targetWindow: NSWindow? = (focusTarget == leaves[0]) ? parentWindow : nil
+                for view in leaves.dropFirst() {
+                    let subtree = SplitTree<VD.SurfaceView>(view: view)
+                    let newTC = TerminalController(void, withSurfaceTree: subtree)
+                    guard let newWindow = newTC.window else { continue }
+                    newWindow.animationBehavior = .none
+
+                    if newWindow.tabbingMode != .disallowed {
+                        lastWindow.addTabbedWindowSafely(newWindow, ordered: .above)
+                    }
+
+                    newTC.showWindow(self)
+                    lastWindow = newWindow
+
+                    if view == focusTarget {
+                        targetWindow = newWindow
+                    }
                 }
 
-                newTC.showWindow(self)
-                lastWindow = newWindow
-
-                if view == focusTarget {
-                    targetWindow = newWindow
-                }
-            }
-
-            // makeKeyAndOrderFront must be the FINAL action: addTabbedWindowSafely
-            // with ordered:.above on each subsequent iteration re-fronts the tab
-            // group, displacing any earlier key window set mid-loop.
-            targetWindow?.makeKeyAndOrderFront(self)
+                // makeKeyAndOrderFront must be the FINAL action: addTabbedWindowSafely
+                // with ordered:.above on each subsequent iteration re-fronts the tab
+                // group, displacing any earlier key window set mid-loop.
+                targetWindow?.makeKeyAndOrderFront(self)
+            })
         }
 
         VD.moveFocus(to: focusTarget, from: nil)
