@@ -699,34 +699,48 @@ class BaseTerminalController: NSWindowController,
         guard surfaceTree.contains(target) else { return }
         guard let raw = notification.userInfo?[VD.Notification.GridCellIndexKey] as? Int else { return }
 
-        let leaves = Array(surfaceTree)
-        guard !leaves.isEmpty else { return }
+        // Explicit cmd+N must map to the visually N-th cell (row-major, top-left
+        // origin) regardless of tree shape — tree shape varies with window
+        // orientation (prefersTall swaps group/stack directions in SplitTree.grid),
+        // so tree-iteration order does not equal visual order for portrait 2x2 etc.
+        // prev/next/last mirror tab semantics so they stay in tree order.
+        let treeLeaves = Array(surfaceTree)
+        guard !treeLeaves.isEmpty else { return }
 
         let resolved: Int
+        let pickFrom: [VD.SurfaceView]
         if raw >= 1 {
-            // 1-indexed; clamp out-of-range to last cell (mirrors goto_tab).
-            resolved = min(raw - 1, leaves.count - 1)
+            pickFrom = gridLeavesInVisualOrder()
+            resolved = min(raw - 1, pickFrom.count - 1)
         } else if raw == Int(VOID_GOTO_TAB_LAST.rawValue) {
-            resolved = leaves.count - 1
+            pickFrom = treeLeaves
+            resolved = treeLeaves.count - 1
         } else if raw == Int(VOID_GOTO_TAB_PREVIOUS.rawValue) {
-            let cur = focusedSurface.flatMap { leaves.firstIndex(of: $0) } ?? 0
-            resolved = cur == 0 ? leaves.count - 1 : cur - 1
+            pickFrom = treeLeaves
+            let cur = focusedSurface.flatMap { treeLeaves.firstIndex(of: $0) } ?? 0
+            resolved = cur == 0 ? treeLeaves.count - 1 : cur - 1
         } else if raw == Int(VOID_GOTO_TAB_NEXT.rawValue) {
-            let cur = focusedSurface.flatMap { leaves.firstIndex(of: $0) } ?? 0
-            resolved = (cur + 1) % leaves.count
+            pickFrom = treeLeaves
+            let cur = focusedSurface.flatMap { treeLeaves.firstIndex(of: $0) } ?? 0
+            resolved = (cur + 1) % treeLeaves.count
         } else {
             return
         }
 
-        // Setting focusedSurface alone only updates libvoid's view of focus —
-        // VD.moveFocus actually relocates the AppKit first responder.
-        let newFocus = leaves[resolved]
+        let newFocus = pickFrom[resolved]
         let oldFocus = focusedSurface
         focusedSurface = newFocus
-        baseGridLog("[ctl] voidDidFocusGridCell raw=\(raw) resolved=\(resolved) leaves=\(leaves.count) newFocusWindowAttached=\(newFocus.window != nil) surfaceNonNil=\(newFocus.surface != nil)")
-        DispatchQueue.main.async {
+        baseGridLog("[ctl] voidDidFocusGridCell raw=\(raw) resolved=\(resolved) leaves=\(treeLeaves.count) visualOrder=\(raw >= 1) newFocusWindowAttached=\(newFocus.window != nil) surfaceNonNil=\(newFocus.surface != nil)")
+        DispatchQueue.main.async { [weak self] in
             VD.moveFocus(to: newFocus, from: oldFocus)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                // Skip the assertion if focus has since moved to another cell
+                // (rapid-fire cmd+N during testing) — otherwise the check would
+                // flag its own staleness as a failure.
+                guard self?.focusedSurface === newFocus else {
+                    baseGridLog("[ctl] focusGridCell post-moveFocus(0.6s) stale-skip (focus moved on)")
+                    return
+                }
                 if let w = newFocus.window {
                     baseGridLog("[ctl] focusGridCell post-moveFocus(0.6s) firstResponderIsTarget=\(w.firstResponder === newFocus) firstResponderKind=\(String(describing: type(of: w.firstResponder ?? w))) focused=\(newFocus.focused)")
                 } else {
@@ -734,6 +748,26 @@ class BaseTerminalController: NSWindowController,
                 }
             }
         }
+    }
+
+    /// Leaves in row-major visual order (top-to-bottom row, left-to-right within).
+    /// Uses SplitTree spatial layout so cmd+N is position-stable across window
+    /// orientation changes (portrait vs landscape build trees differently).
+    private func gridLeavesInVisualOrder() -> [VD.SurfaceView] {
+        guard let root = surfaceTree.root else { return [] }
+        var leafSlots: [(view: VD.SurfaceView, bounds: CGRect)] = []
+        for slot in root.spatial().slots {
+            if case .leaf(let view) = slot.node {
+                leafSlots.append((view, slot.bounds))
+            }
+        }
+        leafSlots.sort { a, b in
+            let ay = Int(a.bounds.minY.rounded())
+            let by = Int(b.bounds.minY.rounded())
+            if ay != by { return ay < by }
+            return a.bounds.minX < b.bounds.minX
+        }
+        return leafSlots.map { $0.view }
     }
 
     /// Add a new leaf surface to the current grid and rebalance into a fresh
