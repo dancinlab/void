@@ -775,33 +775,35 @@ extension VD {
                 return
             }
             guard let surface = self.surface else { return }
+            // Before flatten, sibling tabs' windowDidChangeOcclusionState
+            // fires with visible=false as their windows close. That sets
+            // void_surface_set_occlusion(surface, false) and libvoid stops
+            // rendering the surface. The surface then migrates to the host
+            // grid window but the occlusion flag is stuck at false → the
+            // cell receives keys but never repaints.
+            void_surface_set_occlusion(surface, true)
             void_surface_set_display_id(surface, self.window?.screen?.displayID ?? 0)
             viewDidChangeBackingProperties()
+            // sizeDidChange is what actually forwards to void_surface_set_size —
+            // calling setFrameSize alone just adjusts NSView.frame without
+            // informing libvoid. Bump-and-restore both sides to force a
+            // re-submit even if the size already matches libvoid's cache.
             let current = frame.size
             if current.width > 1 && current.height > 1 {
-                setFrameSize(CGSize(width: current.width + 1, height: current.height))
-                setFrameSize(current)
+                sizeDidChange(CGSize(width: current.width + 1, height: current.height))
+                sizeDidChange(current)
             }
             self.needsDisplay = true
         }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            // When a SurfaceView is re-parented to a different window
-            // (e.g., flattenTabsToGrid migrates surfaces from sibling
-            // tab windows into the host tab's view hierarchy), three
-            // renderer-pipeline inputs go stale and must be re-pushed:
-            //   1. displayID — the CVDisplayLink was bound to the old
-            //      window's screen, now closed, so vsync stops firing
-            //   2. content scale — new window may live on a display
-            //      with a different backing-scale factor
-            //   3. surface size — forces libvoid to re-submit a draw,
-            //      which kicks the renderer out of its idle state and
-            //      flushes any accumulated PTY output to the screen
-            guard self.window != nil, let surface = self.surface else { return }
-            void_surface_set_display_id(surface, self.window?.screen?.displayID ?? 0)
-            viewDidChangeBackingProperties()
-            setFrameSize(frame.size)
+            // flattenTabsToGrid migrates surfaces from sibling tabs whose
+            // windows get closed mid-flow; their occlusion flag stays
+            // false in libvoid and no draw is ever submitted from the
+            // new host grid. refreshRendererPipeline un-sticks that +
+            // rebinds CVDisplayLink / backing / size.
+            refreshRendererPipeline()
         }
 
         override func becomeFirstResponder() -> Bool {
@@ -1078,23 +1080,6 @@ extension VD {
         }
 
         override func keyDown(with event: NSEvent) {
-            // Raw diag: log every keyDown so /tmp/void-grid.log shows WHICH
-            // surface actually received the keystroke (ground truth).
-            let sidStr = String(format: "%04x", ObjectIdentifier(self).hashValue & 0xFFFF)
-            let chars = event.charactersIgnoringModifiers ?? ""
-            let mods = event.modifierFlags
-            var modStr = ""
-            if mods.contains(.command) { modStr += "⌘" }
-            if mods.contains(.shift)   { modStr += "⇧" }
-            if mods.contains(.option)  { modStr += "⌥" }
-            if mods.contains(.control) { modStr += "⌃" }
-            let line = "[\(Date().ISO8601Format())] keyDown sid=\(sidStr) focused=\(self.focused) surfaceNil=\(self.surface == nil) mods=[\(modStr)] chars=\(chars.debugDescription)\n"
-            if let d = line.data(using: .utf8) {
-                let url = URL(fileURLWithPath: "/tmp/void-grid.log")
-                if let h = try? FileHandle(forWritingTo: url) { try? h.seekToEnd(); try? h.write(contentsOf: d); try? h.close() }
-                else { try? d.write(to: url) }
-            }
-
             guard let surface = self.surface else {
                 self.interpretKeyEvents([event])
                 return
