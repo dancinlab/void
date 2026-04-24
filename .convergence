@@ -58,12 +58,25 @@
 # @convergence-end
 
 # @convergence-start
-# state: stable
+# state: ossified
 # id: GRID_MODE_FOCUS_VD_MOVEFOCUS
 # date: 2026-04-24
-# value: SurfaceTree 재구성 시 focusedSurface 대입만으로는 AppKit first responder 가 안 옮겨감 → VD.moveFocus(to:from:) 호출 필수.
-# threshold: flattenTabsToGrid (tab→grid) 와 explodeIntoTabs (grid→tab) 양방향 모두 DispatchQueue.main.async { VD.moveFocus(to: focusTarget, from: nil) } 추가. 패턴은 voidDidFocusGridCell(line 706-708) / replaceSurfaceTree(line 493) 와 동일.
-# evidence: macos/Sources/Features/Terminal/BaseTerminalController.swift line 740(flatten) + 783(explode). 사용자 보고 "그리드모드 최초 타이핑 안됨" + "탭모드 갔다와도 안됨" 양쪽 케이스 cover.
-# rationale: focusedSurface 는 libvoid 내부 상태만 갱신. window.makeFirstResponder 호출이 없으면 키 입력 dropped. makeKeyAndOrderFront 는 윈도우만 활성화하지 SurfaceView 를 first responder 로 만들지 않음.
-# note: 안정화 후 ossified 승격 — 사용자 실측 통과 시 stable→ossified.
+# value: SurfaceTree 재구성 시 focusedSurface 대입만으로는 AppKit first responder 가 안 옮겨감 → VD.moveFocus(to:from:) 호출 필수. + explodeIntoTabs 에서는 makeKeyAndOrderFront 가 **loop 종료 후 한 번** 만 — loop 중에 호출하면 후속 addTabbedWindowSafely(ordered:.above) 가 tab group 을 다시 앞세워 key window 를 빼앗음.
+# threshold: (a) flattenTabsToGrid / explodeIntoTabs 양방향 모두 DispatchQueue.main.async { VD.moveFocus(to: focusTarget, from: nil) } 호출. (b) explodeIntoTabs 는 focusTarget 의 target window 를 loop 내 변수로 캡처하고, loop 종료 후에만 makeKeyAndOrderFront 호출.
+# evidence: bin/void-test 자동 시뮬 (cmd+t×3 → cmd+g → cmd+2/3 → cmd+g) 로 moveFocus 체크포인트 4곳 (flatten / focusGridCell×2 / explode) 모두 `firstResponderIsTarget=true focused=true` 확인. 이전 bug 상태에서는 explode 후 `focused=false` — firstResponder 는 SurfaceView 지만 해당 window 가 key 가 아니었음.
+# rationale: AppKit firstResponder 는 per-window 이므로 "올바른 window 가 key" 까지 같이 만족해야 키 입력 전달. mid-loop makeKeyAndOrderFront 는 후속 iteration 의 ordered:.above 에 의해 무효화.
+# ref_commit: a74ec3735 (moveFocus 추가) + cb715ab66 (explode key-window ordering fix)
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
+# state: ossified
+# id: VOID_BUILD_POST_INSTALL_SMOKE_TEST
+# date: 2026-04-24
+# value: `bin/void-build` 는 build + install 후 `bin/void-test` (AppleScript 기반 grid-mode 시뮬) 를 자동 실행. 실제 키 입력을 구동해서 `/tmp/void-grid-<pid>.log` 의 `[ctl] ... firstResponderIsTarget=... focused=...` 체크포인트 를 파싱 → `focused=false` / `firstResponderIsTarget=false` / `NO WINDOW` 마커 발견 시 exit 1.
+# threshold: grid-mode focus 회귀는 exit-0 빌드만으로 안 잡힘 — 실제 시뮬 없이는 focused=false 같은 runtime asymmetry 가 숨음 (cb715ab66 fix 가 이 패턴으로 발견). VOID_NO_TEST=1 로만 스킵 허용. keystroke 시뮬은 macOS Accessibility 권한 필요 (System Events).
+# evidence: 사용자 요구 "이걸 과정 마지막에 항상 테스트 과정 포함시켜줘 해당 스크립트 내부로 이관!!!!". bin/void-build 끝부분에 post-install hook 추가 + bin/void-test 신설. 본 세션에서 fix 검증에 사용 — 이전 buggy 빌드 `focused=false` → fix 후 `focused=true` 자동 판정.
+# rationale: grid/tab 토글 시 moveFocus 계열 버그는 static analysis / unit test 로 재현 어려움. end-to-end 시뮬이 유일한 회귀 게이트.
+# ref_commit: bin/void-test NEW + bin/void-build POST-INSTALL HOOK (bin/ 은 .gitignore 대상이라 별도 커밋 없음 — 파일 자체가 SSOT)
+# ossified_at: 2026-04-24
 # @convergence-end
