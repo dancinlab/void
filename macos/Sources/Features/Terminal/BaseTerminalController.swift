@@ -859,39 +859,34 @@ class BaseTerminalController: NSWindowController,
                 ctx.duration = 0
                 ctx.allowsImplicitAnimation = false
 
-                var lastWindow: NSWindow = parentWindow
                 var targetWindow: NSWindow? = (focusTarget == leaves[0]) ? parentWindow : nil
                 for view in leaves.dropFirst() {
                     let subtree = SplitTree<VD.SurfaceView>(view: view)
-                    // Prefer a warm TC from the pool — its window is
-                    // already loaded, sparing the SwiftUI+NSWindow
-                    // mount cost on the hot path. Pool.take() returns
-                    // nil when empty; we fall back to eager init.
-                    let newTC: TerminalController
-                    if let pooled = TerminalControllerPool.shared.take() {
-                        pooled.replaceSurfaceTree(subtree)
-                        newTC = pooled
-                    } else {
-                        newTC = TerminalController(void, withSurfaceTree: subtree)
-                    }
+                    let newTC = TerminalController(void, withSurfaceTree: subtree)
                     guard let newWindow = newTC.window else { continue }
                     newWindow.animationBehavior = .none
 
                     if newWindow.tabbingMode != .disallowed {
-                        lastWindow.addTabbedWindowSafely(newWindow, ordered: .above)
+                        // Constant-anchor .below: each add appends at the
+                        // end of the tab group without reshuffling
+                        // previously-added tabs. Previously we used a
+                        // moving lastWindow + .above which made every
+                        // iteration re-balance the entire bar.
+                        parentWindow.addTabbedWindowSafely(newWindow, ordered: .below)
                     }
-
-                    newTC.showWindow(self)
-                    lastWindow = newWindow
+                    // Skip per-iteration showWindow — addTabbedWindowSafely
+                    // already orders the window into the group, and we do
+                    // one final makeKeyAndOrderFront after the loop. The
+                    // old showWindow was ~20-40ms per iteration of pure
+                    // redundancy.
 
                     if view == focusTarget {
                         targetWindow = newWindow
                     }
                 }
 
-                // makeKeyAndOrderFront must be the FINAL action: addTabbedWindowSafely
-                // with ordered:.above on each subsequent iteration re-fronts the tab
-                // group, displacing any earlier key window set mid-loop.
+                // makeKeyAndOrderFront must be the FINAL action: any
+                // in-loop ordering gets displaced by subsequent adds.
                 targetWindow?.makeKeyAndOrderFront(self)
             })
         }

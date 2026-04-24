@@ -309,11 +309,6 @@ class AppDelegate: NSObject,
         // Setup signal handlers
         setupSignals()
 
-        // Start warming the TerminalController pool so explodeIntoTabs
-        // can hand out pre-loaded windows without paying per-tab
-        // SwiftUI+NSWindow mount latency on the hot path.
-        TerminalControllerPool.shared.configure(with: self.void)
-
         switch VD.launchSource {
         case .app:
             // Don't have to do anything.
