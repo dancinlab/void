@@ -859,6 +859,7 @@ class BaseTerminalController: NSWindowController,
                 ctx.duration = 0
                 ctx.allowsImplicitAnimation = false
 
+                var lastWindow: NSWindow = parentWindow
                 var targetWindow: NSWindow? = (focusTarget == leaves[0]) ? parentWindow : nil
                 for view in leaves.dropFirst() {
                     let subtree = SplitTree<VD.SurfaceView>(view: view)
@@ -867,18 +868,19 @@ class BaseTerminalController: NSWindowController,
                     newWindow.animationBehavior = .none
 
                     if newWindow.tabbingMode != .disallowed {
-                        // Constant-anchor .below: each add appends at the
-                        // end of the tab group without reshuffling
-                        // previously-added tabs. Previously we used a
-                        // moving lastWindow + .above which made every
-                        // iteration re-balance the entire bar.
-                        parentWindow.addTabbedWindowSafely(newWindow, ordered: .below)
+                        // Moving lastWindow + .above: each new tab sits
+                        // right after the previous one in the tab bar so
+                        // visual order matches iteration order — the same
+                        // arrangement the user had pre-flatten. Constant
+                        // parentWindow anchoring was marginally faster
+                        // but placed tabs in reverse, which made
+                        // targetWindow?.makeKeyAndOrderFront land on the
+                        // wrong tab after each cmd+g round-trip.
+                        lastWindow.addTabbedWindowSafely(newWindow, ordered: .above)
                     }
-                    // Skip per-iteration showWindow — addTabbedWindowSafely
-                    // already orders the window into the group, and we do
-                    // one final makeKeyAndOrderFront after the loop. The
-                    // old showWindow was ~20-40ms per iteration of pure
-                    // redundancy.
+                    // Skip per-iteration showWindow — redundant with the
+                    // single final makeKeyAndOrderFront below.
+                    lastWindow = newWindow
 
                     if view == focusTarget {
                         targetWindow = newWindow
