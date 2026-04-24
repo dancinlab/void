@@ -708,8 +708,15 @@ class BaseTerminalController: NSWindowController,
 
         let newFocus = leaves[resolved]
         let oldFocus = focusedSurface
+        // Move first-responder synchronously — VD.moveFocus defers via
+        // DispatchQueue.main.async, which races with any keystroke the user
+        // types immediately after cmd+N (key arrives while cell N is still
+        // not first-responder, so libvoid sees focused=false and drops it).
+        if let window = newFocus.window {
+            _ = oldFocus?.resignFirstResponder()
+            window.makeFirstResponder(newFocus)
+        }
         focusedSurface = newFocus
-        VD.moveFocus(to: newFocus, from: oldFocus)
     }
 
     /// Leaves in row-major visual order (top-to-bottom row, left-to-right within).

@@ -1,33 +1,6 @@
 import AppKit
 import SwiftUI
-import OSLog
 import VoidKit
-
-/// Diagnostic log channel for grid-mode shortcut routing. Lives on its own
-/// subsystem so it can be filtered out of the noisy `com.mitchellh.void`
-/// firehose with `log stream --predicate 'subsystem == "com.mitchellh.void.grid"'`,
-/// and so a Debug build's logs stay distinguishable from a production
-/// /Applications/Void.app run side-by-side. Mirrored to a per-PID file under
-/// /tmp so debugging works even when the system `log` CLI is unavailable
-/// (e.g. from sandboxed shells).
-private let gridLogger = Logger(subsystem: "com.mitchellh.void.grid", category: "grid")
-private let gridLogFile: URL = {
-    let pid = ProcessInfo.processInfo.processIdentifier
-    return URL(fileURLWithPath: "/tmp/void-grid-\(pid).log")
-}()
-
-private func gridLogLine(_ message: String) {
-    gridLogger.notice("\(message, privacy: .public)")
-    let line = "[\(Date().ISO8601Format())] \(message)\n"
-    guard let data = line.data(using: .utf8) else { return }
-    if let handle = try? FileHandle(forWritingTo: gridLogFile) {
-        try? handle.seekToEnd()
-        try? handle.write(contentsOf: data)
-        try? handle.close()
-    } else {
-        try? data.write(to: gridLogFile)
-    }
-}
 
 /// The base class for all standalone, "normal" terminal windows. This sets the basic
 /// style and configuration of the window based on the app configuration.
@@ -224,22 +197,15 @@ class TerminalWindow: NSWindow {
         let isAdd = Self.matchesGridAddCell(event)
         guard isGoto || isAdd else { return nil }
 
-        let chars = event.charactersIgnoringModifiers ?? "?"
-        let tabCount = tabGroup?.windows.count ?? 0
-        let controllerKind = String(describing: type(of: windowController))
-        gridLogLine("[grid] saw cmd+\(chars) tabGroupCount=\(tabCount) controllerKind=\(controllerKind)")
-
         guard (tabGroup?.windows.count ?? 0) <= 1,
               let controller = windowController as? BaseTerminalController,
               controller.surfaceTree.isSplit,
               let focused = controller.focusedSurface ?? controller.surfaceTree.first
         else {
-            gridLogLine("[grid] gating failed (not in single-tab grid mode), passing through")
             return false
         }
 
         if let index = Self.gridGotoIndex(for: event) {
-            gridLogLine("[grid] posting voidFocusGridCell index=\(index)")
             NotificationCenter.default.post(
                 name: VD.Notification.voidFocusGridCell,
                 object: focused,
@@ -248,7 +214,6 @@ class TerminalWindow: NSWindow {
             return true
         }
         if isAdd {
-            gridLogLine("[grid] posting voidAddGridCell")
             NotificationCenter.default.post(
                 name: VD.Notification.voidAddGridCell,
                 object: focused
