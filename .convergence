@@ -1,0 +1,69 @@
+# void /.convergence — per-project convergence log (attr format)
+# Spec: hexa-lang self/convergence_scan.hexa Form A (multi-line block).
+# Required keys: state, id. Allowed states: ossified | stable | in_flight | pending | completed | completed_gap | failed | blocked.
+# Optional keys: value, threshold, date, note, evidence, checkpoint, ossified_at, promoted_from, ref_commit, rationale.
+# Dump: hexa convergence dump <file>
+
+# @convergence-meta-start
+# project: void
+# description: Ghostty fork — Zig + Swift, macOS-first terminal. grid-mode + libvoid.
+# approval_tag: void-approved
+# @convergence-meta-end
+
+# @convergence-start
+# state: ossified
+# id: ZIG_0_15_2_PIN
+# date: 2026-04-24
+# value: 빌드는 반드시 vendored zig 0.15.2 (vendor/zig-0.15.2/bin/zig — symlink → /opt/homebrew/Cellar/zig@0.15/0.15.2/bin/zig) 또는 bin/void-build 래퍼만 사용. 맨손 `zig build` 금지.
+# threshold: bin/void-build wrapper 가 default 진입점, default args `-Demit-macos-app -Doptimize=ReleaseFast`. 자동/수동 모두 동일.
+# evidence: build.zig:16 buildpkg.requireZig(0.15.2). homebrew 0.16.0 호출 시 build.zig:27 readFileAlloc 시그니처 변경(3→4 인자) + requireZig comptime fail 동시 발생. 본 세션(2026-04-24) 첫 빌드 같은 에러로 fail — 세션마다 반복 재발 패턴 확인.
+# rationale: 사용자가 "빌드 문제 반복됨" 명시 보고. zig 메이저 버전 차이는 build.zig 비호환을 거의 항상 동반 → 골화로 잠금.
+# ref_commit: bin/void-build NEW + bin/void shim (Ghostty.app→Void.app) MOD
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
+# state: ossified
+# id: LAUNCHER_SHIM_VOID_APP
+# date: 2026-04-24
+# value: bin/void shim 은 macos/build/ReleaseLocal/Void.app 을 가리켜야 함 — Ghostty.app 아님.
+# threshold: rebrand commit 964c9e32e (Ghostty → Void L3 rebrand) 이후 빌드 산출물은 Void.app. 기존 install.hexa 가 생성한 shim은 Ghostty.app 잔류 → 신규 빌드해도 사용자는 구 바이너리 실행하는 silent regression.
+# evidence: 본 세션에서 grid-mode fix + 새 빌드 성공 후에도 `void` CLI는 4/22 Ghostty.app 실행 — 실제 동작 변화 없음. shim 1줄 수정으로 즉시 해소.
+# rationale: 빌드 출력 경로와 launcher 가 일치해야 "수정→재설치→테스트" 루프가 닫힘.
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
+# state: ossified
+# id: APP_INSTALL_TO_APPLICATIONS
+# date: 2026-04-24
+# value: bin/void-build 는 빌드 직후 macos/build/ReleaseLocal/Void.app 을 /Applications/Void.app 으로 install 한다. bin/void shim 도 /Applications/Void.app 을 가리킴 — Launchpad / Spotlight / `void` CLI 모두 같은 바이너리.
+# threshold: install 단계 실패 시 build 도 실패 처리(set -euo pipefail). atomic-ish 스왑: stage(.new)에 cp -R → 기존 rm -rf → mv. 실행 중 Void 는 inode 매핑 유지 → 다음 launch 시 신버전. 환경변수 VOID_NO_INSTALL=1 / VOID_INSTALL_DIR=<path> 로 우회.
+# evidence: 사용자 요구 "application 에 install 해주는 형태로 바꿔줘". 종전 shim 은 dev build 경로(macos/build/...)를 직접 가리켜서 macOS Launchpad/Spotlight 진입점과 분기 → "재설치"가 사용자 mental model 과 어긋남.
+# rationale: 빌드 산출물 → 실행 진입점 단일화. 추후 codesign / notarize / Sparkle update 통합 시에도 /Applications 를 단일 install target 으로 쓰면 분기 X.
+# ref_commit: bin/void-build (install step 추가) + bin/void (shim → /Applications)
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
+# state: ossified
+# id: BUILD_ENTRYPOINT_BIN_VOID_BUILD
+# date: 2026-04-24
+# value: 모든 code edit 후 재빌드는 반드시 `bin/void-build` 단일 진입점 호출. vendored zig 직접 호출(`vendor/zig-0.15.2/bin/zig build ...`) 도 금지 — build 성공하나 install step 누락으로 /Applications/Void.app 이 구버전 유지되는 silent regression.
+# threshold: claude-code agent 가 edit 후 bin/void-build 외 경로로 빌드 → install 미수행 → 사용자 Dock/Launchpad 테스트 시 "그대로야" 로 surface. 세션마다 재발하는 행동 패턴.
+# evidence: 2026-04-24 icon 변경 세션 — 첫 시도 `zig build` (homebrew 0.16) 실패, 두번째 `vendor/zig-0.15.2/bin/zig build -Demit-macos-app -Doptimize=ReleaseFast` 성공. 그러나 install 누락 → /Applications/Void.app mtime 10:13 (구) vs zig-out/Void.app 10:17 (신) 미스매치. 사용자 "install까지 항상해줘" + "그대로야" 명시 지적 후 수동 cp 로 해소. memory feedback_always_reinstall.md 에 이미 명시돼 있었으나 세션 시작 시점에 놓침.
+# rationale: ZIG_0_15_2_PIN 은 컴파일러 선택만, APP_INSTALL_TO_APPLICATIONS 는 install target 만 정의. 둘을 **함께 강제하는 유일한 진입점 = bin/void-build**. agent 가 하위 명령을 수동 구성하는 순간 install step 이 빠질 확률 매우 높음 — 따라서 "zig 를 부르지 말 것, bin/void-build 만 부를 것" 수준으로 골화.
+# ref_commit: 066503804 feat(icon): set app icon to 🕳️ void emoji (회귀 발생·해소 시점)
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
+# state: stable
+# id: GRID_MODE_FOCUS_VD_MOVEFOCUS
+# date: 2026-04-24
+# value: SurfaceTree 재구성 시 focusedSurface 대입만으로는 AppKit first responder 가 안 옮겨감 → VD.moveFocus(to:from:) 호출 필수.
+# threshold: flattenTabsToGrid (tab→grid) 와 explodeIntoTabs (grid→tab) 양방향 모두 DispatchQueue.main.async { VD.moveFocus(to: focusTarget, from: nil) } 추가. 패턴은 voidDidFocusGridCell(line 706-708) / replaceSurfaceTree(line 493) 와 동일.
+# evidence: macos/Sources/Features/Terminal/BaseTerminalController.swift line 740(flatten) + 783(explode). 사용자 보고 "그리드모드 최초 타이핑 안됨" + "탭모드 갔다와도 안됨" 양쪽 케이스 cover.
+# rationale: focusedSurface 는 libvoid 내부 상태만 갱신. window.makeFirstResponder 호출이 없으면 키 입력 dropped. makeKeyAndOrderFront 는 윈도우만 활성화하지 SurfaceView 를 first responder 로 만들지 않음.
+# note: 안정화 후 ossified 승격 — 사용자 실측 통과 시 stable→ossified.
+# @convergence-end
