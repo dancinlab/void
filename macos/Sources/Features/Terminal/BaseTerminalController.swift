@@ -2,6 +2,25 @@ import Cocoa
 import SwiftUI
 import Combine
 import VoidKit
+import OSLog
+
+private let baseGridLogger = Logger(subsystem: "com.mitchellh.void.grid", category: "controller")
+private let baseGridLogFile: URL = {
+    let pid = ProcessInfo.processInfo.processIdentifier
+    return URL(fileURLWithPath: "/tmp/void-grid-\(pid).log")
+}()
+private func baseGridLog(_ message: String) {
+    baseGridLogger.notice("\(message, privacy: .public)")
+    let line = "[\(Date().ISO8601Format())] \(message)\n"
+    guard let data = line.data(using: .utf8) else { return }
+    if let handle = try? FileHandle(forWritingTo: baseGridLogFile) {
+        try? handle.seekToEnd()
+        try? handle.write(contentsOf: data)
+        try? handle.close()
+    } else {
+        try? data.write(to: baseGridLogFile)
+    }
+}
 
 /// A base class for windows that can contain Void windows. This base class implements
 /// the bare minimum functionality that every terminal window in Void should implement.
@@ -704,8 +723,16 @@ class BaseTerminalController: NSWindowController,
         let newFocus = leaves[resolved]
         let oldFocus = focusedSurface
         focusedSurface = newFocus
+        baseGridLog("[ctl] voidDidFocusGridCell raw=\(raw) resolved=\(resolved) leaves=\(leaves.count) newFocusWindowAttached=\(newFocus.window != nil) surfaceNonNil=\(newFocus.surface != nil)")
         DispatchQueue.main.async {
             VD.moveFocus(to: newFocus, from: oldFocus)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                if let w = newFocus.window {
+                    baseGridLog("[ctl] focusGridCell post-moveFocus(0.6s) firstResponderIsTarget=\(w.firstResponder === newFocus) firstResponderKind=\(String(describing: type(of: w.firstResponder ?? w))) focused=\(newFocus.focused)")
+                } else {
+                    baseGridLog("[ctl] focusGridCell post-moveFocus(0.6s) NO WINDOW")
+                }
+            }
         }
     }
 
@@ -770,6 +797,19 @@ class BaseTerminalController: NSWindowController,
                 tc.window?.close()
             }
         }
+
+        baseGridLog("[ctl] flattenTabsToGrid done leaves=\(allSurfaces.count) focusTargetWindowAttached=\(focusTarget.window != nil)")
+        DispatchQueue.main.async {
+            baseGridLog("[ctl] flatten→moveFocus to focusTarget windowAttached=\(focusTarget.window != nil) focusedSurface==target=\(target.focusedSurface === focusTarget)")
+            VD.moveFocus(to: focusTarget, from: nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                if let w = focusTarget.window {
+                    baseGridLog("[ctl] flatten post-moveFocus(0.6s) firstResponderIsTarget=\(w.firstResponder === focusTarget) firstResponderKind=\(String(describing: type(of: w.firstResponder ?? w))) focused=\(focusTarget.focused)")
+                } else {
+                    baseGridLog("[ctl] flatten post-moveFocus(0.6s) NO WINDOW")
+                }
+            }
+        }
     }
 
     /// Move every leaf beyond the first out of `controller`'s surface tree into a new
@@ -808,6 +848,19 @@ class BaseTerminalController: NSWindowController,
 
             if focusTarget == leaves[0] {
                 parentWindow.makeKeyAndOrderFront(self)
+            }
+        }
+
+        baseGridLog("[ctl] explodeIntoTabs done leaves=\(leaves.count) focusTargetIsLeaf0=\(focusTarget == leaves[0])")
+        DispatchQueue.main.async {
+            baseGridLog("[ctl] explode→moveFocus windowAttached=\(focusTarget.window != nil)")
+            VD.moveFocus(to: focusTarget, from: nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                if let w = focusTarget.window {
+                    baseGridLog("[ctl] explode post-moveFocus(0.6s) firstResponderIsTarget=\(w.firstResponder === focusTarget) firstResponderKind=\(String(describing: type(of: w.firstResponder ?? w))) focused=\(focusTarget.focused)")
+                } else {
+                    baseGridLog("[ctl] explode post-moveFocus(0.6s) NO WINDOW")
+                }
             }
         }
     }
