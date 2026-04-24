@@ -958,6 +958,22 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func newTab(_ sender: Any?) {
+        // During app-focus change, cmd+T can land on this fallback IBAction
+        // before any TerminalController becomes first responder. If the
+        // preferredParent is mid-grid, forwarding to TerminalController.newTab
+        // would spawn an AppKit tab next to the grid (orphan). Route to the
+        // grid-cell path instead — same intent as the window-level intercept
+        // in TerminalWindow.handleGridShortcut.
+        if let parent = TerminalController.preferredParent,
+           (parent.window?.tabGroup?.windows.count ?? 0) <= 1,
+           parent.surfaceTree.isSplit,
+           let focused = parent.focusedSurface ?? parent.surfaceTree.first {
+            NotificationCenter.default.post(
+                name: VD.Notification.voidAddGridCell,
+                object: focused
+            )
+            return
+        }
         _ = TerminalController.newTab(
             void,
             from: TerminalController.preferredParent?.window

@@ -1146,9 +1146,28 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     // Shows the "+" button in the tab bar, responds to that click.
     override func newWindowForTab(_ sender: Any?) {
+        if routeToGridCellIfInGridMode() { return }
         // Trigger the void core event logic for a new tab.
         guard let surface = self.focusedSurface?.surface else { return }
         void.newTab(surface: surface)
+    }
+
+    /// Mirrors the window-level cmd+T intercept in TerminalWindow.handleGridShortcut.
+    /// Needed here because cmd+T can reach the menu path (newTab: IBAction) or the
+    /// tab-bar "+" path (newWindowForTab:) instead of window.performKeyEquivalent —
+    /// notably during an app-focus change, when the first cmd+T fires before the
+    /// key window transition settles, and macOS dispatches it via main-menu
+    /// performKeyEquivalent. Without this guard the grid sprouts an AppKit tab.
+    private func routeToGridCellIfInGridMode() -> Bool {
+        guard (window?.tabGroup?.windows.count ?? 0) <= 1,
+              surfaceTree.isSplit,
+              let focused = focusedSurface ?? surfaceTree.first
+        else { return false }
+        NotificationCenter.default.post(
+            name: VD.Notification.voidAddGridCell,
+            object: focused
+        )
+        return true
     }
 
     // MARK: NSWindowDelegate
@@ -1258,6 +1277,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction func newTab(_ sender: Any?) {
+        if routeToGridCellIfInGridMode() { return }
         guard let surface = focusedSurface?.surface else { return }
         void.newTab(surface: surface)
     }
