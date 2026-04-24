@@ -26,6 +26,12 @@ if void_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != VOID_SUCCESS {
     }
 }
 
+// --grid-self-test: runs the grid-focus assertions with .prohibited
+// activation policy, never creating a terminal window or registering
+// with the window server. Exits immediately without invoking
+// NSApplicationMain. See Sources/App/macOS/GridSelfTest.swift.
+if let code = GridSelfTest.runIfRequested() { exit(code) }
+
 // This will run the CLI action and exit if one was specified. A CLI
 // action is a command starting with a `+`, such as `void +boo`.
 void_cli_try_action()
