@@ -488,8 +488,26 @@ class BaseTerminalController: NSWindowController,
             nil
         }
 
+        var next = surfaceTree.removing(node)
+
+        // In grid mode (single tab, >=2 leaves remain), SplitTree.removing
+        // collapses the removed leaf's parent split but leaves the ancestor
+        // ratios untouched — so a 3×2 grid becomes asymmetric after one
+        // cell closes (e.g. bottom row 1:2 instead of the fresh grid's 1:1).
+        // Rebuild as a canonical grid so the shape matches what user would
+        // get by spawning the same N cells from scratch.
+        let tabGroupWins = self.window?.tabGroup?.windows.count ?? 0
+        if tabGroupWins <= 1, next.isSplit {
+            let leaves = Array(next)
+            if leaves.count >= 2 {
+                let frameSize = self.window?.frame.size ?? .zero
+                let prefersTall = frameSize.height > frameSize.width
+                next = SplitTree<VD.SurfaceView>.grid(views: leaves, prefersTall: prefersTall)
+            }
+        }
+
         replaceSurfaceTree(
-            surfaceTree.removing(node),
+            next,
             moveFocusTo: nextFocus,
             moveFocusFrom: focusedSurface,
             undoAction: "Close Terminal"
