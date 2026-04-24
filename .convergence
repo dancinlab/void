@@ -160,6 +160,28 @@
 
 # @convergence-start
 # state: ossified
+# id: EXPLODE_TABS_PERF_SAFE_WINS
+# date: 2026-04-24
+# value: explodeIntoTabs(grid→tabs) 가 N-1개 NSWindow 를 직렬로 생성해 6-cell 그리드 기준 ~190ms 소요. 사용자 체감 lag. 실측으로 가려낸 **안전한** 2가지 최적화만 남김: (1) 루프 내 `newTC.showWindow(self)` 제거 — 최종 `targetWindow?.makeKeyAndOrderFront(self)` 와 중복이며 iteration 당 ~20-40ms 소비. (2) 전체 spawn 루프를 `NSAnimationContext.runAnimationGroup(duration:0, allowsImplicitAnimation:false)` + 각 new window `animationBehavior=.none` 로 감싸 "탭 촤르륵 생기는" order-in fade 제거.
+# threshold: moving-lastWindow + `ordered:.above` **유지** (iteration 순서 = tab bar 순서 = 원래 focus cell 이 final makeKeyAndOrderFront 에 정확히 잡힘). constant-anchor `.below` 시도는 5-10ms 더 빠르지만 탭 삽입 순서 반전돼 focus 꼬임 → 기각.
+# evidence: 계측 로그 (10-leaves) total 230→162ms. showWindow 제거가 주 기여. 사용자 "오 빨라졌네" 확증.
+# rationale: 속도와 UI 정확성 트레이드. 더 공격적인 최적화(window pool, constant anchor) 는 side effect 생성 (pool → shell 프로세스 누적 / .below → focus 꼬임). "안전하게 절반 빠른" 지점이 현재.
+# ref_commit: fb3c0ca42 (.above 복원 + showWindow skip 최종판), a2c5ba0a1 (pool 제거)
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
+# state: completed_gap
+# id: EXPLODE_POOL_ATTEMPT_REGRESSION
+# date: 2026-04-24
+# value: (시도 실패 기록) `TerminalControllerPool` — 3개 pre-warmed TerminalController 유지해 explode 시 pool.take() + replaceSurfaceTree 로 lazy window load 회피. 계측상 TC init 4.5ms → 0.1ms 감소 성공. **그러나 side effect**: 각 pool 엔트리가 실제 `VD.SurfaceView` + 실제 shell process 를 배경에서 계속 띄움. 반복 cmd+g 에서 shell 누적 → 사용자 "튕기는거같은데" 체감.
+# threshold: pool 로직은 리소스 회계 없이는 안전하지 않음. 대안: lazy-init window shell (SurfaceView 만들되 shell spawn 지연), 또는 pool 엔트리 deinit 시 명시적 `void_surface_free`. 현재는 복잡도 대비 이득 미흡 — 제거.
+# evidence: 사용자 rapid cmd+g 반복 시 "튕기는" 보고. pool 제거 (commit a2c5ba0a1) 후 안정성 복구.
+# rationale: GUI 앱의 prewarming 패턴은 리소스 life-cycle 관리가 까다롭다. mac AppKit 에서 NSWindowController 를 dormant 상태로 유지하려면 shell/surface 측 integration 도 필요 — 현재 architecture 로는 부담.
+# @convergence-end
+
+# @convergence-start
+# state: ossified
 # id: VOID_BUILD_AUTO_RELAUNCH
 # date: 2026-04-24
 # value: `bin/void-build` 는 install 직후 실행 중인 Void 프로세스를 pkill → open -a 로 자동 재시작. user 는 수동 cmd+Q 불필요 — 빌드 끝나면 항상 최신 바이너리가 실행 중인 상태.
