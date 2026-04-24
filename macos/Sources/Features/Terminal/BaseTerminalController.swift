@@ -715,13 +715,35 @@ class BaseTerminalController: NSWindowController,
         // retries with backoff until to.window is attached.
         VD.moveFocus(to: newFocus, from: oldFocus)
 
-        // Raw diag — one line per cmd+N event in /tmp/void-grid.log so a
-        // live user session can show which specific leaf / path fails.
+        // Raw diag — extended with tree-structural info so we can
+        // distinguish "tree is actually single-leaf" from "tree is grid
+        // but something else is wrong".
         let sid = { (v: VD.SurfaceView?) -> String in
             guard let v else { return "nil" }
             return String(format: "%04x", ObjectIdentifier(v).hashValue & 0xFFFF)
         }
-        let line = "[\(Date().ISO8601Format())] cmd+\(raw) → leaf[\(resolved)] new=\(sid(newFocus)) old=\(sid(oldFocus)) ctrlWin=\(self.window != nil) nfWin=\(newFocus.window != nil) sameWin=\(self.window === newFocus.window)\n"
+        let treeCount = Array(surfaceTree).count
+        let isSplit = surfaceTree.isSplit
+        let tabGroupWins = self.window?.tabGroup?.windows.count ?? -1
+        let ctrlSid = String(format: "%04x", ObjectIdentifier(self).hashValue & 0xFFFF)
+        let line = "[\(Date().ISO8601Format())] cmd+\(raw) → leaf[\(resolved)]/\(leaves.count) new=\(sid(newFocus)) old=\(sid(oldFocus)) treeCount=\(treeCount) isSplit=\(isSplit) tabWins=\(tabGroupWins) ctrl=\(ctrlSid)\n"
+
+        // Schedule a follow-up line 600ms later showing the POST-async state:
+        // whether VD.moveFocus's retry landed the first responder + how the
+        // focused flag resolved. This is where the real bug would show up.
+        let checkSid = sid(newFocus)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self else { return }
+            let w = self.window
+            let fr = w?.firstResponder
+            let frIsNew = (fr as? VD.SurfaceView) === newFocus
+            let followup = "[\(Date().ISO8601Format())] cmd+\(raw) POST sid=\(checkSid) isFR=\(newFocus.isFirstResponder) focused=\(newFocus.focused) winFR=\(frIsNew) surfaceNil=\(newFocus.surface == nil) inSubview=\(newFocus.superview != nil) isKey=\(w?.isKeyWindow ?? false)\n"
+            if let d = followup.data(using: .utf8) {
+                let url = URL(fileURLWithPath: "/tmp/void-grid.log")
+                if let h = try? FileHandle(forWritingTo: url) { try? h.seekToEnd(); try? h.write(contentsOf: d); try? h.close() }
+                else { try? d.write(to: url) }
+            }
+        }
         if let d = line.data(using: .utf8) {
             let url = URL(fileURLWithPath: "/tmp/void-grid.log")
             if let h = try? FileHandle(forWritingTo: url) { try? h.seekToEnd(); try? h.write(contentsOf: d); try? h.close() }
