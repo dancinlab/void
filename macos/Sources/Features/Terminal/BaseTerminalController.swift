@@ -708,13 +708,14 @@ class BaseTerminalController: NSWindowController,
 
         let newFocus = leaves[resolved]
         let oldFocus = focusedSurface
-        // Move first-responder synchronously — VD.moveFocus defers via
-        // DispatchQueue.main.async, which races with any keystroke the user
-        // types immediately after cmd+N (key arrives while cell N is still
-        // not first-responder, so libvoid sees focused=false and drops it).
-        if let window = newFocus.window {
+        // Synchronous first-responder move — VD.moveFocus uses
+        // DispatchQueue.main.async, which races with keystrokes typed
+        // immediately after cmd+N (keys would land on the old cell which
+        // already has focusedSurface's didSet marking it unfocused, so
+        // libvoid drops them).
+        if let win = self.window ?? newFocus.window {
             _ = oldFocus?.resignFirstResponder()
-            window.makeFirstResponder(newFocus)
+            win.makeFirstResponder(newFocus)
         }
         focusedSurface = newFocus
     }
@@ -793,7 +794,6 @@ class BaseTerminalController: NSWindowController,
 
             // Install the grid on the target tab.
             target.surfaceTree = gridTree
-            target.focusedSurface = focusTarget
 
             // Close the drained tabs.
             for tc in tabs where tc !== target {
@@ -801,6 +801,19 @@ class BaseTerminalController: NSWindowController,
             }
         }
 
+        // The newly-attached SurfaceViews haven't rendered into the window
+        // hierarchy yet — SwiftUI's tree diff runs on the next runloop. Force
+        // layout so makeFirstResponder below can find focusTarget in the
+        // hierarchy; otherwise the first few cmd+N keystrokes (before the
+        // render settles) route to a stale first responder and get dropped.
+        // Repro: 6-cell flatten + rapid cmd+1..6 → cells 1-4 silently drop
+        // typing, cells 5-6 work (views rendered by then).
+        target.window?.layoutIfNeeded()
+
+        if let win = target.window {
+            _ = win.makeFirstResponder(focusTarget)
+        }
+        target.focusedSurface = focusTarget
         VD.moveFocus(to: focusTarget, from: nil)
     }
 
