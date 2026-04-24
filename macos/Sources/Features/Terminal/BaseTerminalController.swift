@@ -863,7 +863,17 @@ class BaseTerminalController: NSWindowController,
                 var targetWindow: NSWindow? = (focusTarget == leaves[0]) ? parentWindow : nil
                 for view in leaves.dropFirst() {
                     let subtree = SplitTree<VD.SurfaceView>(view: view)
-                    let newTC = TerminalController(void, withSurfaceTree: subtree)
+                    // Prefer a warm TC from the pool — its window is
+                    // already loaded, sparing the SwiftUI+NSWindow
+                    // mount cost on the hot path. Pool.take() returns
+                    // nil when empty; we fall back to eager init.
+                    let newTC: TerminalController
+                    if let pooled = TerminalControllerPool.shared.take() {
+                        pooled.replaceSurfaceTree(subtree)
+                        newTC = pooled
+                    } else {
+                        newTC = TerminalController(void, withSurfaceTree: subtree)
+                    }
                     guard let newWindow = newTC.window else { continue }
                     newWindow.animationBehavior = .none
 
