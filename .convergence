@@ -105,6 +105,29 @@
 # @convergence-end
 
 # @convergence-start
+# state: in_flight
+# id: GRID_FLATTEN_RENDER_NOT_FOCUS
+# date: 2026-04-24
+# value: 사용자가 "그리드 모드에서 cmd+N 후 입력 안됨" 증상으로 보고한 bug의 실제 layer 는 **focus 나 key routing 이 아니라 rendering**. SurfaceView 가 다른 tab 에서 flatten 돼 host window 로 재parenting 되면 keyDown 을 정상 수신하고 libvoid surface 로 전달되며 shell 이 실행까지 하지만, **그 cell 의 화면 업데이트가 멈춤**. 사용자는 "입력 안됨" 으로 인지. Grid 를 tab 모드로 explode 하면 누적된 출력이 드러남 → 입력은 다 됐고 렌더만 죽은 것.
+# threshold: (a) 재현은 사용자 real session 로그 2026-04-24T11:17 기준: `cmd+2 → leaf[1]/4 new=d169 old=16c2` 후 `keyDown sid=d169 focused=true mods=[] chars=...` 다수 + `cmd+2 POST isFR=true focused=true winFR=true surfaceNil=false isKey=true` — 모든 assertion 통과. (b) 사용자 확증: "탭모드로 전환하면 입력되있음" — shell 에 도달 + 실행됐음.
+# evidence: /tmp/void-grid.log (voidDidFocusGridCell + keyDown raw-diag, commit 2716c83f6 이후) + 사용자 구두 확인. --grid-self-test 31 pass 는 focus chain 정상임을 체계화.
+# rationale: focus/race 가설은 로그로 배제됨 (key 가 정확한 sid 에 도착, libvoid focused=true). 다음 단계: CAMetalLayer / renderer tick 이 SurfaceView 의 window 재parent 이후 resume 안되는 경로 추적. 의심 지점: OSSurfaceView / Metal 초기화가 wantsLayer-backing 을 superview 변경 시 재연결 안함.
+# note: 다음 세션에서 root cause 확정 후 fix + ossified 승격.
+# @convergence-end
+
+# @convergence-start
+# state: ossified
+# id: VOID_HEADLESS_GRID_SELF_TEST
+# date: 2026-04-24
+# value: Void 바이너리 자체에 `--grid-self-test` 플래그 내장. `NSApp.setActivationPolicy(.accessory)` + off-screen NSWindow + NSWindow.isKeyWindow swizzle 로 **완전 invisible** (창·Dock·메뉴바 0) 상태에서 SplitTree 시각 배치(21 assertion) + 실제 TerminalController 시퀀스 (baseline + cmd+N × 3 × 3 assertion = 10) 총 31 assertion 을 1초 미만에 실행.
+# threshold: bin/void-build 가 install 직후 `$DEST/Contents/MacOS/void --grid-self-test` 호출 → exit 0 아니면 build 실패. VOID_NO_HEADLESS_TEST=1 로 skip 허용.
+# evidence: 사용자 "완벽한 headless test 시스템 만들어줘 / 백그라운드 headless !!!!! 절대 원칙" 반복 강조. AppleScript 기반 bg-driver 는 아무리 off-screen 해도 창이 1프레임 비침. in-binary self-test 는 NSApplicationMain 자체를 호출 안 해 window-server 세션 미획득 → zero visual footprint.
+# rationale: macOS native GUI 앱의 puppeteer-headless 등가물. logic 회귀 + AppKit plumbing 동시 가드. 다만 SwiftUI view 실제 mount / Metal 렌더 틱처럼 run-loop 가 필요한 행동은 커버 불가 → 이번 세션에서 확정된 GRID_FLATTEN_RENDER_NOT_FOCUS 버그처럼 render layer 는 별도 방식 필요.
+# ref_commit: 887e2c47a (GridSelfTest.swift 도입) + 2716c83f6 (사용자 시나리오 반영 확장)
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
 # state: ossified
 # id: VOID_BUILD_AUTO_RELAUNCH
 # date: 2026-04-24
