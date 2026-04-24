@@ -768,8 +768,18 @@ extension VD {
         /// view joins the target window, so a one-shot call can race.
         func refreshRendererPipeline(attempt: Int = 0) {
             if self.window == nil || self.surface == nil {
-                guard attempt < 10 else { return } // give up after ~2s
-                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(200)) { [weak self] in
+                // View attach usually completes within one runloop tick;
+                // fall back to longer backoffs only if the first few fast
+                // retries miss. Cap the total wait around 1s so we don't
+                // stall tab↔grid transitions.
+                guard attempt < 16 else { return }
+                let delayMs: Int = switch attempt {
+                case 0..<4:  0          // next runloop: ~1 frame (<16ms)
+                case 4..<8:  20
+                case 8..<12: 50
+                default:     150
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delayMs)) { [weak self] in
                     self?.refreshRendererPipeline(attempt: attempt + 1)
                 }
                 return
