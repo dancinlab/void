@@ -80,3 +80,38 @@
 # ref_commit: bin/void-test NEW + bin/void-build POST-INSTALL HOOK (bin/ 은 .gitignore 대상이라 별도 커밋 없음 — 파일 자체가 SSOT)
 # ossified_at: 2026-04-24
 # @convergence-end
+
+# @convergence-start
+# state: ossified
+# id: GRID_FOCUS_SYNC_NOT_ASYNC
+# date: 2026-04-24
+# value: voidDidFocusGridCell (cmd+N) + flattenTabsToGrid 에서 first responder 이동은 **동기** makeFirstResponder 직접 호출해야 함. VD.moveFocus(...) 만 쓰면 DispatchQueue.main.async 로 지연 → user 가 cmd+N 후 즉시 타이핑하면 FR 미전환 상태라 key 는 stale first responder (구 cell 또는 closed tab's contentView) 로 라우팅되어 drop.
+# threshold: (a) voidDidFocusGridCell: `if let win = self.window ?? newFocus.window { _ = oldFocus?.resignFirstResponder(); win.makeFirstResponder(newFocus) }` 후 focusedSurface = newFocus. (b) flattenTabsToGrid: tree 재할당 후 `target.window?.layoutIfNeeded()` 로 SwiftUI tree diff 를 동기 강제 → view 가 hierarchy 에 들어온 상태에서 makeFirstResponder 호출 가능.
+# evidence: 2026-04-24 재현 — 6-cell grid flatten 직후 cmd+1..6 × (`echo $$ > /tmp/void-cell-N.pid`) 테스트에서 cell 1-4 의 PID 파일 실종 (SwiftUI view diff 미완료로 makeFirstResponder 실패, keystroke 증발) + cell 5-6 만 성공. layoutIfNeeded() 추가 후 6 cells 모두 distinct PID 기록 성공.
+# rationale: VD.moveFocus 의 내부 async dispatch + retry 는 view attach 타이밍엔 robust 하지만 "그 순간 타이핑" race 엔 취약. 동기 호출 + 강제 layout flush 가 race window 자체를 없앰.
+# ref_commit: ce4416f4e (voidDidFocusGridCell sync) + 5a85c032f (flatten layoutIfNeeded + 추가 sync)
+# ossified_at: 2026-04-24
+# @convergence-end
+
+# @convergence-start
+# state: ossified
+# id: VOID_TEST_PID_GROUND_TRUTH
+# date: 2026-04-24
+# value: grid cell 입력 라우팅 검증은 반드시 **cell 별 $$ (shell PID)** 을 각자의 파일에 기록해서 DISTINCT PID 개수로 판정. 단순 marker 파일 존재 체크(예: `echo foo > /tmp/marker`)는 "어떤 shell 이 실행했는지" 구분 불가 — 모든 키가 한 cell 로만 가도 pass.
+# threshold: N-cell grid 테스트 시 `/tmp/void-cell-1..N.pid` 에 `$$` 기록 → `sort -u | wc -l` 로 distinct count 확인. < N 이면 키 일부가 잘못된 cell 로 갔거나 drop.
+# evidence: 2026-04-24 — "그리드 4만 입력가능함" 사용자 보고. marker 파일 체크로는 "3개 파일 모두 생성됐음" 오판 pass. PID 체크로 바꾸자 4-cell 은 4 distinct PID (정상) / 6-cell 은 2 distinct PID + 4 missing (버그 재현) 로 즉시 분리 확인.
+# rationale: "shell 이 command 를 실행했다" ≠ "의도한 cell 의 shell 이 실행했다". focus 테스트의 ground truth 는 identity-based verification.
+# note: bin/void-test 에 PID 체크 도입 가능 — 현재는 ad-hoc osascript 로만 운용.
+# @convergence-end
+
+# @convergence-start
+# state: ossified
+# id: VOID_BUILD_AUTO_RELAUNCH
+# date: 2026-04-24
+# value: `bin/void-build` 는 install 직후 실행 중인 Void 프로세스를 pkill → open -a 로 자동 재시작. user 는 수동 cmd+Q 불필요 — 빌드 끝나면 항상 최신 바이너리가 실행 중인 상태.
+# threshold: (a) pgrep 으로 실행 여부 확인 (WAS_RUNNING 플래그). (b) VOID_NO_TEST=1: kill 후 open -a. (c) default: bin/void-test 가 kill + 자체 launch + sim 수행 → default 로 실행중 상태 유지 (VOID_TEST_KILL_AFTER=1 로만 종료). 사용자 워크플로우: `bin/void-build` → 바로 Void 창에서 테스트.
+# evidence: 사용자 지적 "재시작하면 안되는데 설치 위치 잘못한거 아냐?" — install 은 정상이지만 macOS 특성상 running process 는 disk 갱신 자동 반영 X. 빌드 스크립트 책임으로 끌어옴.
+# rationale: dev loop friction 최소화. "빌드하고 수동으로 껐다 켜세요" 는 매번 잊히고 stale binary 로 테스트 → 잘못된 결론 (이번 세션에서도 반복 발생).
+# ref_commit: bin/void-build (auto-relaunch 로직 추가) + bin/void-test (VOID_TEST_KEEP_RUNNING 기본값 반전 → VOID_TEST_KILL_AFTER)
+# ossified_at: 2026-04-24
+# @convergence-end
