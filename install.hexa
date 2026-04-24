@@ -1,20 +1,31 @@
 // install.hexa — hx install hook for void
 //
-// Delegates to bin/void-build which is the single source of truth for
-// the build pipeline:
-//   - vendored zig 0.15.2 (homebrew 0.16+ is incompatible with build.zig)
-//   - zig build -Demit-macos-app -Doptimize=ReleaseFast
-//   - copy macos/build/ReleaseLocal/Void.app → /Applications/Void.app
-//   - /Applications/Void.app/Contents/MacOS/void --grid-self-test (zero
-//     window footprint; 31 assertions gate regressions)
+// Self-contained: works on a fresh clone where bin/ and vendor/ are
+// both gitignored. Builds from zig source → installs to
+// /Applications/Void.app → creates bin/void shim → runs the in-binary
+// --grid-self-test as a regression gate.
+//
+// Invoked by `hx install void` (or `hx update void`) with env:
+//   HX_PKG_DIR  — void source dir
+//   HX_BIN_DIR  — ~/.hx/bin
+//   HX_PKG_NAME — "void"
 //
 // After this hook runs, hx reads registry entry = "bin/void" and
-// symlinks $HX_BIN_DIR/void → $HX_PKG_DIR/bin/void so `void` from any
-// shell launches /Applications/Void.app.
+// symlinks $HX_BIN_DIR/void → $HX_PKG_DIR/bin/void.
 
 fn have(cmd: string) -> bool {
     let r = to_string(exec("command -v " + cmd + " 2>/dev/null")).trim()
     return r != ""
+}
+
+fn path_exists(p: string) -> bool {
+    let r = to_string(exec("test -e '" + p + "' && echo y || echo n")).trim()
+    return r == "y"
+}
+
+fn dir_exists(p: string) -> bool {
+    let r = to_string(exec("test -d '" + p + "' && echo y || echo n")).trim()
+    return r == "y"
 }
 
 fn run_or_die(cmd: string) {
@@ -37,33 +48,68 @@ fn main() {
     }
 
     if !have("xcodebuild") {
-        eprintln("xcodebuild not found. Install Xcode + macOS SDK")
+        eprintln("xcodebuild not found. Install Xcode + macOS SDK.")
         exit(1)
     }
 
-    let builder = pkg_dir + "/bin/void-build"
-    let builder_test = to_string(exec("test -x '" + builder + "' && echo y || echo n")).trim()
-    if builder_test != "y" {
-        eprintln("expected bin/void-build at " + builder + " (needs +x)")
-        exit(1)
+    // Ensure the pinned zig 0.15.2 toolchain is available. build.zig:16
+    // calls requireZig(0.15.2) — homebrew's default zig is usually 0.16+
+    // and fails immediately. Use the zig@0.15 formula and vendor a symlink.
+    let vendor_dir = pkg_dir + "/vendor/zig-0.15.2/bin"
+    let vendor_zig = vendor_dir + "/zig"
+    if !path_exists(vendor_zig) {
+        let brew_zig = "/opt/homebrew/Cellar/zig@0.15/0.15.2/bin/zig"
+        if !path_exists(brew_zig) {
+            println("⬡ void: installing zig@0.15 via Homebrew (required — requireZig in build.zig)")
+            if !have("brew") {
+                eprintln("Homebrew required to provide zig@0.15. Install https://brew.sh first.")
+                exit(1)
+            }
+            run_or_die("brew install zig@0.15")
+        }
+        if !path_exists(brew_zig) {
+            eprintln("brew installed zig@0.15 but " + brew_zig + " is missing — check brew --prefix zig@0.15")
+            exit(1)
+        }
+        run_or_die("mkdir -p " + vendor_dir)
+        run_or_die("ln -sf " + brew_zig + " " + vendor_zig)
+        println("⬡ void: vendored zig 0.15.2 → " + vendor_zig)
     }
 
-    println("⬡ void: delegating to bin/void-build (pinned zig 0.15.2 + install + self-test)")
-    run_or_die(builder)
+    println("⬡ void: zig build -Demit-macos-app -Doptimize=ReleaseFast (first build ~10-15 min; incremental ~1-3 min)")
+    run_or_die("cd " + pkg_dir + " && " + vendor_zig + " build -Demit-macos-app -Doptimize=ReleaseFast")
 
-    let app = "/Applications/Void.app"
-    let app_test = to_string(exec("test -d '" + app + "' && echo y || echo n")).trim()
-    if app_test != "y" {
-        eprintln("expected /Applications/Void.app after build but not found")
+    let built = pkg_dir + "/macos/build/ReleaseLocal/Void.app"
+    if !dir_exists(built) {
+        eprintln("expected app at " + built + " but not produced")
         exit(1)
     }
+    println("⬡ void: built " + built)
 
+    // Install to /Applications atomically-ish — stage then rename.
+    let dest = "/Applications/Void.app"
+    let stage = "/Applications/Void.app.new"
+    run_or_die("rm -rf " + stage)
+    run_or_die("cp -R " + built + " " + stage)
+    run_or_die("rm -rf " + dest)
+    run_or_die("mv " + stage + " " + dest)
+    println("⬡ void: installed → " + dest)
+
+    // Run the in-binary self-test (no window, no dock icon). Skip with
+    // VOID_NO_SELF_TEST=1 for headless CI runs where stdin/stdout of
+    // xctest might not be available.
+    if env("VOID_NO_SELF_TEST") != "1" {
+        println("⬡ void: running --grid-self-test")
+        run_or_die(dest + "/Contents/MacOS/void --grid-self-test")
+    }
+
+    // Entry shim — hx will symlink $HX_BIN_DIR/void → pkg_dir/bin/void.
     run_or_die("mkdir -p " + pkg_dir + "/bin")
     let shim = pkg_dir + "/bin/void"
-    let body = "#!/bin/bash\n# void launcher shim — /Applications/Void.app is the install target\nexec open -a \"/Applications/Void.app\" --args \"$@\"\n"
+    let body = "#!/bin/bash\n# void launcher shim → /Applications/Void.app\nexec open -a \"" + dest + "\" --args \"$@\"\n"
     write_file(shim, body)
     run_or_die("chmod +x " + shim)
 
-    println("⬡ void: installed to " + app)
-    println("⬡ void: shim at " + shim + " (hx symlinks $HX_BIN_DIR/void → bin/void)")
+    println("⬡ void: shim at " + shim)
+    println("⬡ void: install complete — `void` from any shell launches " + dest)
 }
