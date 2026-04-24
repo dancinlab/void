@@ -708,16 +708,37 @@ class BaseTerminalController: NSWindowController,
 
         let newFocus = leaves[resolved]
         let oldFocus = focusedSurface
-        // Synchronous first-responder move — VD.moveFocus uses
-        // DispatchQueue.main.async, which races with keystrokes typed
-        // immediately after cmd+N (keys would land on the old cell which
-        // already has focusedSurface's didSet marking it unfocused, so
-        // libvoid drops them).
-        if let win = self.window ?? newFocus.window {
+
+        // Raw diag — each cmd+N event appends a line to /tmp/void-grid.log
+        // so we can see what actually happens in the user's live session
+        // without any test harness.
+        let sid = { (v: VD.SurfaceView?) -> String in
+            guard let v else { return "nil" }
+            return String(format: "%04x", ObjectIdentifier(v).hashValue & 0xFFFF)
+        }
+        let ctrlWin = self.window
+        let nfWin = newFocus.window
+        let inHier: Bool = {
+            guard let cv = ctrlWin?.contentView else { return false }
+            var v: NSView? = newFocus
+            while let cur = v { if cur === cv { return true }; v = cur.superview }
+            return false
+        }()
+
+        var ok = false
+        if let win = ctrlWin ?? nfWin {
             _ = oldFocus?.resignFirstResponder()
-            win.makeFirstResponder(newFocus)
+            ok = win.makeFirstResponder(newFocus)
         }
         focusedSurface = newFocus
+
+        let afterFR = ctrlWin?.firstResponder === newFocus
+        let line = "[\(Date().ISO8601Format())] cmd+\(raw) → leaf[\(resolved)] new=\(sid(newFocus)) old=\(sid(oldFocus)) ctrlWin=\(ctrlWin != nil) nfWin=\(nfWin != nil) sameWin=\(ctrlWin === nfWin) inHier=\(inHier) makeFR=\(ok) afterFR=\(afterFR) focused=\(newFocus.focused)\n"
+        if let d = line.data(using: .utf8) {
+            let url = URL(fileURLWithPath: "/tmp/void-grid.log")
+            if let h = try? FileHandle(forWritingTo: url) { try? h.seekToEnd(); try? h.write(contentsOf: d); try? h.close() }
+            else { try? d.write(to: url) }
+        }
     }
 
     /// Leaves in row-major visual order (top-to-bottom row, left-to-right within).
