@@ -708,32 +708,20 @@ class BaseTerminalController: NSWindowController,
 
         let newFocus = leaves[resolved]
         let oldFocus = focusedSurface
+        focusedSurface = newFocus
+        // Mirror replaceSurfaceTree / voidDidAddGridCell (which the user
+        // confirmed works): single VD.moveFocus call, no sync
+        // makeFirstResponder. VD.moveFocus internally dispatches to main +
+        // retries with backoff until to.window is attached.
+        VD.moveFocus(to: newFocus, from: oldFocus)
 
-        // Raw diag — each cmd+N event appends a line to /tmp/void-grid.log
-        // so we can see what actually happens in the user's live session
-        // without any test harness.
+        // Raw diag — one line per cmd+N event in /tmp/void-grid.log so a
+        // live user session can show which specific leaf / path fails.
         let sid = { (v: VD.SurfaceView?) -> String in
             guard let v else { return "nil" }
             return String(format: "%04x", ObjectIdentifier(v).hashValue & 0xFFFF)
         }
-        let ctrlWin = self.window
-        let nfWin = newFocus.window
-        let inHier: Bool = {
-            guard let cv = ctrlWin?.contentView else { return false }
-            var v: NSView? = newFocus
-            while let cur = v { if cur === cv { return true }; v = cur.superview }
-            return false
-        }()
-
-        var ok = false
-        if let win = ctrlWin ?? nfWin {
-            _ = oldFocus?.resignFirstResponder()
-            ok = win.makeFirstResponder(newFocus)
-        }
-        focusedSurface = newFocus
-
-        let afterFR = ctrlWin?.firstResponder === newFocus
-        let line = "[\(Date().ISO8601Format())] cmd+\(raw) → leaf[\(resolved)] new=\(sid(newFocus)) old=\(sid(oldFocus)) ctrlWin=\(ctrlWin != nil) nfWin=\(nfWin != nil) sameWin=\(ctrlWin === nfWin) inHier=\(inHier) makeFR=\(ok) afterFR=\(afterFR) focused=\(newFocus.focused)\n"
+        let line = "[\(Date().ISO8601Format())] cmd+\(raw) → leaf[\(resolved)] new=\(sid(newFocus)) old=\(sid(oldFocus)) ctrlWin=\(self.window != nil) nfWin=\(newFocus.window != nil) sameWin=\(self.window === newFocus.window)\n"
         if let d = line.data(using: .utf8) {
             let url = URL(fileURLWithPath: "/tmp/void-grid.log")
             if let h = try? FileHandle(forWritingTo: url) { try? h.seekToEnd(); try? h.write(contentsOf: d); try? h.close() }
@@ -822,18 +810,10 @@ class BaseTerminalController: NSWindowController,
             }
         }
 
-        // The newly-attached SurfaceViews haven't rendered into the window
-        // hierarchy yet — SwiftUI's tree diff runs on the next runloop. Force
-        // layout so makeFirstResponder below can find focusTarget in the
-        // hierarchy; otherwise the first few cmd+N keystrokes (before the
-        // render settles) route to a stale first responder and get dropped.
-        // Repro: 6-cell flatten + rapid cmd+1..6 → cells 1-4 silently drop
-        // typing, cells 5-6 work (views rendered by then).
-        target.window?.layoutIfNeeded()
-
-        if let win = target.window {
-            _ = win.makeFirstResponder(focusTarget)
-        }
+        // Mirror replaceSurfaceTree exactly (the voidDidAddGridCell path the
+        // user confirmed works): assign focusedSurface, then a single
+        // VD.moveFocus. VD.moveFocus handles async view attachment via its
+        // internal retry loop — don't sync-fight it.
         target.focusedSurface = focusTarget
         VD.moveFocus(to: focusTarget, from: nil)
     }
