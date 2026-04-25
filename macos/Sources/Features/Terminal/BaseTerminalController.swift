@@ -1098,7 +1098,12 @@ class BaseTerminalController: NSWindowController,
     }
 
     private func computeTitle(title: String, bell: Bool) -> String {
-        var result = title
+        // If the shell sets the title to a bare path (common when PROMPT_COMMAND
+        // exports the pwd), shorten it per `path-title-style` in config.void.
+        // Mixed titles like "vim ~/foo" pass through unchanged.
+        var result = VoidPathTitleStyle.isPathLike(title)
+            ? VoidPathTitleStyle.format(title)
+            : title
         if bell && void.config.bellFeatures.contains(.title) {
             result = "🔔 \(result)"
         }
@@ -1150,6 +1155,8 @@ class BaseTerminalController: NSWindowController,
             splitDidResize(node: resize.node, to: resize.ratio)
         case .drop(let drop):
             splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
+        case .resizeBatch(let batch):
+            splitDidResizeBatch(items: batch.items)
         }
     }
 
@@ -1160,6 +1167,25 @@ class BaseTerminalController: NSWindowController,
         } catch {
             VD.logger.warning("failed to replace node during split resize: \(error)")
         }
+    }
+
+    private func splitDidResizeBatch(items: [TerminalSplitOperation.BatchResize.Item]) {
+        // Items arrive deepest-path-first so applying them in order doesn't
+        // overwrite descendant ratios via stale ancestor children.
+        var tree = surfaceTree
+        for item in items {
+            guard let root = tree.root,
+                  let current = root.node(at: item.path),
+                  case .split = current else { continue }
+            let resized = current.resizing(to: item.ratio)
+            do {
+                let newRoot = try root.replacingNode(at: item.path, with: resized)
+                tree = .init(root: newRoot, zoomed: tree.zoomed)
+            } catch {
+                VD.logger.warning("failed to apply batch resize at path: \(error)")
+            }
+        }
+        surfaceTree = tree
     }
 
     private func splitDidDrop(

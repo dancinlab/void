@@ -35,6 +35,12 @@ struct SplitView<L: View, R: View>: View {
     private let splitterVisibleSize: CGFloat = 1
     private let splitterInvisibleSize: CGFloat = 6
 
+    /// If true, panes shrink by `splitterVisibleSize` to make room for the divider.
+    /// If false (default), the divider overlays the boundary so panes keep full geometry —
+    /// matters in grid mode where many splits would otherwise compound the loss.
+    /// Flip to `true` to restore the old shrink-for-border behavior.
+    private let shrinkPanesForDivider: Bool = false
+
     var body: some View {
         GeometryReader { geo in
             let leftRect = self.leftRect(for: geo.size)
@@ -109,12 +115,12 @@ struct SplitView<L: View, R: View>: View {
         switch direction {
         case .horizontal:
             result.size.width *= split
-            result.size.width -= splitterVisibleSize / 2
+            if shrinkPanesForDivider { result.size.width -= splitterVisibleSize / 2 }
             result.size.width -= result.size.width.truncatingRemainder(dividingBy: self.resizeIncrements.width)
 
         case .vertical:
             result.size.height *= split
-            result.size.height -= splitterVisibleSize / 2
+            if shrinkPanesForDivider { result.size.height -= splitterVisibleSize / 2 }
             result.size.height -= result.size.height.truncatingRemainder(dividingBy: self.resizeIncrements.height)
         }
 
@@ -130,12 +136,12 @@ struct SplitView<L: View, R: View>: View {
             // For horizontal layouts we offset the starting X by the left rect
             // and make the width fit the remaining space.
             result.origin.x += leftRect.size.width
-            result.origin.x += splitterVisibleSize / 2
+            if shrinkPanesForDivider { result.origin.x += splitterVisibleSize / 2 }
             result.size.width -= result.origin.x
 
         case .vertical:
             result.origin.y += leftRect.size.height
-            result.origin.y += splitterVisibleSize / 2
+            if shrinkPanesForDivider { result.origin.y += splitterVisibleSize / 2 }
             result.size.height -= result.origin.y
         }
 

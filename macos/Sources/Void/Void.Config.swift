@@ -924,3 +924,59 @@ extension VD.Config {
         case native, transparent, tabs, hidden
     }
 }
+
+/// How a pwd-like path is rendered in tab/window titles and grid pane labels.
+/// Read once from `$XDG_CONFIG_HOME/void/config.void` (or `~/.config/void/config.void`)
+/// at first access and cached — no per-frame disk hits.
+///
+/// config.void key:
+///     path-title-style = basename | full | hidden
+/// Default: basename. Examples for `~/core/void`:
+///   basename → "void"
+///   full     → "~/core/void"
+///   hidden   → ""
+enum VoidPathTitleStyle: String {
+    case basename
+    case full
+    case hidden
+
+    static let current: VoidPathTitleStyle = readFromConfig()
+
+    /// Apply the style to an absolute path string. Empty/non-path inputs pass through.
+    static func format(_ path: String) -> String {
+        guard !path.isEmpty else { return path }
+        switch current {
+        case .basename: return (path as NSString).lastPathComponent
+        case .full:     return (path as NSString).abbreviatingWithTildeInPath
+        case .hidden:   return ""
+        }
+    }
+
+    /// True if the given title looks like a single bare path (no spaces, starts
+    /// with `/` or `~/`). Used to decide whether to apply the style to a tab title.
+    static func isPathLike(_ s: String) -> Bool {
+        guard !s.isEmpty, !s.contains(" ") else { return false }
+        return s.hasPrefix("/") || s.hasPrefix("~/")
+    }
+
+    private static func readFromConfig() -> VoidPathTitleStyle {
+        let env = ProcessInfo.processInfo.environment
+        let baseDir: URL = {
+            if let xdg = env["XDG_CONFIG_HOME"], !xdg.isEmpty {
+                return URL(fileURLWithPath: xdg)
+            }
+            return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config")
+        }()
+        let url = baseDir.appendingPathComponent("void/config.void")
+        guard let data = try? String(contentsOf: url, encoding: .utf8) else { return .basename }
+        for raw in data.split(separator: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            guard line.hasPrefix("path-title-style") else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2 else { continue }
+            return VoidPathTitleStyle(rawValue: parts[1]) ?? .basename
+        }
+        return .basename
+    }
+}
