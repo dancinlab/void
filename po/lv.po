@@ -1,11 +1,11 @@
-# Latvian translations for com.mitchellh.void package.
+# Latvian translations for com.need-singularity.void package.
 # Copyright (C) 2026 "Mitchell Hashimoto, Void contributors"
-# This file is distributed under the same license as the com.mitchellh.void package.
+# This file is distributed under the same license as the com.need-singularity.void package.
 # Ēriks Remess <eriks@remess.lv>, 2026.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.void\n"
+"Project-Id-Version: com.need-singularity.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-18 11:34+0200\n"
 "PO-Revision-Date: 2026-02-09 03:24+0200\n"

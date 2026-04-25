@@ -45,7 +45,7 @@ const label = gtk.Label.new(text);
 ```
 
 All translatable strings are extracted into the _translation template file_,
-located under `po/com.mitchellh.void.pot`. **This file must stay in sync with
+located under `po/com.need-singularity.void.pot`. **This file must stay in sync with
 the list of translatable strings present in source code or Blueprints at all times.**
 A CI action would be run for every PR, which checks if the translation template
 requires any updates. You can update the translation template by running
@@ -53,7 +53,7 @@ requires any updates. You can update the translation template by running
 for other locales (`.po` files) to reflect the state of the template file.
 
 During the build process, each locale in `.po` files is compiled
-into binary `.mo` files, stored under `share/locale/<LOCALE>/LC_MESSAGES/com.mitchellh.void.mo`.
+into binary `.mo` files, stored under `share/locale/<LOCALE>/LC_MESSAGES/com.need-singularity.void.mo`.
 This can be directly accessed by `libintl`, which provide the various `gettext`
 C functions that can be called either by Zig code directly, or by the GTK builder
 (recommended).

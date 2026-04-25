@@ -13,10 +13,10 @@ extension void_surface_t: @unchecked @retroactive Sendable {}
 
 extension VD {
     // The user notification category identifier
-    static let userNotificationCategory = "com.mitchellh.void.userNotification"
+    static let userNotificationCategory = "com.need-singularity.void.userNotification"
 
     // The user notification "Show" action
-    static let userNotificationActionShow = "com.mitchellh.void.userNotification.Show"
+    static let userNotificationActionShow = "com.need-singularity.void.userNotification.Show"
 }
 
 // MARK: Build Info
@@ -331,138 +331,138 @@ extension VD {
 
 extension Notification.Name {
     /// Configuration change. If the object is nil then it is app-wide. Otherwise its surface-specific.
-    static let voidConfigDidChange = Notification.Name("com.mitchellh.void.configDidChange")
+    static let voidConfigDidChange = Notification.Name("com.need-singularity.void.configDidChange")
     static let VoidConfigChangeKey = voidConfigDidChange.rawValue
 
     /// Color change. Object is the surface changing.
-    static let voidColorDidChange = Notification.Name("com.mitchellh.void.voidColorDidChange")
+    static let voidColorDidChange = Notification.Name("com.need-singularity.void.voidColorDidChange")
     static let VoidColorChangeKey = voidColorDidChange.rawValue
 
     /// Goto tab. Has tab index in the userinfo.
-    static let voidMoveTab = Notification.Name("com.mitchellh.void.moveTab")
+    static let voidMoveTab = Notification.Name("com.need-singularity.void.moveTab")
     static let VoidMoveTabKey = voidMoveTab.rawValue
 
     /// Close tab
-    static let voidCloseTab = Notification.Name("com.mitchellh.void.closeTab")
+    static let voidCloseTab = Notification.Name("com.need-singularity.void.closeTab")
 
     /// Close other tabs
-    static let voidCloseOtherTabs = Notification.Name("com.mitchellh.void.closeOtherTabs")
+    static let voidCloseOtherTabs = Notification.Name("com.need-singularity.void.closeOtherTabs")
 
     /// Close tabs to the right of the focused tab
-    static let voidCloseTabsOnTheRight = Notification.Name("com.mitchellh.void.closeTabsOnTheRight")
+    static let voidCloseTabsOnTheRight = Notification.Name("com.need-singularity.void.closeTabsOnTheRight")
 
     /// Close window
-    static let voidCloseWindow = Notification.Name("com.mitchellh.void.closeWindow")
+    static let voidCloseWindow = Notification.Name("com.need-singularity.void.closeWindow")
 
     /// Resize the window to a default size.
-    static let voidResetWindowSize = Notification.Name("com.mitchellh.void.resetWindowSize")
+    static let voidResetWindowSize = Notification.Name("com.need-singularity.void.resetWindowSize")
 
     /// Ring the bell
-    static let voidBellDidRing = Notification.Name("com.mitchellh.void.voidBellDidRing")
+    static let voidBellDidRing = Notification.Name("com.need-singularity.void.voidBellDidRing")
 
     /// Readonly mode changed
-    static let voidDidChangeReadonly = Notification.Name("com.mitchellh.void.didChangeReadonly")
+    static let voidDidChangeReadonly = Notification.Name("com.need-singularity.void.didChangeReadonly")
     static let ReadonlyKey = voidDidChangeReadonly.rawValue + ".readonly"
-    static let voidCommandPaletteDidToggle = Notification.Name("com.mitchellh.void.commandPaletteDidToggle")
+    static let voidCommandPaletteDidToggle = Notification.Name("com.need-singularity.void.commandPaletteDidToggle")
 
     /// Toggle maximize of current window
-    static let voidMaximizeDidToggle = Notification.Name("com.mitchellh.void.maximizeDidToggle")
+    static let voidMaximizeDidToggle = Notification.Name("com.need-singularity.void.maximizeDidToggle")
 
     /// Notification sent when scrollbar updates
-    static let voidDidUpdateScrollbar = Notification.Name("com.mitchellh.void.didUpdateScrollbar")
+    static let voidDidUpdateScrollbar = Notification.Name("com.need-singularity.void.didUpdateScrollbar")
     static let ScrollbarKey = voidDidUpdateScrollbar.rawValue + ".scrollbar"
 
     /// Focus the search field
-    static let voidSearchFocus = Notification.Name("com.mitchellh.void.searchFocus")
+    static let voidSearchFocus = Notification.Name("com.need-singularity.void.searchFocus")
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This
 // namespace was the old namespace.
 extension VD.Notification {
     /// Used to pass a configuration along when creating a new tab/window/split.
-    static let NewSurfaceConfigKey = "com.mitchellh.void.newSurfaceConfig"
+    static let NewSurfaceConfigKey = "com.need-singularity.void.newSurfaceConfig"
 
     /// Posted when a new split is requested. The sending object will be the surface that had focus. The
     /// userdata has one key "direction" with the direction to split to.
-    static let voidNewSplit = Notification.Name("com.mitchellh.void.newSplit")
+    static let voidNewSplit = Notification.Name("com.need-singularity.void.newSplit")
 
     /// Close the calling surface.
-    static let voidCloseSurface = Notification.Name("com.mitchellh.void.closeSurface")
+    static let voidCloseSurface = Notification.Name("com.need-singularity.void.closeSurface")
 
     /// Focus previous/next split. Has a SplitFocusDirection in the userinfo.
-    static let voidFocusSplit = Notification.Name("com.mitchellh.void.focusSplit")
+    static let voidFocusSplit = Notification.Name("com.need-singularity.void.focusSplit")
     static let SplitDirectionKey = voidFocusSplit.rawValue
 
     /// Goto tab. Has tab index in the userinfo.
-    static let voidGotoTab = Notification.Name("com.mitchellh.void.gotoTab")
+    static let voidGotoTab = Notification.Name("com.need-singularity.void.gotoTab")
     static let GotoTabKey = voidGotoTab.rawValue
 
     /// Focus the Nth leaf surface in the current window's split tree
     /// (grid-mode reinterpretation of `goto_tab:N` when the window has a
     /// single tab). Userinfo carries a 1-indexed `Int` under GridCellIndexKey.
-    static let voidFocusGridCell = Notification.Name("com.mitchellh.void.focusGridCell")
+    static let voidFocusGridCell = Notification.Name("com.need-singularity.void.focusGridCell")
     static let GridCellIndexKey = voidFocusGridCell.rawValue
 
     /// Add a new leaf to the current window's split tree and rebalance as a
     /// fresh N+1 grid (grid-mode reinterpretation of `new_tab` when the window
     /// has a single tab with splits). Object is the focused SurfaceView, used
     /// as the source of inherited config.
-    static let voidAddGridCell = Notification.Name("com.mitchellh.void.addGridCell")
+    static let voidAddGridCell = Notification.Name("com.need-singularity.void.addGridCell")
 
     /// New tab. Has base surface config requested in userinfo.
-    static let voidNewTab = Notification.Name("com.mitchellh.void.newTab")
+    static let voidNewTab = Notification.Name("com.need-singularity.void.newTab")
 
     /// New window. Has base surface config requested in userinfo.
-    static let voidNewWindow = Notification.Name("com.mitchellh.void.newWindow")
+    static let voidNewWindow = Notification.Name("com.need-singularity.void.newWindow")
 
     /// Present terminal. Bring the surface's window to focus without activating the app.
-    static let voidPresentTerminal = Notification.Name("com.mitchellh.void.presentTerminal")
+    static let voidPresentTerminal = Notification.Name("com.need-singularity.void.presentTerminal")
 
     /// Toggle fullscreen of current window
-    static let voidToggleFullscreen = Notification.Name("com.mitchellh.void.toggleFullscreen")
+    static let voidToggleFullscreen = Notification.Name("com.need-singularity.void.toggleFullscreen")
     static let FullscreenModeKey = voidToggleFullscreen.rawValue
 
     /// Notification sent to toggle split maximize/unmaximize.
-    static let didToggleSplitZoom = Notification.Name("com.mitchellh.void.didToggleSplitZoom")
+    static let didToggleSplitZoom = Notification.Name("com.need-singularity.void.didToggleSplitZoom")
 
     /// Notification
-    static let didReceiveInitialWindowFrame = Notification.Name("com.mitchellh.void.didReceiveInitialWindowFrame")
-    static let FrameKey = "com.mitchellh.void.frame"
+    static let didReceiveInitialWindowFrame = Notification.Name("com.need-singularity.void.didReceiveInitialWindowFrame")
+    static let FrameKey = "com.need-singularity.void.frame"
 
     /// Notification to render the inspector for a surface
-    static let inspectorNeedsDisplay = Notification.Name("com.mitchellh.void.inspectorNeedsDisplay")
+    static let inspectorNeedsDisplay = Notification.Name("com.need-singularity.void.inspectorNeedsDisplay")
 
     /// Notification to show/hide the inspector
-    static let didControlInspector = Notification.Name("com.mitchellh.void.didControlInspector")
+    static let didControlInspector = Notification.Name("com.need-singularity.void.didControlInspector")
 
-    static let confirmClipboard = Notification.Name("com.mitchellh.void.confirmClipboard")
+    static let confirmClipboard = Notification.Name("com.need-singularity.void.confirmClipboard")
     static let ConfirmClipboardStrKey = confirmClipboard.rawValue + ".str"
     static let ConfirmClipboardStateKey = confirmClipboard.rawValue + ".state"
     static let ConfirmClipboardRequestKey = confirmClipboard.rawValue + ".request"
 
     /// Notification sent to the active split view to resize the split.
-    static let didResizeSplit = Notification.Name("com.mitchellh.void.didResizeSplit")
+    static let didResizeSplit = Notification.Name("com.need-singularity.void.didResizeSplit")
     static let ResizeSplitDirectionKey = didResizeSplit.rawValue + ".direction"
     static let ResizeSplitAmountKey = didResizeSplit.rawValue + ".amount"
 
     /// Notification sent to the split root to equalize split sizes
-    static let didEqualizeSplits = Notification.Name("com.mitchellh.void.didEqualizeSplits")
+    static let didEqualizeSplits = Notification.Name("com.need-singularity.void.didEqualizeSplits")
 
     /// Notification to toggle between Grid layout and Tab layout for all
     /// surfaces in the current window. Observed by the window controller
     /// which handles the actual layout transformation.
-    static let didToggleGridMode = Notification.Name("com.mitchellh.void.didToggleGridMode")
+    static let didToggleGridMode = Notification.Name("com.need-singularity.void.didToggleGridMode")
 
     /// Notification that renderer health changed
-    static let didUpdateRendererHealth = Notification.Name("com.mitchellh.void.didUpdateRendererHealth")
+    static let didUpdateRendererHealth = Notification.Name("com.need-singularity.void.didUpdateRendererHealth")
 
     /// Notifications related to key sequences
-    static let didContinueKeySequence = Notification.Name("com.mitchellh.void.didContinueKeySequence")
-    static let didEndKeySequence = Notification.Name("com.mitchellh.void.didEndKeySequence")
+    static let didContinueKeySequence = Notification.Name("com.need-singularity.void.didContinueKeySequence")
+    static let didEndKeySequence = Notification.Name("com.need-singularity.void.didEndKeySequence")
     static let KeySequenceKey = didContinueKeySequence.rawValue + ".key"
 
     /// Notifications related to key tables
-    static let didChangeKeyTable = Notification.Name("com.mitchellh.void.didChangeKeyTable")
+    static let didChangeKeyTable = Notification.Name("com.need-singularity.void.didChangeKeyTable")
     static let KeyTableKey = didChangeKeyTable.rawValue + ".action"
 }
 

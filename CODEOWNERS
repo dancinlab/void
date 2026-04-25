@@ -163,7 +163,7 @@
 
 # Localization
 /po/README_TRANSLATORS.md @ghostty-org/manager  # *localization* manager.
-/po/com.mitchellh.void.pot @ghostty-org/manager
+/po/com.need-singularity.void.pot @ghostty-org/manager
 /src/os/i18n_locales.zig @ghostty-org/manager
 /po/be.po @ghostty-org/be_BY
 /po/bg.po @ghostty-org/bg_BG

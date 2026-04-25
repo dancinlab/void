@@ -1,12 +1,12 @@
-# Indonesian translations for com.mitchellh.void package.
+# Indonesian translations for com.need-singularity.void package.
 # Copyright (C) 2025 Mitchell Hashimoto, Void contributors
-# This file is distributed under the same license as the com.mitchellh.void package.
+# This file is distributed under the same license as the com.need-singularity.void package.
 # Satrio Bayu Aji <halosatrio@gmail.com>, 2026.
 # Mikail Muzakki <mikailmmuzakki@gmail.com>, 2026.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.void\n"
+"Project-Id-Version: com.need-singularity.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-03-08 20:23+0700\n"

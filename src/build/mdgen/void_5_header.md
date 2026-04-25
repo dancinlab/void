@@ -12,7 +12,7 @@ at `$XDG_CONFIG_HOME/void/config.void`, which defaults to `~/.config/void/config
 if the [XDG environment is not set](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html).
 
 **If you are using macOS, the configuration file can also be placed at
-`$HOME/Library/Application Support/com.mitchellh.void/config.void`.** This is the
+`$HOME/Library/Application Support/com.need-singularity.void/config.void`.** This is the
 default configuration location for macOS. It will be searched before any of the
 XDG environment locations listed above.
 
@@ -98,11 +98,11 @@ logs sent to `stderr` may be stored by the system and made available for later
 retrieval.
 
 On Linux if Void is launched by the default `systemd` user service, you can use
-`journald` to see Void's logs: `journalctl --user --unit app-com.mitchellh.void.service`.
+`journald` to see Void's logs: `journalctl --user --unit app-com.need-singularity.void.service`.
 
 On macOS logging to the macOS unified log is available and enabled by default.
 --Use the system `log` CLI to view Void's logs: `sudo log stream --level debug
---predicate 'subsystem=="com.mitchellh.void"'`.
+--predicate 'subsystem=="com.need-singularity.void"'`.
 
 Void's logging can be configured in two ways. The first is by what
 optimization level Void is compiled with. If Void is compiled with `Debug`

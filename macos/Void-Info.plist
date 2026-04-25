@@ -112,7 +112,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.mitchellh.voidSurfaceId</string>
+			<string>com.need-singularity.voidSurfaceId</string>
 			<key>UTTypeDescription</key>
 			<string>Void Surface Identifier</string>
 			<key>UTTypeConformsTo</key>

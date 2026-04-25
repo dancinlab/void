@@ -101,10 +101,10 @@ logs sent to `stderr` may be stored by the system and made available for later
 retrieval.
 
 On Linux if Void is launched by the default `systemd` user service, you can use
-`journald` to see Void's logs: `journalctl --user --unit app-com.mitchellh.void.service`.
+`journald` to see Void's logs: `journalctl --user --unit app-com.need-singularity.void.service`.
 
 On macOS logging to the macOS unified log is available and enabled by default.
-Use the system `log` CLI to view Void's logs: `sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.void"'`.
+Use the system `log` CLI to view Void's logs: `sudo log stream --level debug --predicate 'subsystem=="com.need-singularity.void"'`.
 
 Void's logging can be configured in two ways. The first is by what
 optimization level Void is compiled with. If Void is compiled with `Debug`

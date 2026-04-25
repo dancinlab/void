@@ -1,12 +1,12 @@
-# Chinese translations for com.mitchellh.void package
-# com.mitchellh.void 软件包的简体中文翻译.
+# Chinese translations for com.need-singularity.void package
+# com.need-singularity.void 软件包的简体中文翻译.
 # Copyright (C) 2025 Mitchell Hashimoto, Void contributors
-# This file is distributed under the same license as the com.mitchellh.void package.
+# This file is distributed under the same license as the com.need-singularity.void package.
 # Leah <hi@pluie.me>, 2025.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.void\n"
+"Project-Id-Version: com.need-singularity.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-02-12 01:56+0800\n"

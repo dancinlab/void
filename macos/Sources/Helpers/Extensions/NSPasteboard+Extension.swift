@@ -29,7 +29,7 @@ extension NSPasteboard.PasteboardType {
 extension NSPasteboard {
     /// The pasteboard to used for Void selection.
     static var voidSelection: NSPasteboard = {
-        NSPasteboard(name: .init("com.mitchellh.void.selection"))
+        NSPasteboard(name: .init("com.need-singularity.void.selection"))
     }()
 
     /// Gets the contents of the pasteboard as a string following a specific set of semantics.

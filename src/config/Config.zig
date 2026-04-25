@@ -1500,7 +1500,7 @@ title: ?[:0]const u8 = null,
 /// The class name must follow the requirements defined [in the GTK
 /// documentation](https://docs.gtk.org/gio/type_func.Application.id_is_valid.html).
 ///
-/// The default is `com.mitchellh.void`.
+/// The default is `com.need-singularity.void`.
 ///
 /// This only affects GTK builds.
 class: ?[:0]const u8 = null,

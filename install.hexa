@@ -180,7 +180,7 @@ fn main() {
         println("⬡ void: ── ONE-TIME PERMISSION SETUP ──")
         println("        Clearing stale TCC entries from old unsigned builds…")
         // tccutil reset clears all per-bundle TCC entries. Safe — no-op if none.
-        exec("tccutil reset All com.mitchellh.void 2>/dev/null")
+        exec("tccutil reset All com.need-singularity.void 2>/dev/null")
         println("        Opening System Settings → Privacy & Security → Full Disk Access.")
         println("")
         println("        ➜ Click the [+] button, navigate to /Applications,")

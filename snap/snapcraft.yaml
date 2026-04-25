@@ -22,7 +22,7 @@ apps:
     command: bin/void
     command-chain: [app/launcher]
     completer: share/bash-completion/completions/void.bash
-    desktop: share/applications/com.mitchellh.void.desktop
+    desktop: share/applications/com.need-singularity.void.desktop
     #refresh-mode: ignore-running # Store rejects this, needs fix in review-tools
     environment:
       PATH: /snap/void/current/bin:/snap/void/current/usr/bin:$PATH
@@ -86,7 +86,7 @@ parts:
         -Dcpu=baseline \
         -fno-sys=gtk4-layer-shell
       cp -rp zig-out/* $CRAFT_PART_INSTALL/
-      sed -i 's|Icon=com.mitchellh.void|Icon=${SNAP}/share/icons/hicolor/512x512/apps/com.mitchellh.void.png|g' $CRAFT_PART_INSTALL/share/applications/com.mitchellh.void.desktop
+      sed -i 's|Icon=com.need-singularity.void|Icon=${SNAP}/share/icons/hicolor/512x512/apps/com.need-singularity.void.png|g' $CRAFT_PART_INSTALL/share/applications/com.need-singularity.void.desktop
 
   libs:
     plugin: nil

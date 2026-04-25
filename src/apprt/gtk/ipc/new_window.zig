@@ -12,13 +12,13 @@ const DBus = @import("DBus.zig");
 // `void +new-window` is equivalent to the following command (on a release build):
 //
 // ```
-// gdbus call --session --dest com.mitchellh.void --object-path /com/mitchellh/void --method org.gtk.Actions.Activate new-window [] []
+// gdbus call --session --dest com.need-singularity.void --object-path /com/mitchellh/void --method org.gtk.Actions.Activate new-window [] []
 // ```
 //
 // `void +new-window -e echo hello` would be equivalent to the following command (on a release build):
 //
 // ```
-// gdbus call --session --dest com.mitchellh.void --object-path /com/mitchellh/void --method org.gtk.Actions.Activate new-window-command '[<@as ["-e" "echo" "hello"]>]' []
+// gdbus call --session --dest com.need-singularity.void --object-path /com/mitchellh/void --method org.gtk.Actions.Activate new-window-command '[<@as ["-e" "echo" "hello"]>]' []
 // ```
 pub fn newWindow(alloc: Allocator, target: apprt.ipc.Target, value: apprt.ipc.Action.NewWindow) (Allocator.Error || std.Io.Writer.Error || apprt.ipc.Errors)!bool {
     var dbus = try DBus.init(

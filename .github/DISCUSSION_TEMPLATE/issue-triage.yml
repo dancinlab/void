@@ -63,7 +63,7 @@ body:
     attributes:
       label: Void Logs
       description: |
-        Provide any captured Void logs or stacktraces during your issue reproduction in this field.  On Linux, logs can be found by running `void` from the command-line; on macOS, logs can be viewed with `sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.void"'` from another terminal emulator.
+        Provide any captured Void logs or stacktraces during your issue reproduction in this field.  On Linux, logs can be found by running `void` from the command-line; on macOS, logs can be viewed with `sudo log stream --level debug --predicate 'subsystem=="com.need-singularity.void"'` from another terminal emulator.
       render: text
   - type: textarea
     attributes:

@@ -7,12 +7,12 @@
 ### 설치된 것
 - /Applications/Void.app (CI run 24784220892, commit 4e6a7b7cd, ad-hoc signed, arm64)
   - AppIcon.icns 40.5KB (육각 squircle body 442/512, polygon 0.7225×baseline)
-  - CFBundleIdentifier = com.mitchellh.void
+  - CFBundleIdentifier = com.need-singularity.void
   - "Void"로 Dock/Finder/메뉴에 표시
 - 사용자 데이터 (보존됨)
-  - ~/Library/Application Support/com.mitchellh.void/config.void (0바이트 placeholder)
-  - ~/Library/Preferences/com.mitchellh.void.plist
-  - ~/Library/Saved Application State/com.mitchellh.void.savedState/ (아직 없음)
+  - ~/Library/Application Support/com.need-singularity.void/config.void (0바이트 placeholder)
+  - ~/Library/Preferences/com.need-singularity.void.plist
+  - ~/Library/Saved Application State/com.need-singularity.void.savedState/ (아직 없음)
 
 ### 미검증 (재시작 후 확인 필요)
 1. cmd+g 로 그리드 ↔ 탭 토글

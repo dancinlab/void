@@ -120,7 +120,7 @@ fn logFn(
 ) void {
     // On Mac, we use unified logging. To view this:
     //
-    //   sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.void"'
+    //   sudo log stream --level debug --predicate 'subsystem=="com.need-singularity.void"'
     //
     // macOS logging is thread safe so no need for locks/mutexes
     macos: {

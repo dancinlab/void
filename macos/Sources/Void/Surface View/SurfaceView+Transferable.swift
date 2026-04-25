@@ -47,7 +47,7 @@ extension VD.SurfaceView: Transferable {
 extension UTType {
     /// A format that encodes the bare UUID only for the surface. This can be used if you have
     /// a way to look up a surface by ID.
-    static let voidSurfaceId = UTType(exportedAs: "com.mitchellh.voidSurfaceId")
+    static let voidSurfaceId = UTType(exportedAs: "com.need-singularity.voidSurfaceId")
 }
 
 #if canImport(AppKit)

@@ -1,12 +1,12 @@
 # Kazakh translation for Void.
 # Copyright (C) 2026 "Mitchell Hashimoto, Void contributors"
-# This file is distributed under the same license as the com.mitchellh.void package.
+# This file is distributed under the same license as the com.need-singularity.void package.
 # Baurzhan Muftakhidinov <baurthefirst@gmail.com>, 2026.
 #
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: com.mitchellh.void\n"
+"Project-Id-Version: com.need-singularity.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-03-04 21:16+0500\n"

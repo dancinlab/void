@@ -272,7 +272,7 @@ fn addLinuxAppResources(
         },
     });
 
-    const app_id = b.fmt("com.mitchellh.void{s}", .{
+    const app_id = b.fmt("com.need-singularity.void{s}", .{
         switch (cfg.optimize) {
             .Debug, .ReleaseSafe => "-debug",
             .ReleaseFast, .ReleaseSmall => "",
@@ -338,7 +338,7 @@ fn addLinuxAppResources(
         // AppStream metainfo so that application has rich metadata
         // within app stores
         try ts.append(b.allocator, .{
-            b.path("dist/linux/com.mitchellh.void.metainfo.xml.in"),
+            b.path("dist/linux/com.need-singularity.void.metainfo.xml.in"),
             b.fmt("share/metainfo/{s}.metainfo.xml", .{app_id}),
         });
 
@@ -371,7 +371,7 @@ fn addLinuxAppResources(
     // Right click menu action for Plasma desktop
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("dist/linux/void_dolphin.desktop"),
-        "share/kio/servicemenus/com.mitchellh.void.desktop",
+        "share/kio/servicemenus/com.need-singularity.void.desktop",
     ).step);
 
     // Right click menu action for Nautilus. Note that this _must_ be named
@@ -385,47 +385,47 @@ fn addLinuxAppResources(
     // that will be used for the desktop.
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/16.png"),
-        "share/icons/hicolor/16x16/apps/com.mitchellh.void.png",
+        "share/icons/hicolor/16x16/apps/com.need-singularity.void.png",
     ).step);
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/32.png"),
-        "share/icons/hicolor/32x32/apps/com.mitchellh.void.png",
+        "share/icons/hicolor/32x32/apps/com.need-singularity.void.png",
     ).step);
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/128.png"),
-        "share/icons/hicolor/128x128/apps/com.mitchellh.void.png",
+        "share/icons/hicolor/128x128/apps/com.need-singularity.void.png",
     ).step);
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/256.png"),
-        "share/icons/hicolor/256x256/apps/com.mitchellh.void.png",
+        "share/icons/hicolor/256x256/apps/com.need-singularity.void.png",
     ).step);
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/512.png"),
-        "share/icons/hicolor/512x512/apps/com.mitchellh.void.png",
+        "share/icons/hicolor/512x512/apps/com.need-singularity.void.png",
     ).step);
     // Flatpaks only support icons up to 512x512.
     if (!cfg.flatpak) {
         try steps.append(b.allocator, &b.addInstallFile(
             b.path("images/gnome/1024.png"),
-            "share/icons/hicolor/1024x1024/apps/com.mitchellh.void.png",
+            "share/icons/hicolor/1024x1024/apps/com.need-singularity.void.png",
         ).step);
     }
 
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/32.png"),
-        "share/icons/hicolor/16x16@2/apps/com.mitchellh.void.png",
+        "share/icons/hicolor/16x16@2/apps/com.need-singularity.void.png",
     ).step);
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/64.png"),
-        "share/icons/hicolor/32x32@2/apps/com.mitchellh.void.png",
+        "share/icons/hicolor/32x32@2/apps/com.need-singularity.void.png",
     ).step);
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/256.png"),
-        "share/icons/hicolor/128x128@2/apps/com.mitchellh.void.png",
+        "share/icons/hicolor/128x128@2/apps/com.need-singularity.void.png",
     ).step);
     try steps.append(b.allocator, &b.addInstallFile(
         b.path("images/gnome/512.png"),
-        "share/icons/hicolor/256x256@2/apps/com.mitchellh.void.png",
+        "share/icons/hicolor/256x256@2/apps/com.need-singularity.void.png",
     ).step);
 }
 

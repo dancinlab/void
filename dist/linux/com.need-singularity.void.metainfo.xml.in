@@ -38,7 +38,7 @@
     -->
     <display_length compare="ge">360</display_length>
   </requires>
-  <translation type="gettext">com.mitchellh.void</translation>
+  <translation type="gettext">com.need-singularity.void</translation>
 
   <!--
     TODO: Generate manifest location data.
@@ -46,7 +46,7 @@
     Ref: https://docs.flathub.org/docs/for-app-authors/metainfo-guidelines#manifest-location
 
   <custom>
-    <value key="flathub::manifest">https://github.com/ghostty-org/ghostty/blob/<hash>/flatpak/com.mitchellh.void.yml</value>
+    <value key="flathub::manifest">https://github.com/ghostty-org/ghostty/blob/<hash>/flatpak/com.need-singularity.void.yml</value>
   </custom>
   -->
 

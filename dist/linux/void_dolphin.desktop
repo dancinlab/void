@@ -6,5 +6,5 @@ Actions=RunVoidDir
 
 [Desktop Action RunVoidDir]
 Name=Open Void Here
-Icon=com.mitchellh.void
+Icon=com.need-singularity.void
 Exec=void +new-window --working-directory=%F

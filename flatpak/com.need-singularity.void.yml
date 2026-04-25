@@ -1,4 +1,4 @@
-app-id: com.mitchellh.void
+app-id: com.need-singularity.void
 runtime: org.gnome.Platform
 runtime-version: "49"
 sdk: org.gnome.Sdk

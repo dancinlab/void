@@ -1734,7 +1734,7 @@ pub const Surface = extern struct {
         defer notification.unref();
         notification.setBody(body);
 
-        const icon = gio.ThemedIcon.new("com.mitchellh.void");
+        const icon = gio.ThemedIcon.new("com.need-singularity.void");
         defer icon.unref();
         notification.setIcon(icon.as(gio.Icon));
 

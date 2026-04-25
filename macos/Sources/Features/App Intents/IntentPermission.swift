@@ -44,7 +44,7 @@ func requestIntentPermission() async -> Bool {
             }
 
             PermissionRequest.show(
-                "com.mitchellh.void.shortcutsPermission",
+                "com.need-singularity.void.shortcutsPermission",
                 message: "Allow Shortcuts to interact with Void?",
                 allowDuration: .forever,
                 rememberDuration: nil,

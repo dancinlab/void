@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 
 /// Base application ID
-pub const base_application_id = "com.mitchellh.void";
+pub const base_application_id = "com.need-singularity.void";
 
 /// GTK application ID
 pub const application_id = switch (builtin.mode) {
