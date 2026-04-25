@@ -154,4 +154,44 @@ fn main() {
 
     println("⬡ void: shim at " + shim)
     println("⬡ void: install complete — `void` from any shell launches " + dest)
+
+    // Quit any running Void so the next launch picks up the freshly-installed
+    // (and re-signed) bundle. Without this, an old adhoc-signed instance keeps
+    // running and the new cert chain isn't picked up until next reboot.
+    exec("osascript -e 'tell application \"Void\" to quit' 2>/dev/null")
+    exec("pkill -x void 2>/dev/null")
+
+    // First-time-only: clear any old TCC entries (which were keyed to ad-hoc
+    // hashes from previous unsigned builds) and open Privacy & Security →
+    // Full Disk Access. Once Void is in the FDA list, macOS stops asking for
+    // every folder (Desktop / Downloads / Documents / Removable Volumes /
+    // iCloud / Network Volumes …) — one click forever.
+    //
+    // Cert is stable from this commit on, so the grant carries across all
+    // future rebuilds.
+    //
+    // Marker lives outside /Applications so reinstalls don't wipe it.
+    // Reset by `rm ~/.cache/void/fda-prompted`. Skip with VOID_NO_FDA_PROMPT=1.
+    let home = env("HOME")
+    let marker_dir = home + "/.cache/void"
+    let marker = marker_dir + "/fda-prompted"
+    if env("VOID_NO_FDA_PROMPT") != "1" && !path_exists(marker) {
+        println("")
+        println("⬡ void: ── ONE-TIME PERMISSION SETUP ──")
+        println("        Clearing stale TCC entries from old unsigned builds…")
+        // tccutil reset clears all per-bundle TCC entries. Safe — no-op if none.
+        exec("tccutil reset All com.mitchellh.void 2>/dev/null")
+        println("        Opening System Settings → Privacy & Security → Full Disk Access.")
+        println("")
+        println("        ➜ Click the [+] button, navigate to /Applications,")
+        println("          select Void.app, click Open.   (or just drag the app in)")
+        println("")
+        println("        After that, macOS will NEVER ask per-folder again.")
+        println("        New Void builds inherit the grant automatically (stable cert).")
+        println("")
+        run_or_die("mkdir -p '" + marker_dir + "'")
+        run_or_die("touch '" + marker + "'")
+        // Best-effort — don't fail the install if open is blocked.
+        exec("open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'")
+    }
 }
