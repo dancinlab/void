@@ -86,6 +86,48 @@ fn main() {
     }
     println("⬡ void: built " + built)
 
+    // Re-sign with a stable codesign identity if available. The xcodebuild
+    // ReleaseLocal config produces an ad-hoc signed bundle whose Mach-O hash
+    // changes every build → macOS TCC treats each rebuild as a new app and
+    // re-prompts for Files-and-Folders / Full Disk Access. Re-signing with a
+    // user keychain identity (Developer ID / Apple Development) keys TCC to
+    // the cert chain instead, so granted permissions persist across rebuilds.
+    //
+    // Falls back silently to the original ad-hoc signature if no identity is
+    // found — install still works, but TCC prompts will keep returning.
+    //
+    // Override with VOID_SIGN_IDENTITY=<sha1>, or VOID_SIGN_SKIP=1 to skip.
+    let entitlements = pkg_dir + "/macos/VoidReleaseLocal.entitlements"
+    if env("VOID_SIGN_SKIP") != "1" {
+        let override_id = env("VOID_SIGN_IDENTITY")
+        let identity = if override_id != "" { override_id } else {
+            // Pick first "Developer ID Application" (preferred — distribution),
+            // else first "Apple Development" (paid dev account).
+            let devid = to_string(exec(
+                "security find-identity -v -p codesigning 2>/dev/null | grep -m1 'Developer ID Application' | awk '{print $2}'"
+            )).trim()
+            if devid != "" { devid } else {
+                to_string(exec(
+                    "security find-identity -v -p codesigning 2>/dev/null | grep -m1 'Apple Development' | awk '{print $2}'"
+                )).trim()
+            }
+        }
+        if identity != "" {
+            println("⬡ void: re-sign with " + identity + " (TCC permission persistence)")
+            run_or_die(
+                "codesign --force --deep --options runtime " +
+                "--sign " + identity + " " +
+                "--entitlements '" + entitlements + "' " +
+                "'" + built + "' 2>&1 | tail -5"
+            )
+        } else {
+            println("⬡ void: no stable codesign identity found — keeping ad-hoc signature")
+            println("        TCC permissions will reset on each rebuild. To fix:")
+            println("        1) Get an Apple Development cert (Xcode → Settings → Accounts → +)")
+            println("        2) Or set VOID_SIGN_IDENTITY=<sha1> to use a specific identity")
+        }
+    }
+
     // Install to /Applications atomically-ish — stage then rename.
     let dest = "/Applications/Void.app"
     let stage = "/Applications/Void.app.new"
