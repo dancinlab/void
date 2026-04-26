@@ -6881,13 +6881,39 @@ pub const Keybinds = struct {
             .toggle_command_palette,
         );
 
-        // Ctrl+Delete: delete the entire current line (void addition).
+        // Ctrl+Delete / Ctrl+Backspace: delete the entire current line (void addition).
         // Sends Ctrl-A (move to line start) then Ctrl-K (kill to end of line)
         // so the whole line is erased regardless of cursor position.
+        // Mac keyboards label backspace as "delete", so both physical keys map here.
         try self.set.put(
             alloc,
             .{ .key = .{ .physical = .delete }, .mods = .{ .ctrl = true } },
             .{ .text = "\\x01\\x0b" },
+        );
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .physical = .backspace }, .mods = .{ .ctrl = true } },
+            .{ .text = "\\x01\\x0b" },
+        );
+
+        // Alt+Backspace: whitespace-delimited backward word kill (void addition).
+        // Sends Ctrl-W (unix-word-rubout) so a single press consumes the
+        // surrounding whitespace AND the word, instead of leaving runs of
+        // spaces behind like the default `backward-kill-word`.
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .physical = .backspace }, .mods = .{ .alt = true } },
+            .{ .text = "\\x17" },
+        );
+
+        // Alt+Delete: forward word kill (void addition).
+        // Sends ESC-d (kill-word). When the cursor sits between words this
+        // also eats the leading whitespace before the next word, matching
+        // the symmetry users expect from Alt+Backspace.
+        try self.set.put(
+            alloc,
+            .{ .key = .{ .physical = .delete }, .mods = .{ .alt = true } },
+            .{ .esc = "d" },
         );
 
         // Mac-specific keyboard bindings.
