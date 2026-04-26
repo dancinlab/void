@@ -436,6 +436,17 @@ final class MagneticDragController: ObservableObject {
     static let snapRadius: CGFloat = 12
     static let minRatio: Double = 0.05
     static let maxRatio: Double = 0.95
+    /// Distance from the window edge at which we surface the half-window snap hint.
+    /// Sized for typical drag distances: in a 1200pt window with a 50/50 split,
+    /// the divider starts ~600pt from each edge, so a generous band is needed
+    /// for the hint to feel reachable rather than only firing at the very edge.
+    static let edgeSnapThreshold: CGFloat = 120
+
+    /// Which window edge the drag is hugging — only ever the two parallel to the
+    /// drag axis, so corners/diagonals are unrepresentable by construction.
+    enum EdgeSnapZone {
+        case top, bottom, left, right
+    }
 
     struct Handle {
         let path: SplitTree<VD.SurfaceView>.Path
@@ -575,6 +586,22 @@ final class MagneticDragController: ObservableObject {
         }
         return start + delta
     }
+
+    /// Edge of the root view the preview line is currently within
+    /// `edgeSnapThreshold` of, or nil. Axis-locked: horizontal splits can only
+    /// hit `.left`/`.right`, vertical splits only `.top`/`.bottom`.
+    var edgeSnap: EdgeSnapZone? {
+        guard let snap = snapshot, let coord = previewLineCoord else { return nil }
+        switch snap.direction {
+        case .horizontal:
+            if coord <= Self.edgeSnapThreshold { return .left }
+            if coord >= snap.rootSize.width - Self.edgeSnapThreshold { return .right }
+        case .vertical:
+            if coord <= Self.edgeSnapThreshold { return .top }
+            if coord >= snap.rootSize.height - Self.edgeSnapThreshold { return .bottom }
+        }
+        return nil
+    }
 }
 
 private struct MagneticPreviewOverlay: View {
@@ -598,9 +625,31 @@ private struct MagneticPreviewOverlay: View {
                     }
                     // Dotted full-extent preview line in the orthogonal axis.
                     previewLine(coord: coord, direction: snap.direction, in: geo.size)
+                    // White half-window outline when the divider hugs a window
+                    // edge — signals the cardinal snap target (no diagonals).
+                    if let zone = controller.edgeSnap {
+                        edgeSnapHint(zone: zone, in: geo.size)
+                    }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func edgeSnapHint(
+        zone: MagneticDragController.EdgeSnapZone,
+        in size: CGSize
+    ) -> some View {
+        let rect: CGRect = {
+            switch zone {
+            case .top:    return CGRect(x: 0, y: 0, width: size.width, height: size.height / 2)
+            case .bottom: return CGRect(x: 0, y: size.height / 2, width: size.width, height: size.height / 2)
+            case .left:   return CGRect(x: 0, y: 0, width: size.width / 2, height: size.height)
+            case .right:  return CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height)
+            }
+        }()
+        Path { p in p.addRect(rect) }
+            .stroke(Color.white.opacity(0.9), lineWidth: 2)
     }
 
     /// Computes the future bounds of a split's two halves at the given line coord.

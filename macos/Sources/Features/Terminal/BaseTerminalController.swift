@@ -783,7 +783,17 @@ class BaseTerminalController: NSWindowController,
             from: void_surface_inherited_config(surface, VOID_SURFACE_CONTEXT_SPLIT))
         let newView = VD.SurfaceView(void_app, baseConfig: inheritedConfig)
 
-        let leaves = Array(surfaceTree) + [newView]
+        // Insert the new cell IMMEDIATELY AFTER the focused cell rather than
+        // appending to the end — the new pane lands adjacent to where the
+        // user was working, not at the far end of the grid. Falls back to
+        // append if the focused view isn't found in the tree (shouldn't
+        // happen given the contains() guard above, but defensively safe).
+        var leaves = Array(surfaceTree)
+        if let idx = leaves.firstIndex(where: { $0 === oldView }) {
+            leaves.insert(newView, at: idx + 1)
+        } else {
+            leaves.append(newView)
+        }
         let frameSize = self.window?.frame.size ?? .zero
         let prefersTall = frameSize.height > frameSize.width
         let newTree = SplitTree<VD.SurfaceView>.grid(views: leaves, prefersTall: prefersTall)
