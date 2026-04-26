@@ -186,6 +186,13 @@ extension VD {
         // should suppress the matching mouse-up from being reported.
         private var suppressNextLeftMouseUp: Bool = false
 
+        // True when the most recent left mouseDown was suppressed because Cmd
+        // was held — the grid uses Cmd+drag for magnetic resize and we don't
+        // want the terminal to start a text selection underneath it. The
+        // matching mouseUp must also be suppressed so press/release stay
+        // balanced inside the surface.
+        private var cmdSuppressedMouseDown: Bool = false
+
         // A small delay that is introduced before a title change to avoid flickers
         private var titleChangeTimer: Timer?
 
@@ -893,6 +900,15 @@ extension VD {
 
         override func mouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return }
+            // Cmd+mouseDown is reserved for the grid's magnetic resize gesture.
+            // If we forwarded the press the terminal would start a text
+            // selection underneath the dashed preview overlay and the user
+            // would see the screen "scrape" while dragging.
+            if event.modifierFlags.contains(.command) {
+                cmdSuppressedMouseDown = true
+                return
+            }
+            cmdSuppressedMouseDown = false
             let mods = VD.voidMods(event.modifierFlags)
             void_surface_mouse_button(surface, VOID_MOUSE_PRESS, VOID_MOUSE_LEFT, mods)
         }
@@ -902,6 +918,14 @@ extension VD {
             // suppress it so we don't emit a release without a press.
             if suppressNextLeftMouseUp {
                 suppressNextLeftMouseUp = false
+                return
+            }
+
+            // Symmetric to the Cmd+mouseDown guard above — if we never
+            // forwarded the press, never forward the release.
+            if cmdSuppressedMouseDown {
+                cmdSuppressedMouseDown = false
+                prevPressureStage = 0
                 return
             }
 
