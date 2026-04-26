@@ -221,6 +221,10 @@ class AppDelegate: NSObject,
         // This registers the Void => Services menu to exist.
         NSApp.servicesMenu = menuServices
 
+        // Install the programmatic Shell menu (toggles for runtime config
+        // overrides that aren't worth modeling in the XIB).
+        installShellMenu()
+
         // Setup a local event monitor for app-level keyboard shortcuts. See
         // localEventHandler for more info why.
         _ = NSEvent.addLocalMonitorForEvents(
@@ -998,6 +1002,37 @@ class AppDelegate: NSObject,
         setSecureInput(.toggle)
     }
 
+    @IBAction func toggleMacosTabKeyCycles(_ sender: Any?) {
+        let next = !void.config.macosTabKeyCycles
+        UserDefaults.void.set(next, forKey: VD.Config.tabKeyCyclesOverrideKey)
+    }
+
+    /// Build the "Shell" top-level menu and insert it before the Window menu.
+    /// Done programmatically so we don't have to round-trip through Interface
+    /// Builder for runtime-only toggles.
+    private func installShellMenu() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+
+        let shellMenuItem = NSMenuItem(title: "Shell", action: nil, keyEquivalent: "")
+        let shellMenu = NSMenu(title: "Shell")
+
+        let tabCyclesItem = NSMenuItem(
+            title: "Tab Key Cycles Tabs / Splits",
+            action: #selector(toggleMacosTabKeyCycles(_:)),
+            keyEquivalent: ""
+        )
+        tabCyclesItem.target = self
+        shellMenu.addItem(tabCyclesItem)
+
+        shellMenuItem.submenu = shellMenu
+
+        // Insert before Window if present, otherwise before Help, otherwise append.
+        let windowIdx = mainMenu.items.firstIndex { $0.submenu?.title == "Window" }
+        let helpIdx = mainMenu.items.firstIndex { $0.submenu?.title == "Help" }
+        let insertIdx = windowIdx ?? helpIdx ?? mainMenu.items.count
+        mainMenu.insertItem(shellMenuItem, at: insertIdx)
+    }
+
     @IBAction func toggleQuickTerminal(_ sender: Any) {
         quickController.toggle()
     }
@@ -1293,6 +1328,10 @@ extension AppDelegate: NSMenuItemValidation {
         switch item.action {
         case #selector(setAsDefaultTerminal(_:)):
             return NSWorkspace.shared.defaultTerminal != Bundle.main.bundleURL
+
+        case #selector(toggleMacosTabKeyCycles(_:)):
+            item.state = void.config.macosTabKeyCycles ? .on : .off
+            return true
 
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):

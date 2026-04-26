@@ -197,6 +197,25 @@ extension VD {
             return v
         }
 
+        var macosTabKeyCycles: Bool {
+            // Runtime override from the Shell menu wins over the config file.
+            // Why: the menu toggle has to take effect immediately without
+            //   requiring a config reload or app restart.
+            if let override = UserDefaults.void.object(forKey: Self.tabKeyCyclesOverrideKey) as? Bool {
+                return override
+            }
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "macos-tab-key-cycles"
+            _ = void_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        /// UserDefaults key for the Shell menu's runtime override of
+        /// `macos-tab-key-cycles`. Persisted so the user's choice survives
+        /// restarts even when the config file isn't edited.
+        static let tabKeyCyclesOverrideKey = "VoidMacosTabKeyCyclesOverride"
+
         var shouldQuitAfterLastWindowClosed: Bool {
             guard let config = self.config else { return true }
             var v = false
