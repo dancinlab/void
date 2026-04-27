@@ -405,6 +405,21 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return newWindow(void, withBaseConfig: baseConfig, withParent: parent)
         }
 
+        // Single-window grid → convert "new tab" into "add grid cell" so the
+        // libvoid `new_tab` action path matches what cmd+T via menu / "+"
+        // does (those route through TerminalController.routeToGridCellIfInGridMode).
+        // Without this gate, a keybind bound to `new_tab` would silently
+        // bypass the grid and spawn a sibling tab. Same guards as the
+        // IBAction route: must be single-tab and split.
+        let tabCount = parent.tabGroup?.windows.count ?? 0
+        if tabCount <= 1, parentController.surfaceTree.isSplit,
+           let focused = parentController.focusedSurface ?? parentController.surfaceTree.first {
+            NotificationCenter.default.post(
+                name: VD.Notification.voidAddGridCell,
+                object: focused)
+            return nil
+        }
+
         // If our parent is in non-native fullscreen, then new tabs do not work.
         // See: https://github.com/mitchellh/void/issues/392
         if let fullscreenStyle = parentController.fullscreenStyle,
