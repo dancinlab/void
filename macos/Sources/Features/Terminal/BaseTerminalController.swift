@@ -1320,6 +1320,12 @@ class BaseTerminalController: NSWindowController,
             left:  sourceOnLeft ? sourceLeaf   : remainderRoot,
             right: sourceOnLeft ? remainderRoot : sourceLeaf))
 
+        // Snapping to an edge is an explicit "set this aside" gesture —
+        // mark the source pinned so subsequent auto-regrids respect it.
+        // Idempotent: dragging an already-pinned pane to a new edge keeps it
+        // pinned, just relocated.
+        source.isPinned = true
+
         let newTree = SplitTree<VD.SurfaceView>(root: newRoot, zoomed: surfaceTree.zoomed)
         replaceSurfaceTree(
             newTree,
