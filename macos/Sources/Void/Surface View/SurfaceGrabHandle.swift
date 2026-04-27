@@ -10,11 +10,17 @@ extension VD {
         private static let hoverHeightFactor: CGFloat = 0.2
 
         @ObservedObject var surfaceView: SurfaceView
+        @EnvironmentObject private var void: VD.App
 
         @State private var isHovering: Bool = false
         @State private var isDragging: Bool = false
 
         private var handleVisible: Bool {
+            // Layout-locked panes hide the grab handle entirely so the
+            // ellipsis affordance doesn't imply a manipulation the user
+            // has opted out of via `split-divider-resize`.
+            guard void.config.splitDividerResize else { return false }
+
             // Handle should always be visible in non-fullscreen
             guard let window = surfaceView.window else { return true }
             guard window.styleMask.contains(.fullScreen) else { return true }
