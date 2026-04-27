@@ -32,3 +32,26 @@ enum LiveIndicator {
     /// `window.title` still see something legible.
     static let titlePrefix = "● "
 }
+
+/// A small filled-circle NSView used as the macOS tab-strip live
+/// indicator overlay. Lives as a sibling subview of `NSTabBar` (not a
+/// child of `NSTabButton`) so it escapes the per-button alpha that
+/// inactive tabs get — the whole reason this view exists is that an
+/// inline colored bullet in attributedTitle dims along with the rest
+/// of an inactive tab's text. Identifiable via class type so the host
+/// can find/replace existing dots cheaply on each title change.
+final class LiveDotView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = LiveIndicator.nsColor.cgColor
+        layer?.cornerRadius = frame.width / 2
+        layer?.masksToBounds = true
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    // Hit-testing returns nil so a click on the dot still selects the
+    // underlying tab button instead of being eaten by the overlay.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}

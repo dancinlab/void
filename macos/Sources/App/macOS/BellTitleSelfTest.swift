@@ -62,8 +62,14 @@ enum BellTitleSelfTest {
         // but in headless we can poke window.title directly which fires
         // TerminalWindow.title.didSet → applyAttributedTitleToTabButton.
         let target = controllers[1].window!
+        // Suppress the title publisher's "reset to surface title" so our
+        // injected prefix sticks for the inspections below.
         target.title = "\(LiveIndicator.titlePrefix)bell-test-tab"
+        // Re-set after the run loop drains any pending title resets from
+        // TerminalController.applyTitleToWindow.
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        target.title = "\(LiveIndicator.titlePrefix)bell-test-tab"
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         check("window.title carries the bullet prefix",
               target.title.hasPrefix(LiveIndicator.titlePrefix),
@@ -110,33 +116,76 @@ enum BellTitleSelfTest {
 
         if let idx = hostWindow.tabGroup?.windows.firstIndex(of: target),
            idx < buttons.count {
-            // NSTabButton is an NSButton subclass that Swift's `as?
-            // NSButton` refuses to cast across — read attributedTitle via
-            // KVC, the same path the production setter uses.
+            // The tab button title should now be STRIPPED of the bullet
+            // (the dot is rendered as an NSView overlay that escapes
+            // inactive-tab alpha). The live dot itself lives as a sibling
+            // subview of NSTabBar.
             let view = buttons[idx]
             let bAttr = (view.value(forKey: "attributedTitle") as? NSAttributedString) ?? NSAttributedString()
             print("    [diag] tabButton[\(idx)].attributedTitle.length=\(bAttr.length) string=\(bAttr.string)")
-            check("tab button attributedTitle non-empty", bAttr.length > 0)
-            if bAttr.length > 0 {
-                let first = (bAttr.string as NSString).substring(with: NSRange(location: 0, length: 1))
-                check("tab button leads with bullet char", first == "●",
-                      "got \"\(first)\"")
-                let fg = bAttr.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
-                if let fg = fg, let srgb = fg.usingColorSpace(.sRGB) {
-                    let r = Int((srgb.redComponent * 255).rounded())
-                    let g = Int((srgb.greenComponent * 255).rounded())
-                    let b = Int((srgb.blueComponent * 255).rounded())
-                    print("    [diag] tab button bullet sRGB: r=\(r) g=\(g) b=\(b) (expected 108/184/110)")
-                    check("tab button bullet color matches brand RGB",
-                          abs(r - 108) <= 1 && abs(g - 184) <= 1 && abs(b - 110) <= 1,
-                          "got r=\(r) g=\(g) b=\(b)")
-                } else {
-                    check("tab button bullet fg attribute present", false,
-                          "no foregroundColor attribute on bullet — KVC propagation failed?")
-                }
-            }
+            check("tab button title has bullet stripped",
+                  !bAttr.string.hasPrefix(LiveIndicator.titlePrefix),
+                  "got \(bAttr.string)")
         } else {
             check("tab button lookup", false, "couldn't resolve target's button")
+        }
+
+        // Live-dot NSView overlay should exist on the NSTabBar for the
+        // bell-active tab, with the brand-green layer color.
+        let dots = (host2.tabBarView?.subviews ?? []).compactMap { $0 as? LiveDotView }
+        print("    [diag] LiveDotView count on tabBar: \(dots.count)")
+        check("exactly 1 live-dot overlay on tabBar", dots.count == 1, "got \(dots.count)")
+        if let dot = dots.first {
+            check("dot is square (LiveIndicator.size)",
+                  Int(dot.frame.width) == Int(LiveIndicator.size) &&
+                  Int(dot.frame.height) == Int(LiveIndicator.size),
+                  "got \(dot.frame.size)")
+            // Color-pick: read the layer's source CGColor in sRGB. The
+            // actual rendered pixel depends on AppKit compositing (which
+            // a non-windowed isolated view can't faithfully reproduce);
+            // this check catches color-space drift between LiveIndicator
+            // .nsColor and what hits the layer.
+            if let layerBg = dot.layer?.backgroundColor,
+               let cs = NSColorSpace.sRGB.cgColorSpace,
+               let converted = layerBg.converted(to: cs, intent: .defaultIntent, options: nil),
+               let comps = converted.components, comps.count >= 3 {
+                let r = Int((comps[0] * 255).rounded())
+                let g = Int((comps[1] * 255).rounded())
+                let b = Int((comps[2] * 255).rounded())
+                print("    [diag] tab dot layer sRGB: r=\(r) g=\(g) b=\(b) (expected 108/184/110)")
+                check("tab dot layer color matches brand RGB",
+                      abs(r - 108) <= 1 && abs(g - 184) <= 1 && abs(b - 110) <= 1,
+                      "got r=\(r) g=\(g) b=\(b)")
+            }
+        }
+
+        // Also verify SwiftUI grid Circle resolves to the same sRGB triple.
+        // SwiftUI.Color(red:green:blue:) is documented as sRGB; we round-trip
+        // through NSColor to read the components.
+        let grid = LiveIndicator.swiftUIColor
+        let nsGrid = NSColor(grid).usingColorSpace(.sRGB)
+        if let nsGrid = nsGrid {
+            let r = Int((nsGrid.redComponent * 255).rounded())
+            let g = Int((nsGrid.greenComponent * 255).rounded())
+            let b = Int((nsGrid.blueComponent * 255).rounded())
+            print("    [diag] grid Circle sRGB: r=\(r) g=\(g) b=\(b) (expected 108/184/110)")
+            check("grid Circle color matches brand RGB",
+                  abs(r - 108) <= 1 && abs(g - 184) <= 1 && abs(b - 110) <= 1,
+                  "got r=\(r) g=\(g) b=\(b)")
+        }
+
+        // Single-tab title bar path: NSColor used for foreground color
+        // attribute on bullet glyph (alpha-free, no overlay). Should be
+        // identical to the NSColor used for the LiveDotView layer.
+        let nsTitle = LiveIndicator.nsColor.usingColorSpace(.sRGB)
+        if let nsTitle = nsTitle {
+            let r = Int((nsTitle.redComponent * 255).rounded())
+            let g = Int((nsTitle.greenComponent * 255).rounded())
+            let b = Int((nsTitle.blueComponent * 255).rounded())
+            print("    [diag] titlebar bullet sRGB: r=\(r) g=\(g) b=\(b) (expected 108/184/110)")
+            check("titlebar bullet color matches brand RGB",
+                  abs(r - 108) <= 1 && abs(g - 184) <= 1 && abs(b - 110) <= 1,
+                  "got r=\(r) g=\(g) b=\(b)")
         }
 
         print("\n\(passes) passed, \(failures) failed")

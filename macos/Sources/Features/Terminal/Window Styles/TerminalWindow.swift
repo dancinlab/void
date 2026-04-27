@@ -543,6 +543,15 @@ class TerminalWindow: NSWindow {
             titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
             applyAttributedTitleToTitlebarField()
             applyAttributedTitleToTabButton()
+            // NSTabButton applies macOS' standard inactive-tab alpha
+            // (~0.7) to all its content, including a colored bullet glyph
+            // in attributedTitle — so the brand green renders as a paler
+            // mint on unselected tabs. The overlay is a sibling subview
+            // of NSTabBar (NOT a child of the alpha'd button) which keeps
+            // the dot at full opacity. Side benefit: position is decoupled
+            // from glyph metrics, so the dot lands at a consistent pixel
+            // offset regardless of titlebar font.
+            updateLiveDotOverlay()
         }
     }
 
@@ -567,20 +576,69 @@ class TerminalWindow: NSWindow {
     /// directly is the only path that lights up colored bullets / image
     /// attachments in the tab strip.
     private func applyAttributedTitleToTabButton() {
-        guard let attr = attributedTitle else { return }
         guard let group = self.tabGroup else { return }
         let host = group.windows.first(where: { $0.tabBarView != nil }) ?? self
         let buttons = host.tabButtonsInVisualOrder()
         guard let idx = group.windows.firstIndex(of: self), idx < buttons.count else { return }
+
+        // The button gets the title WITHOUT the bullet glyph — the live
+        // dot is rendered as a sibling NSView overlay (see
+        // updateLiveDotOverlay) so it can escape the inactive-tab alpha.
+        // Including the glyph here would render a dimmed second copy
+        // behind the overlay.
+        let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
+        let baseColor = isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor
+        let stripped = title.hasPrefix(LiveIndicator.titlePrefix)
+            ? String(title.dropFirst(LiveIndicator.titlePrefix.count))
+            : title
+        let buttonTitle = NSAttributedString(
+            string: stripped,
+            attributes: [.font: font, .foregroundColor: baseColor])
+
         // The visible tab buttons are private `NSTabButton` instances, an
         // NSButton subclass that the Swift bridge refuses to surface via
         // `as? NSButton`. KVC sidesteps the bridge — `attributedTitle` is
-        // a KVC-compliant property on NSButton in the Obj-C runtime, so
-        // setValue:forKey: hits the same setter the public NSButton API
-        // would, and the tab strip then renders our image attachment.
+        // a KVC-compliant property on NSButton in the Obj-C runtime.
         let view = buttons[idx]
         if view.responds(to: NSSelectorFromString("setAttributedTitle:")) {
-            view.setValue(attr, forKey: "attributedTitle")
+            view.setValue(buttonTitle, forKey: "attributedTitle")
+        }
+    }
+
+    /// Reconcile the live-dot overlay views in the NSTabBar against each
+    /// tabbed window's title (presence of LiveIndicator.titlePrefix).
+    /// Adds/moves/removes one `LiveDotView` per active indicator. Living
+    /// in NSTabBar (sibling of the tab buttons) means the dot escapes the
+    /// per-button alpha applied to inactive tabs — that's the whole point
+    /// of this path; an inline colored glyph in attributedTitle would
+    /// dim along with the rest of the inactive tab's text.
+    private func updateLiveDotOverlay() {
+        guard let group = self.tabGroup else { return }
+        let host = group.windows.first(where: { $0.tabBarView != nil }) ?? self
+        guard let tabBar = host.tabBarView else { return }
+        let buttons = host.tabButtonsInVisualOrder()
+        let windows = group.windows
+
+        // Remove every existing dot overlay; we'll re-create the ones we
+        // still need below. Cheaper than diffing for the small N (2–10)
+        // of typical tab counts.
+        for v in tabBar.subviews where v is LiveDotView { v.removeFromSuperview() }
+
+        for (idx, w) in windows.enumerated() {
+            guard idx < buttons.count else { continue }
+            guard w.title.hasPrefix(LiveIndicator.titlePrefix) else { continue }
+            let button = buttons[idx]
+            let s = LiveIndicator.size
+            // 8pt from the button's leading edge clears the title text
+            // baseline on titlebar-tabs and standalone tab strips alike.
+            let dotFrame = NSRect(
+                x: button.frame.minX + 8,
+                y: button.frame.midY - s / 2,
+                width: s,
+                height: s
+            )
+            let dot = LiveDotView(frame: dotFrame)
+            tabBar.addSubview(dot, positioned: .above, relativeTo: nil)
         }
     }
 
