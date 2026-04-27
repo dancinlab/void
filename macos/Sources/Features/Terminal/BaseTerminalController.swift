@@ -782,27 +782,130 @@ class BaseTerminalController: NSWindowController,
         let inheritedConfig = VD.SurfaceConfiguration(
             from: void_surface_inherited_config(surface, VOID_SURFACE_CONTEXT_SPLIT))
         let newView = VD.SurfaceView(void_app, baseConfig: inheritedConfig)
-
-        // Insert the new cell IMMEDIATELY AFTER the focused cell rather than
-        // appending to the end — the new pane lands adjacent to where the
-        // user was working, not at the far end of the grid. Falls back to
-        // append if the focused view isn't found in the tree (shouldn't
-        // happen given the contains() guard above, but defensively safe).
-        var leaves = Array(surfaceTree)
-        if let idx = leaves.firstIndex(where: { $0 === oldView }) {
-            leaves.insert(newView, at: idx + 1)
-        } else {
-            leaves.append(newView)
-        }
         let frameSize = self.window?.frame.size ?? .zero
-        let prefersTall = frameSize.height > frameSize.width
-        let newTree = SplitTree<VD.SurfaceView>.grid(views: leaves, prefersTall: prefersTall)
 
+        let leaves = Array(surfaceTree)
+        let pinnedLeaves = leaves.filter { $0.isPinned }
+
+        if pinnedLeaves.isEmpty {
+            // Existing behavior: rebuild the entire tree as a fresh grid.
+            // Insert the new cell IMMEDIATELY AFTER the focused cell rather
+            // than appending so the new pane lands adjacent to where the
+            // user was working, not at the far end of the grid.
+            var ordered = leaves
+            if let idx = ordered.firstIndex(where: { $0 === oldView }) {
+                ordered.insert(newView, at: idx + 1)
+            } else {
+                ordered.append(newView)
+            }
+            let prefersTall = frameSize.height > frameSize.width
+            let newTree = SplitTree<VD.SurfaceView>.grid(views: ordered, prefersTall: prefersTall)
+            replaceSurfaceTree(
+                newTree,
+                moveFocusTo: newView,
+                moveFocusFrom: oldView,
+                undoAction: "Add Grid Cell")
+            return
+        }
+
+        // Pinned panes present — preserve their slots, regrid the rest.
+        // We only handle the simple case where the root is a split with
+        // one side entirely pinned and the other entirely unpinned (the
+        // typical post-edge-snap shape). For tangled layouts we fall back
+        // to the full rebuild so the operation never silently no-ops.
+        if let root = surfaceTree.root,
+           case .split(let rootSplit) = root,
+           let regridded = try? regridUnpinnedSide(
+               root: rootSplit,
+               oldView: oldView,
+               newView: newView,
+               frameSize: frameSize) {
+            replaceSurfaceTree(
+                .init(root: .split(regridded), zoomed: surfaceTree.zoomed),
+                moveFocusTo: newView,
+                moveFocusFrom: oldView,
+                undoAction: "Add Grid Cell")
+            return
+        }
+
+        // Fallback: rebuild everything (ignores pin state). Better than
+        // dropping the action on the floor when pinned panes are
+        // interleaved in a way we don't try to handle.
+        var ordered = leaves
+        if let idx = ordered.firstIndex(where: { $0 === oldView }) {
+            ordered.insert(newView, at: idx + 1)
+        } else {
+            ordered.append(newView)
+        }
+        let prefersTall = frameSize.height > frameSize.width
+        let newTree = SplitTree<VD.SurfaceView>.grid(views: ordered, prefersTall: prefersTall)
         replaceSurfaceTree(
             newTree,
             moveFocusTo: newView,
             moveFocusFrom: oldView,
             undoAction: "Add Grid Cell")
+    }
+
+    /// If exactly one side of the root split is entirely unpinned and the
+    /// other entirely pinned, replace the unpinned side with a fresh grid
+    /// of (its leaves + newView). Returns nil to signal "fall back" so the
+    /// caller can do a full rebuild.
+    private func regridUnpinnedSide(
+        root: SplitTree<VD.SurfaceView>.Node.Split,
+        oldView: VD.SurfaceView,
+        newView: VD.SurfaceView,
+        frameSize: CGSize
+    ) throws -> SplitTree<VD.SurfaceView>.Node.Split? {
+        let leftLeaves = collectLeaves(root.left)
+        let rightLeaves = collectLeaves(root.right)
+        let leftAllPinned = !leftLeaves.isEmpty && leftLeaves.allSatisfy { $0.isPinned }
+        let leftAllUnpinned = !leftLeaves.isEmpty && leftLeaves.allSatisfy { !$0.isPinned }
+        let rightAllPinned = !rightLeaves.isEmpty && rightLeaves.allSatisfy { $0.isPinned }
+        let rightAllUnpinned = !rightLeaves.isEmpty && rightLeaves.allSatisfy { !$0.isPinned }
+
+        // Aspect of the unpinned half drives prefersTall the same way edge
+        // snap does — keeps the rebuilt grid from being lopsided.
+        let halfPrefersTall: Bool
+        switch root.direction {
+        case .horizontal: halfPrefersTall = frameSize.height > frameSize.width / 2  // tall half
+        case .vertical:   halfPrefersTall = frameSize.height / 2 > frameSize.width  // wide-ish
+        }
+
+        if leftAllPinned, rightAllUnpinned {
+            var ordered = rightLeaves
+            if let idx = ordered.firstIndex(where: { $0 === oldView }) {
+                ordered.insert(newView, at: idx + 1)
+            } else {
+                ordered.append(newView)
+            }
+            guard let newRight = SplitTree<VD.SurfaceView>.grid(
+                views: ordered, prefersTall: halfPrefersTall).root else { return nil }
+            return .init(direction: root.direction, ratio: root.ratio,
+                         left: root.left, right: newRight)
+        }
+        if rightAllPinned, leftAllUnpinned {
+            var ordered = leftLeaves
+            if let idx = ordered.firstIndex(where: { $0 === oldView }) {
+                ordered.insert(newView, at: idx + 1)
+            } else {
+                ordered.append(newView)
+            }
+            guard let newLeft = SplitTree<VD.SurfaceView>.grid(
+                views: ordered, prefersTall: halfPrefersTall).root else { return nil }
+            return .init(direction: root.direction, ratio: root.ratio,
+                         left: newLeft, right: root.right)
+        }
+        return nil
+    }
+
+    /// Flatten a node into its leaf views in tree order.
+    private func collectLeaves(
+        _ node: SplitTree<VD.SurfaceView>.Node
+    ) -> [VD.SurfaceView] {
+        switch node {
+        case .leaf(let v): return [v]
+        case .split(let s): return collectLeaves(s.left) + collectLeaves(s.right)
+        }
     }
 
     /// Collect every leaf surface across `tabs` (in tab order), build a grid SplitTree,

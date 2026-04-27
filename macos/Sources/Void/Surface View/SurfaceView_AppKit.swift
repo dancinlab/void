@@ -39,6 +39,12 @@ extension VD {
         // The currently active key sequence. The sequence is not active if this is empty.
         @Published var keySequence: [KeyboardShortcut] = []
 
+        // Whether this pane is pinned in place — re-layouts triggered by
+        // adding new grid cells skip pinned panes so the user's "set this
+        // aside" intent survives. Toggled via the pin button overlay.
+        // Ephemeral (not Codable) — pin state doesn't survive process restart.
+        @Published var isPinned: Bool = false
+
         // The current search state. When non-nil, the search overlay should be shown.
         override var searchState: SearchState? {
             didSet {

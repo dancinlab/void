@@ -208,6 +208,13 @@ extension VD {
                 //
                 // This is disabled except on macOS because it uses AppKit drag/drop APIs.
                 SurfaceGrabHandle(surfaceView: surfaceView)
+
+                // Pin toggle in the top-right corner of each pane. Top z-index so
+                // it sits above the unfocused-overlay tint and the cell hover
+                // hint. Hidden in non-split mode by the button itself.
+                SurfacePinButton(surfaceView: surfaceView, isSplit: isSplit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(4)
                 #endif
             }
         }
