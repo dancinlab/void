@@ -1169,7 +1169,50 @@ class BaseTerminalController: NSWindowController,
             splitDidResizeBatch(items: batch.items)
         case .swap(let swap):
             splitDidSwap(source: swap.source, destination: swap.destination)
+        case .edgeSnap(let snap):
+            splitDidEdgeSnap(source: snap.source, zone: snap.zone)
         }
+    }
+
+    /// Promote `source` to fill the entire half on the snapped side. The
+    /// source is removed from its current slot, then the new root becomes a
+    /// 50/50 split with the source on the snapped side and the
+    /// source-removed remainder on the other. No-op if the source is alone.
+    private func splitDidEdgeSnap(
+        source: VD.SurfaceView,
+        zone: TerminalSplitDropZone
+    ) {
+        guard let root = surfaceTree.root else { return }
+        // Need at least one other leaf — promoting the only pane is a no-op.
+        let allLeaves = Array(surfaceTree)
+        guard allLeaves.count > 1 else { return }
+
+        let sourceLeaf: SplitTree<VD.SurfaceView>.Node = .leaf(view: source)
+        guard root.path(to: sourceLeaf) != nil else { return }
+
+        let withoutSource = surfaceTree.removing(sourceLeaf)
+        guard let remaining = withoutSource.root else { return }
+
+        let direction: SplitTree<VD.SurfaceView>.Direction
+        let sourceOnLeft: Bool
+        switch zone {
+        case .top:    direction = .vertical;   sourceOnLeft = true   // top
+        case .bottom: direction = .vertical;   sourceOnLeft = false  // bottom
+        case .left:   direction = .horizontal; sourceOnLeft = true
+        case .right:  direction = .horizontal; sourceOnLeft = false
+        }
+        let newRoot: SplitTree<VD.SurfaceView>.Node = .split(.init(
+            direction: direction,
+            ratio: 0.5,
+            left:  sourceOnLeft ? sourceLeaf : remaining,
+            right: sourceOnLeft ? remaining  : sourceLeaf))
+
+        let newTree = SplitTree<VD.SurfaceView>(root: newRoot, zoomed: surfaceTree.zoomed)
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: source,
+            moveFocusFrom: focusedSurface,
+            undoAction: "Snap to Edge")
     }
 
     /// Exchange two leaves' positions in the surface tree. Both leaves keep

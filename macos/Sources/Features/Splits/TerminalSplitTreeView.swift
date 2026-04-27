@@ -13,6 +13,10 @@ enum TerminalSplitOperation {
     /// Cmd+drag release over another grid cell — exchange the two leaves'
     /// positions in the tree so the panes effectively swap places.
     case swap(Swap)
+    /// Cmd+drag release while the cursor was hugging a window edge — pull
+    /// the source out of its current slot and reshape the root so the source
+    /// fills the entire half on the snapped side (top/bottom/left/right).
+    case edgeSnap(EdgeSnap)
 
     struct Resize {
         let node: SplitTree<VD.SurfaceView>.Node
@@ -41,6 +45,11 @@ enum TerminalSplitOperation {
     struct Swap {
         let source: VD.SurfaceView
         let destination: VD.SurfaceView
+    }
+
+    struct EdgeSnap {
+        let source: VD.SurfaceView
+        let zone: TerminalSplitDropZone
     }
 }
 
@@ -272,11 +281,16 @@ private struct TerminalSplitLeaf: View {
         }
         .onEnded { _ in
             guard let snap = magnetic.snapshot else { return }
-            // Drop priority:
-            //   1. cursor over another cell → swap (always-on)
-            //   2. else, if `split-divider-resize` opted in → resize commit
-            //   3. else → no-op (hint-only, locked layout)
-            if let source = snap.sourceView, let target = magnetic.hoveredView, source !== target {
+            // Drop priority — first match wins:
+            //   1. cursor in window edge band → edge snap (source fills that
+            //      half, layout reshapes around it)
+            //   2. cursor over another cell → swap (positions exchange)
+            //   3. `split-divider-resize` opted in → magnetic resize commit
+            //   4. else → no-op (hint-only, locked layout)
+            let source = snap.sourceView
+            if let source, let zone = magnetic.edgeSnap {
+                action(.edgeSnap(.init(source: source, zone: zone.toDropZone)))
+            } else if let source, let target = magnetic.hoveredView, source !== target {
                 action(.swap(.init(source: source, destination: target)))
             } else if void.config.splitDividerResize {
                 let items = magnetic.resizeOps()
@@ -466,6 +480,15 @@ final class MagneticDragController: ObservableObject {
     /// drag axis, so corners/diagonals are unrepresentable by construction.
     enum EdgeSnapZone {
         case top, bottom, left, right
+
+        var toDropZone: TerminalSplitDropZone {
+            switch self {
+            case .top:    return .top
+            case .bottom: return .bottom
+            case .left:   return .left
+            case .right:  return .right
+            }
+        }
     }
 
     struct Handle {
@@ -710,17 +733,15 @@ private struct MagneticPreviewOverlay: View {
                         // Dotted full-extent preview line in the orthogonal axis.
                         previewLine(coord: coord, direction: snap.direction, in: geo.size)
                     }
-                    // White outline around another grid cell the cursor is
-                    // hovering over — signals the swap/move target. Source
-                    // cell is excluded so the hint only appears once the
-                    // cursor has crossed into a different pane.
-                    if let bounds = controller.hoveredLeafBounds {
-                        cellHoverHint(bounds: bounds)
-                    }
-                    // White half-window outline when the cursor hugs a window
-                    // edge — signals the cardinal snap target (no diagonals).
+                    // Edge snap takes priority over cell hover — when the
+                    // cursor hugs a window edge the user's intent is
+                    // "fill that half", not "swap with the cell underneath".
+                    // Showing both at once would be ambiguous, so we pick
+                    // one hint based on the same priority `onEnded` uses.
                     if let zone = controller.edgeSnap {
                         edgeSnapHint(zone: zone, in: geo.size)
+                    } else if let bounds = controller.hoveredLeafBounds {
+                        cellHoverHint(bounds: bounds)
                     }
                 }
             }
