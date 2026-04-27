@@ -1017,7 +1017,7 @@ class AppDelegate: NSObject,
         let shellMenu = NSMenu(title: "Shell")
 
         let tabCyclesItem = NSMenuItem(
-            title: "Tab Key Cycles Tabs / Splits",
+            title: "Tab Moves Focus",
             action: #selector(toggleMacosTabKeyCycles(_:)),
             keyEquivalent: ""
         )
