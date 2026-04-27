@@ -40,3 +40,7 @@ vgcore.*
 /zig-pkg/
 # prefix-less icon sizes (용도 재확정 대기 — 기존 icon_*.png 는 커밋됨)
 /images/icons/[0-9]*.png
+
+# Icon source backups (kept locally for restore-on-iterate workflow)
+macos/Assets.xcassets/AppIcon.appiconset/.original-bak/
+macos/Assets.xcassets/AppIconImage.imageset/.original-bak/
