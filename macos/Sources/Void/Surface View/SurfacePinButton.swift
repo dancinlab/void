@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension VD {
@@ -32,7 +33,19 @@ extension VD {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .onHover { isHovering = $0 }
+                // Click pointer instead of the surface's default I-beam.
+                // macOS 15+ uses pointerStyle; older falls back to NSCursor
+                // push/pop in onHover.
+                .backport.pointerStyle(.link)
+                .onHover { hovering in
+                    isHovering = hovering
+                    if #available(macOS 15, *) { return }
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
                 .help(surfaceView.isPinned ? "Unpin pane" : "Pin pane (excludes from auto-regrid)")
             }
         }
