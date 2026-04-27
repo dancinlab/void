@@ -541,6 +541,46 @@ class TerminalWindow: NSWindow {
             /// Check ``titlebarFont`` down below
             /// to see why we need to check `hasMoreThanOneTabs` here
             titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
+            applyAttributedTitleToTitlebarField()
+            applyAttributedTitleToTabButton()
+        }
+    }
+
+    /// Push the attributed title (which colors the leading "● " bullet for
+    /// completion indicators) onto the titlebar's NSTextField. Single-tab
+    /// windows render their title through `titlebarTextField` rather than
+    /// the tab strip, and that field doesn't auto-pick-up `tab.attributedTitle`,
+    /// so without this the bullet renders as plain label-color text.
+    /// Always reapplied so the field's attributes track title transitions
+    /// (bell on → bullet, bell off → no bullet) instead of staying stuck.
+    private func applyAttributedTitleToTitlebarField() {
+        guard let field = titlebarTextField, let attr = attributedTitle else { return }
+        field.attributedStringValue = attr
+    }
+
+    /// Push the attributed title onto this window's NSTabBar tab button.
+    /// Tab strip rendering uses the per-tab `NSButton.attributedTitle`
+    /// (not `NSWindowTab.attributedTitle`, which is a long-standing AppKit
+    /// limitation: foreground-color and image-attachment attributes get
+    /// silently dropped on `NSWindowTab.attributedTitle`). Walking down to
+    /// the actual NSButton in `NSTabBar` and setting its attributedTitle
+    /// directly is the only path that lights up colored bullets / image
+    /// attachments in the tab strip.
+    private func applyAttributedTitleToTabButton() {
+        guard let attr = attributedTitle else { return }
+        guard let group = self.tabGroup else { return }
+        let host = group.windows.first(where: { $0.tabBarView != nil }) ?? self
+        let buttons = host.tabButtonsInVisualOrder()
+        guard let idx = group.windows.firstIndex(of: self), idx < buttons.count else { return }
+        // The visible tab buttons are private `NSTabButton` instances, an
+        // NSButton subclass that the Swift bridge refuses to surface via
+        // `as? NSButton`. KVC sidesteps the bridge — `attributedTitle` is
+        // a KVC-compliant property on NSButton in the Obj-C runtime, so
+        // setValue:forKey: hits the same setter the public NSButton API
+        // would, and the tab strip then renders our image attachment.
+        let view = buttons[idx]
+        if view.responds(to: NSSelectorFromString("setAttributedTitle:")) {
+            view.setValue(attr, forKey: "attributedTitle")
         }
     }
 
@@ -569,26 +609,54 @@ class TerminalWindow: NSWindow {
 
     // Return a styled representation of our title property.
     var attributedTitle: NSAttributedString? {
-        guard let titlebarFont = titlebarFont else { return nil }
-
+        // Fall back to the system titlebar font when no custom titlebarFont
+        // is configured. The original gate was `guard let titlebarFont …
+        // else return nil` which silently no-op'd the entire attributed-
+        // title path — including the live-indicator image attachment —
+        // for any user without a custom font config. Falling back keeps
+        // attributedTitle non-nil so the bullet always renders.
+        let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
         let baseColor = isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: titlebarFont,
+            .font: font,
             .foregroundColor: baseColor,
         ]
-        let result = NSMutableAttributedString(string: title, attributes: attributes)
 
-        // BaseTerminalController.computeTitle prefixes "● " when a surface
-        // in this window has bell active. Repaint that bullet with the brand
-        // "live" green (R108 G184 B110) so the indicator matches the SwiftUI
-        // Circle used by grid-mode pwdLabel. Other consumers that read raw
-        // `window.title` still see a legible bullet character.
-        if title.hasPrefix("● ") {
-            let liveGreen = NSColor(red: 108.0/255.0, green: 184.0/255.0, blue: 110.0/255.0, alpha: 1)
-            result.addAttribute(.foregroundColor, value: liveGreen, range: NSRange(location: 0, length: 1))
+        // BaseTerminalController.computeTitle prefixes the LiveIndicator
+        // sentinel when a surface in this window has bell active. NSButton
+        // tab buttons (and titlebar text fields) honor image attachments
+        // and per-range colors on attributedTitle — but NSWindowTab does
+        // NOT, so we swap the sentinel char for an NSTextAttachment
+        // containing the brand-green filled circle. Plain `window.title`
+        // keeps the sentinel character for any code reading it raw.
+        if title.hasPrefix(LiveIndicator.titlePrefix) {
+            let trimmed = String(title.dropFirst(LiveIndicator.titlePrefix.count))
+            let result = NSMutableAttributedString()
+            let attachment = NSTextAttachment()
+            attachment.image = TerminalWindow.liveIndicatorImage
+            // Slight negative y so the dot sits on the text baseline midline.
+            attachment.bounds = CGRect(x: 0, y: -1, width: LiveIndicator.size, height: LiveIndicator.size)
+            result.append(NSAttributedString(attachment: attachment))
+            result.append(NSAttributedString(string: " " + trimmed, attributes: attributes))
+            return result
         }
-        return result
+
+        return NSAttributedString(string: title, attributes: attributes)
     }
+
+    /// Cached filled-circle NSImage in the brand "live" green. Used as an
+    /// NSTextAttachment for completion indicators on tab/window titles.
+    /// Cached because attributedTitle is recomputed on every title change.
+    private static let liveIndicatorImage: NSImage = {
+        let s = LiveIndicator.size
+        let size = NSSize(width: s, height: s)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        LiveIndicator.nsColor.setFill()
+        NSBezierPath(ovalIn: NSRect(origin: .zero, size: size)).fill()
+        image.unlockFocus()
+        return image
+    }()
 
     var titlebarContainer: NSView? {
         // If we aren't fullscreen then the titlebar container is part of our window.

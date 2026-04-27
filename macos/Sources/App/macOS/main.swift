@@ -31,6 +31,7 @@ if void_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != VOID_SUCCESS {
 // with the window server. Exits immediately without invoking
 // NSApplicationMain. See Sources/App/macOS/GridSelfTest.swift.
 if let code = GridSelfTest.runIfRequested() { exit(code) }
+if let code = BellTitleSelfTest.runIfRequested() { exit(code) }
 
 // This will run the CLI action and exit if one was specified. A CLI
 // action is a command starting with a `+`, such as `void +boo`.

@@ -193,13 +193,11 @@ private struct TerminalSplitLeaf: View {
             if bell || !pathLabel.isEmpty {
                 HStack(spacing: 6) {
                     if bell {
-                        // R 108 / G 184 / B 110 — fixed brand "live" green so
-                        // grid cell badge matches the tab title bullet exactly.
-                        let liveGreen = Color(red: 108.0/255.0, green: 184.0/255.0, blue: 110.0/255.0)
+                        // Color/size sourced from LiveIndicator so the grid
+                        // badge and the tab-title bullet stay in lockstep.
                         Circle()
-                            .fill(liveGreen)
-                            .frame(width: 8, height: 8)
-                            .shadow(color: liveGreen.opacity(0.6), radius: 2)
+                            .fill(LiveIndicator.swiftUIColor)
+                            .frame(width: LiveIndicator.size, height: LiveIndicator.size)
                     }
                     if !pathLabel.isEmpty {
                         Text(pathLabel)
