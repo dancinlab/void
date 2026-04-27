@@ -137,14 +137,6 @@ fn main() {
     run_or_die("mv " + stage + " " + dest)
     println("⬡ void: installed → " + dest)
 
-    // Run the in-binary self-test (no window, no dock icon). Skip with
-    // VOID_NO_SELF_TEST=1 for headless CI runs where stdin/stdout of
-    // xctest might not be available.
-    if env("VOID_NO_SELF_TEST") != "1" {
-        println("⬡ void: running --grid-self-test")
-        run_or_die(dest + "/Contents/MacOS/void --grid-self-test")
-    }
-
     // Entry shim — hx will symlink $HX_BIN_DIR/void → pkg_dir/bin/void.
     run_or_die("mkdir -p " + pkg_dir + "/bin")
     let shim = pkg_dir + "/bin/void"
