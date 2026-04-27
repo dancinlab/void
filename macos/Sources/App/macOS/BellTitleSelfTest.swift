@@ -75,27 +75,17 @@ enum BellTitleSelfTest {
               target.title.hasPrefix(LiveIndicator.titlePrefix),
               "got \(target.title)")
 
-        // attributedTitle: leads with the bullet glyph carrying the
-        // brand-green foreground color attribute.
+        // attributedTitle should NOT carry the bullet anymore — the
+        // dot is rendered as an 8×8 NSView overlay (LiveDotView) for
+        // pixel-exact sizing. Only the foreground attributes should
+        // be present.
         let twin = target as? TerminalWindow
         check("window casts to TerminalWindow", twin != nil)
         if let attr = twin?.attributedTitle {
             print("    [diag] attributedTitle.length=\(attr.length) string=\(attr.string)")
-            let first = (attr.string as NSString).substring(with: NSRange(location: 0, length: 1))
-            check("attributedTitle leads with bullet char", first == "●",
-                  "got \"\(first)\"")
-            let fg = attr.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
-            print("    [diag] bullet fg color: \(String(describing: fg))")
-            check("bullet has foreground color attribute", fg != nil)
-            if let fg = fg, let srgb = fg.usingColorSpace(.sRGB) {
-                let r = Int((srgb.redComponent * 255).rounded())
-                let g = Int((srgb.greenComponent * 255).rounded())
-                let b = Int((srgb.blueComponent * 255).rounded())
-                print("    [diag] bullet sRGB: r=\(r) g=\(g) b=\(b) (expected 108/184/110)")
-                check("bullet color matches brand RGB",
-                      abs(r - 108) <= 1 && abs(g - 184) <= 1 && abs(b - 110) <= 1,
-                      "got r=\(r) g=\(g) b=\(b)")
-            }
+            check("attributedTitle has bullet stripped",
+                  !attr.string.hasPrefix(LiveIndicator.titlePrefix),
+                  "got \(attr.string)")
         } else {
             check("attributedTitle non-nil", false, "nil — titlebarFont not yet set?")
         }
@@ -136,10 +126,13 @@ enum BellTitleSelfTest {
         print("    [diag] LiveDotView count on tabBar: \(dots.count)")
         check("exactly 1 live-dot overlay on tabBar", dots.count == 1, "got \(dots.count)")
         if let dot = dots.first {
-            check("dot is square (LiveIndicator.size)",
-                  Int(dot.frame.width) == Int(LiveIndicator.size) &&
-                  Int(dot.frame.height) == Int(LiveIndicator.size),
-                  "got \(dot.frame.size)")
+            print("    [diag] tab dot frame size: \(dot.frame.size)")
+            check("tab dot width is exactly LiveIndicator.size (8pt)",
+                  dot.frame.width == LiveIndicator.size,
+                  "got \(dot.frame.width)")
+            check("tab dot height is exactly LiveIndicator.size (8pt)",
+                  dot.frame.height == LiveIndicator.size,
+                  "got \(dot.frame.height)")
             // Color-pick: read the layer's source CGColor in sRGB. The
             // actual rendered pixel depends on AppKit compositing (which
             // a non-windowed isolated view can't faithfully reproduce);
@@ -174,18 +167,26 @@ enum BellTitleSelfTest {
                   "got r=\(r) g=\(g) b=\(b)")
         }
 
-        // Single-tab title bar path: NSColor used for foreground color
-        // attribute on bullet glyph (alpha-free, no overlay). Should be
-        // identical to the NSColor used for the LiveDotView layer.
-        let nsTitle = LiveIndicator.nsColor.usingColorSpace(.sRGB)
-        if let nsTitle = nsTitle {
-            let r = Int((nsTitle.redComponent * 255).rounded())
-            let g = Int((nsTitle.greenComponent * 255).rounded())
-            let b = Int((nsTitle.blueComponent * 255).rounded())
-            print("    [diag] titlebar bullet sRGB: r=\(r) g=\(g) b=\(b) (expected 108/184/110)")
-            check("titlebar bullet color matches brand RGB",
-                  abs(r - 108) <= 1 && abs(g - 184) <= 1 && abs(b - 110) <= 1,
-                  "got r=\(r) g=\(g) b=\(b)")
+        // Single-tab title bar overlay: LiveDotView lives on the
+        // titlebarView (sibling of the titlebar text field). Same 8×8
+        // size constraint as the tab strip.
+        if let titlebarView = (target as? TerminalWindow)?.titlebarView {
+            let titleDots = titlebarView.subviews.compactMap { $0 as? LiveDotView }
+            print("    [diag] LiveDotView count on titlebar: \(titleDots.count)")
+            check("at least 1 live-dot overlay on titlebar",
+                  titleDots.count >= 1,
+                  "got \(titleDots.count) — titlebar text field may not be materialised in headless")
+            if let tdot = titleDots.first {
+                print("    [diag] titlebar dot frame size: \(tdot.frame.size)")
+                check("titlebar dot width is exactly LiveIndicator.size (8pt)",
+                      tdot.frame.width == LiveIndicator.size,
+                      "got \(tdot.frame.width)")
+                check("titlebar dot height is exactly LiveIndicator.size (8pt)",
+                      tdot.frame.height == LiveIndicator.size,
+                      "got \(tdot.frame.height)")
+            }
+        } else {
+            check("titlebar overlay accessible", false, "no titlebarView reachable")
         }
 
         print("\n\(passes) passed, \(failures) failed")

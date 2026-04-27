@@ -209,9 +209,12 @@ private struct TerminalSplitLeaf: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
-                .padding(.top, 6)
+                // Solid dark fill, no border — replaces the translucent
+                // regularMaterial + strokeBorder for a flatter, slightly
+                // darker badge that reads as a fixed UI element rather
+                // than a frosted overlay.
+                .background(Color(white: 0.12), in: Capsule())
+                .padding(.top, 8)
                 .allowsHitTesting(false)
             }
         }

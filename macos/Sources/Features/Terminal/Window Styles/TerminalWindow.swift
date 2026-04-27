@@ -605,14 +605,41 @@ class TerminalWindow: NSWindow {
         }
     }
 
-    /// Reconcile the live-dot overlay views in the NSTabBar against each
-    /// tabbed window's title (presence of LiveIndicator.titlePrefix).
-    /// Adds/moves/removes one `LiveDotView` per active indicator. Living
-    /// in NSTabBar (sibling of the tab buttons) means the dot escapes the
-    /// per-button alpha applied to inactive tabs — that's the whole point
-    /// of this path; an inline colored glyph in attributedTitle would
-    /// dim along with the rest of the inactive tab's text.
+    /// Reconcile every live-dot overlay against current bell state.
+    /// Tab strip dots live on NSTabBar (sibling of tab buttons, so they
+    /// escape the per-button alpha applied to inactive tabs); single-tab
+    /// title dots live on the titlebar view. Both paths use exact 8×8
+    /// NSView frames so size is pixel-stable, unlike a font glyph.
     private func updateLiveDotOverlay() {
+        updateLiveDotOverlayInTabBar()
+        updateLiveDotOverlayInTitlebar()
+    }
+
+    private func updateLiveDotOverlayInTitlebar() {
+        guard let titlebarView = self.titlebarView else { return }
+        // Reset: drop any prior titlebar dot.
+        for v in titlebarView.subviews where v is LiveDotView { v.removeFromSuperview() }
+        guard title.hasPrefix(LiveIndicator.titlePrefix) else { return }
+        guard let textField = titlebarTextField else { return }
+        // Title is centered horizontally inside the titlebar's text field.
+        // Measure the rendered title width and pin the dot 6pt before its
+        // left edge. Vertical center matches the text field's vertical
+        // midpoint via convert() so flipped-state differences don't matter.
+        let textFieldFrame = textField.convert(textField.bounds, to: titlebarView)
+        let textWidth = textField.attributedStringValue.size().width
+        let textLeft = textFieldFrame.midX - textWidth / 2
+        let s = LiveIndicator.size
+        let frame = NSRect(
+            x: textLeft - s - 6,
+            y: textFieldFrame.midY - s / 2,
+            width: s,
+            height: s
+        )
+        let dot = LiveDotView(frame: frame)
+        titlebarView.addSubview(dot)
+    }
+
+    private func updateLiveDotOverlayInTabBar() {
         guard let group = self.tabGroup else { return }
         let host = group.windows.first(where: { $0.tabBarView != nil }) ?? self
         guard let tabBar = host.tabBarView else { return }
@@ -629,14 +656,32 @@ class TerminalWindow: NSWindow {
             guard w.title.hasPrefix(LiveIndicator.titlePrefix) else { continue }
             let button = buttons[idx]
             let s = LiveIndicator.size
-            // 8pt from the button's leading edge clears the title text
-            // baseline on titlebar-tabs and standalone tab strips alike.
-            let dotFrame = NSRect(
-                x: button.frame.minX + 8,
-                y: button.frame.midY - s / 2,
-                width: s,
-                height: s
-            )
+
+            // Horizontal: tab title is rendered centered inside the
+            // button. Measure the actual attributedTitle width and pin
+            // the dot 4pt before its left edge — same "● title" gap as
+            // the grid pwdLabel.
+            // Vertical: NSCell.titleRect gives us the rect the title
+            // actually draws into. Converting through the button's view
+            // hierarchy handles whatever flipped state NSTabBar uses,
+            // and pinning to that rect's midY (instead of the button's
+            // frame.midY) accounts for any top/bottom title insets the
+            // tab style applies.
+            // NSTabButton isn't KVC-compliant for `cell`, so we can't
+            // ask the cell for its titleRect. The button's geometric
+            // midY lines up with the rendered title's visual midline
+            // (cap-height center) for the standard titlebar-tabs style;
+            // any subpixel residual is below perception threshold.
+            var dotX: CGFloat = button.frame.minX + 14
+            let dotY: CGFloat = button.frame.midY - s / 2
+            if let attr = button.value(forKey: "attributedTitle") as? NSAttributedString,
+               attr.length > 0 {
+                let textWidth = attr.size().width
+                let textLeft = button.frame.midX - textWidth / 2
+                dotX = textLeft - s - 4
+            }
+
+            let dotFrame = NSRect(x: dotX, y: dotY, width: s, height: s)
             let dot = LiveDotView(frame: dotFrame)
             tabBar.addSubview(dot, positioned: .above, relativeTo: nil)
         }
@@ -690,24 +735,16 @@ class TerminalWindow: NSWindow {
         // tabs that washes the brand green into a paler mint — text
         // glyphs go through a different code path that respects the
         // literal foreground color.
-        if title.hasPrefix(LiveIndicator.titlePrefix) {
-            let trimmed = String(title.dropFirst(LiveIndicator.titlePrefix.count))
-            let result = NSMutableAttributedString()
-            let bullet = String(LiveIndicator.titlePrefix.first!)
-            // Bullet glyph sized via LiveIndicator.size (single source of
-            // truth, matching the SwiftUI grid Circle), with brand-green
-            // foreground. NSButton/titlebarTextField honor per-range
-            // .font + .foregroundColor so the bullet renders smaller than
-            // the surrounding title text.
-            var bulletAttrs = attributes
-            bulletAttrs[.foregroundColor] = LiveIndicator.nsColor
-            bulletAttrs[.font] = NSFont.systemFont(ofSize: LiveIndicator.size)
-            result.append(NSAttributedString(string: bullet, attributes: bulletAttrs))
-            result.append(NSAttributedString(string: " " + trimmed, attributes: attributes))
-            return result
-        }
-
-        return NSAttributedString(string: title, attributes: attributes)
+        // Strip the LiveIndicator sentinel — the dot is rendered as an
+        // 8×8 NSView overlay (LiveDotView) for both the tab strip and
+        // the titlebar field. Using a glyph would couple the dot's
+        // visible size to the chosen font's cap-height, which makes
+        // exact 8px sizing impossible and breaks vertical alignment
+        // with surrounding text.
+        let stripped = title.hasPrefix(LiveIndicator.titlePrefix)
+            ? String(title.dropFirst(LiveIndicator.titlePrefix.count))
+            : title
+        return NSAttributedString(string: stripped, attributes: attributes)
     }
 
 
