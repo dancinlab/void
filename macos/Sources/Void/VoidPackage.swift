@@ -409,6 +409,13 @@ extension VD.Notification {
     /// as the source of inherited config.
     static let voidAddGridCell = Notification.Name("com.need-singularity.void.addGridCell")
 
+    /// A pane's `isPinned` state was toggled by the user. Object is the
+    /// SurfaceView whose pin state changed. Listeners regrid the tree so
+    /// unpinned regions reflow with canonical ratios (specifically: an
+    /// unpin event causes the freshly-unpinned pane to rejoin its
+    /// region's grid).
+    static let voidPinChanged = Notification.Name("com.need-singularity.void.pinChanged")
+
     /// New tab. Has base surface config requested in userinfo.
     static let voidNewTab = Notification.Name("com.need-singularity.void.newTab")
 

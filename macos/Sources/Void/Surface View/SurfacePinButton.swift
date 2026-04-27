@@ -52,6 +52,13 @@ extension VD {
 
         private func toggle() {
             surfaceView.isPinned.toggle()
+            // Tell the controller a pin state flipped so it can reflow the
+            // tree — particularly an unpin needs to fold the pane back
+            // into the unpinned region's grid layout.
+            NotificationCenter.default.post(
+                name: VD.Notification.voidPinChanged,
+                object: surfaceView
+            )
         }
     }
 }

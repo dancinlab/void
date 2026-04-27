@@ -205,6 +205,11 @@ class BaseTerminalController: NSWindowController,
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(voidDidChangePin(_:)),
+            name: VD.Notification.voidPinChanged,
+            object: nil)
+        center.addObserver(
+            self,
             selector: #selector(voidDidFocusSplit(_:)),
             name: VD.Notification.voidFocusSplit,
             object: nil)
@@ -1327,11 +1332,15 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    /// Promote `source` to fill the entire half on the snapped side. The
-    /// remaining panes get rebuilt into a fresh balanced grid that fills the
-    /// other half — old ratios and stale tree shape are discarded so the
-    /// post-snap layout looks tidy regardless of how the source had been
-    /// nested before. No-op if the source is alone.
+    /// Promote `source` to occupy one row's height (top/bottom) or one
+    /// column's width (left/right) of the natural grid for the current pane
+    /// count, leaving the rest as a clean balanced grid in the other side.
+    /// Examples:
+    ///   - 4 panes (2×2) snapped right → source = 1/2 width (1 col)
+    ///   - 6 panes (3×2) snapped right → source = 1/3 width (1 col of 3)
+    ///   - 6 panes (3×2) snapped top   → source = 1/2 height (1 row of 2)
+    /// Already-pinned panes other than the source keep their pin state and
+    /// their slots in the rebuilt remainder. No-op if source is alone.
     private func splitDidEdgeSnap(
         source: VD.SurfaceView,
         zone: TerminalSplitDropZone
@@ -1340,33 +1349,55 @@ class BaseTerminalController: NSWindowController,
         let remainingLeaves = leaves.filter { $0 !== source }
         guard !remainingLeaves.isEmpty else { return }
 
+        let frameSize = self.window?.frame.size ?? .zero
         let sourceLeaf: SplitTree<VD.SurfaceView>.Node = .leaf(view: source)
 
-        // Aspect-aware grid: the remainder occupies a wide rect (top/bottom
-        // edge) or a tall rect (left/right edge). Picking the right
-        // `prefersTall` keeps the rebuilt layout from being lopsided in
-        // the half it has to fit into.
+        // Aspect-aware grid for the remainder. The remainder lives in a
+        // wide rect (top/bottom snap) or a tall rect (left/right snap);
+        // pick prefersTall accordingly so the rebuild isn't lopsided.
         let remainderPrefersTall: Bool
         switch zone {
-        case .top, .bottom: remainderPrefersTall = false  // wide half
-        case .left, .right: remainderPrefersTall = true   // tall half
+        case .top, .bottom: remainderPrefersTall = false
+        case .left, .right: remainderPrefersTall = true
         }
-        let remainderTree = SplitTree<VD.SurfaceView>.grid(
+        let remainderRoot = rebuildAroundPins(
             views: remainingLeaves,
+            existing: surfaceTree.root,
             prefersTall: remainderPrefersTall)
-        guard let remainderRoot = remainderTree.root else { return }
+        guard let remainderRoot else { return }
+
+        // Source occupies 1 column's width or 1 row's height of the natural
+        // grid the user would get for `leaves.count` panes.
+        let totalCount = leaves.count
+        let outerPrefersTall = frameSize.height > frameSize.width
+        let major = max(2, Int(ceil(Double(totalCount).squareRoot())))
+        let cols: Int
+        let rows: Int
+        if outerPrefersTall {
+            rows = major
+            cols = max(1, Int(ceil(Double(totalCount) / Double(rows))))
+        } else {
+            cols = major
+            rows = max(1, Int(ceil(Double(totalCount) / Double(cols))))
+        }
+        let sourceFraction: Double
+        switch zone {
+        case .top, .bottom: sourceFraction = 1.0 / Double(rows)
+        case .left, .right: sourceFraction = 1.0 / Double(cols)
+        }
 
         let direction: SplitTree<VD.SurfaceView>.Direction
         let sourceOnLeft: Bool
         switch zone {
-        case .top:    direction = .vertical;   sourceOnLeft = true   // top
-        case .bottom: direction = .vertical;   sourceOnLeft = false  // bottom
+        case .top:    direction = .vertical;   sourceOnLeft = true
+        case .bottom: direction = .vertical;   sourceOnLeft = false
         case .left:   direction = .horizontal; sourceOnLeft = true
         case .right:  direction = .horizontal; sourceOnLeft = false
         }
+        let ratio = sourceOnLeft ? sourceFraction : 1.0 - sourceFraction
         let newRoot: SplitTree<VD.SurfaceView>.Node = .split(.init(
             direction: direction,
-            ratio: 0.5,
+            ratio: ratio,
             left:  sourceOnLeft ? sourceLeaf   : remainderRoot,
             right: sourceOnLeft ? remainderRoot : sourceLeaf))
 
@@ -1382,6 +1413,96 @@ class BaseTerminalController: NSWindowController,
             moveFocusTo: source,
             moveFocusFrom: focusedSurface,
             undoAction: "Snap to Edge")
+    }
+
+    /// Build a tree out of the given views while preserving any pinned
+    /// panes' positions found in `existing`. Pure-unpinned subtrees of
+    /// `existing` get replaced with a fresh `SplitTree.grid()` over the
+    /// unpinned views; pure-pinned subtrees pass through unchanged; mixed
+    /// subtrees recurse. Any unpinned views in `views` that aren't in
+    /// `existing` get folded into the first pure-unpinned region.
+    ///
+    /// Returns nil if `views` is empty.
+    private func rebuildAroundPins(
+        views: [VD.SurfaceView],
+        existing: SplitTree<VD.SurfaceView>.Node?,
+        prefersTall: Bool
+    ) -> SplitTree<VD.SurfaceView>.Node? {
+        guard !views.isEmpty else { return nil }
+        // Fast path: no pinned panes anywhere among `views` → just regrid.
+        if views.allSatisfy({ !$0.isPinned }) {
+            return SplitTree<VD.SurfaceView>.grid(
+                views: views, prefersTall: prefersTall).root
+        }
+        // Walk `existing` and replicate its structure for pinned subtrees.
+        // Unpinned regions get rebuilt as grids over their leaves intersected
+        // with `views`.
+        guard let existing else {
+            return SplitTree<VD.SurfaceView>.grid(
+                views: views, prefersTall: prefersTall).root
+        }
+        let viewSet = Set(views.map { ObjectIdentifier($0) })
+        return rebuildNodeAroundPins(
+            existing,
+            keeping: viewSet,
+            prefersTall: prefersTall)
+    }
+
+    private func rebuildNodeAroundPins(
+        _ node: SplitTree<VD.SurfaceView>.Node,
+        keeping viewSet: Set<ObjectIdentifier>,
+        prefersTall: Bool
+    ) -> SplitTree<VD.SurfaceView>.Node? {
+        let leaves = collectLeaves(node).filter { viewSet.contains(ObjectIdentifier($0)) }
+        if leaves.isEmpty { return nil }
+        let allUnpinned = leaves.allSatisfy { !$0.isPinned }
+        if allUnpinned {
+            return SplitTree<VD.SurfaceView>.grid(
+                views: leaves, prefersTall: prefersTall).root
+        }
+        // Mixed or all-pinned: recurse into splits, leaves return themselves.
+        switch node {
+        case .leaf(let v):
+            return viewSet.contains(ObjectIdentifier(v)) ? .leaf(view: v) : nil
+        case .split(let s):
+            let l = rebuildNodeAroundPins(s.left, keeping: viewSet, prefersTall: prefersTall)
+            let r = rebuildNodeAroundPins(s.right, keeping: viewSet, prefersTall: prefersTall)
+            switch (l, r) {
+            case (nil, nil): return nil
+            case (let only?, nil), (nil, let only?): return only
+            case (let lv?, let rv?):
+                return .split(.init(
+                    direction: s.direction,
+                    ratio: s.ratio,
+                    left: lv,
+                    right: rv))
+            }
+        }
+    }
+
+    /// Pin-state toggled — refresh the tree so unpinned regions reflow
+    /// (in particular: a freshly-unpinned pane rejoins its enclosing
+    /// pure-unpinned region's grid). No-op if the toggle came from a view
+    /// outside this controller's tree.
+    @objc private func voidDidChangePin(_ notification: Notification) {
+        guard let view = notification.object as? VD.SurfaceView,
+              surfaceTree.contains(view) else { return }
+        guard let root = surfaceTree.root else { return }
+        let frameSize = self.window?.frame.size ?? .zero
+        let prefersTall = frameSize.height > frameSize.width
+        let leaves = Array(surfaceTree)
+        guard let newRoot = rebuildAroundPins(
+            views: leaves, existing: root, prefersTall: prefersTall
+        ) else { return }
+        let newTree = SplitTree<VD.SurfaceView>(root: newRoot, zoomed: surfaceTree.zoomed)
+        // Pin toggle isn't undoable on its own — the tree shape change is
+        // a side effect of a UI flip, not a discrete user action worth a
+        // separate undo step.
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: view,
+            moveFocusFrom: focusedSurface,
+            undoAction: nil)
     }
 
     /// Exchange two leaves' positions in the surface tree. Both leaves keep
