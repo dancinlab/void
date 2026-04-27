@@ -703,6 +703,31 @@ final class MagneticDragController: ObservableObject {
         }
         return nil
     }
+
+    /// Fraction of the root that the source pane will occupy after an edge
+    /// snap commit. Mirrors the cols/rows math in `splitDidEdgeSnap` so the
+    /// preview hint matches the actual layout — without this the hint would
+    /// always render as a 50% slab even when the result is, say, 1/3.
+    func edgeSnapSourceFraction(zone: EdgeSnapZone) -> Double {
+        guard let snap = snapshot else { return 0.5 }
+        let totalCount = snap.leafSlots.count
+        guard totalCount >= 2 else { return 0.5 }
+        let prefersTall = snap.rootSize.height > snap.rootSize.width
+        let major = max(2, Int(ceil(Double(totalCount).squareRoot())))
+        let cols: Int
+        let rows: Int
+        if prefersTall {
+            rows = major
+            cols = max(1, Int(ceil(Double(totalCount) / Double(rows))))
+        } else {
+            cols = major
+            rows = max(1, Int(ceil(Double(totalCount) / Double(cols))))
+        }
+        switch zone {
+        case .top, .bottom: return 1.0 / Double(rows)
+        case .left, .right: return 1.0 / Double(cols)
+        }
+    }
 }
 
 private struct MagneticPreviewOverlay: View {
@@ -759,12 +784,13 @@ private struct MagneticPreviewOverlay: View {
         zone: MagneticDragController.EdgeSnapZone,
         in size: CGSize
     ) -> some View {
+        let f = controller.edgeSnapSourceFraction(zone: zone)
         let rect: CGRect = {
             switch zone {
-            case .top:    return CGRect(x: 0, y: 0, width: size.width, height: size.height / 2)
-            case .bottom: return CGRect(x: 0, y: size.height / 2, width: size.width, height: size.height / 2)
-            case .left:   return CGRect(x: 0, y: 0, width: size.width / 2, height: size.height)
-            case .right:  return CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height)
+            case .top:    return CGRect(x: 0, y: 0, width: size.width, height: size.height * f)
+            case .bottom: return CGRect(x: 0, y: size.height * (1 - f), width: size.width, height: size.height * f)
+            case .left:   return CGRect(x: 0, y: 0, width: size.width * f, height: size.height)
+            case .right:  return CGRect(x: size.width * (1 - f), y: 0, width: size.width * f, height: size.height)
             }
         }()
         Path { p in p.addRect(rect) }
