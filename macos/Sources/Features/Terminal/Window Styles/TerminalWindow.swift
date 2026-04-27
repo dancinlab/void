@@ -623,20 +623,28 @@ class TerminalWindow: NSWindow {
         ]
 
         // BaseTerminalController.computeTitle prefixes the LiveIndicator
-        // sentinel when a surface in this window has bell active. NSButton
-        // tab buttons (and titlebar text fields) honor image attachments
-        // and per-range colors on attributedTitle — but NSWindowTab does
-        // NOT, so we swap the sentinel char for an NSTextAttachment
-        // containing the brand-green filled circle. Plain `window.title`
-        // keeps the sentinel character for any code reading it raw.
+        // sentinel when a surface in this window has bell active. The
+        // sentinel character itself is rendered with the brand green
+        // foreground color (NSButton honors per-range colors via KVC,
+        // unlike NSWindowTab which doesn't). Image-attachment approach
+        // was tried first but NSTabButton's tab-strip rendering pipeline
+        // applies an alpha-multiplier to attachment images for unselected
+        // tabs that washes the brand green into a paler mint — text
+        // glyphs go through a different code path that respects the
+        // literal foreground color.
         if title.hasPrefix(LiveIndicator.titlePrefix) {
             let trimmed = String(title.dropFirst(LiveIndicator.titlePrefix.count))
             let result = NSMutableAttributedString()
-            let attachment = NSTextAttachment()
-            attachment.image = TerminalWindow.liveIndicatorImage
-            // Slight negative y so the dot sits on the text baseline midline.
-            attachment.bounds = CGRect(x: 0, y: -1, width: LiveIndicator.size, height: LiveIndicator.size)
-            result.append(NSAttributedString(attachment: attachment))
+            let bullet = String(LiveIndicator.titlePrefix.first!)
+            // Bullet glyph sized via LiveIndicator.size (single source of
+            // truth, matching the SwiftUI grid Circle), with brand-green
+            // foreground. NSButton/titlebarTextField honor per-range
+            // .font + .foregroundColor so the bullet renders smaller than
+            // the surrounding title text.
+            var bulletAttrs = attributes
+            bulletAttrs[.foregroundColor] = LiveIndicator.nsColor
+            bulletAttrs[.font] = NSFont.systemFont(ofSize: LiveIndicator.size)
+            result.append(NSAttributedString(string: bullet, attributes: bulletAttrs))
             result.append(NSAttributedString(string: " " + trimmed, attributes: attributes))
             return result
         }
@@ -644,19 +652,6 @@ class TerminalWindow: NSWindow {
         return NSAttributedString(string: title, attributes: attributes)
     }
 
-    /// Cached filled-circle NSImage in the brand "live" green. Used as an
-    /// NSTextAttachment for completion indicators on tab/window titles.
-    /// Cached because attributedTitle is recomputed on every title change.
-    private static let liveIndicatorImage: NSImage = {
-        let s = LiveIndicator.size
-        let size = NSSize(width: s, height: s)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        LiveIndicator.nsColor.setFill()
-        NSBezierPath(ovalIn: NSRect(origin: .zero, size: size)).fill()
-        image.unlockFocus()
-        return image
-    }()
 
     var titlebarContainer: NSView? {
         // If we aren't fullscreen then the titlebar container is part of our window.

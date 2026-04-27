@@ -20,7 +20,10 @@ enum LiveIndicator {
     }
 
     static var nsColor: NSColor {
-        NSColor(red: red, green: green, blue: blue, alpha: 1)
+        // sRGB explicitly — `NSColor(red:…)` uses calibrated/device RGB,
+        // which gets gamma-shifted on Retina displays and renders as a
+        // noticeably lighter mint instead of the intended #6CB86E.
+        NSColor(srgbRed: red, green: green, blue: blue, alpha: 1)
     }
 
     /// Sentinel prefix appended to `window.title` (and matched on by

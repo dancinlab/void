@@ -69,22 +69,27 @@ enum BellTitleSelfTest {
               target.title.hasPrefix(LiveIndicator.titlePrefix),
               "got \(target.title)")
 
-        // attributedTitle: should be NSAttributedString starting with an
-        // NSTextAttachment.
+        // attributedTitle: leads with the bullet glyph carrying the
+        // brand-green foreground color attribute.
         let twin = target as? TerminalWindow
         check("window casts to TerminalWindow", twin != nil)
         if let attr = twin?.attributedTitle {
             print("    [diag] attributedTitle.length=\(attr.length) string=\(attr.string)")
-            // First "character" of the attributed string should be the
-            // NSAttachmentCharacter (U+FFFC) when an attachment leads.
             let first = (attr.string as NSString).substring(with: NSRange(location: 0, length: 1))
-            check("attributedTitle leads with NSAttachmentCharacter",
-                  first == "\u{FFFC}",
+            check("attributedTitle leads with bullet char", first == "●",
                   "got \"\(first)\"")
-            // Verify .attachment attribute on range 0..1
-            let attachment = attr.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment
-            check("attributedTitle range 0 has NSTextAttachment", attachment != nil)
-            check("attachment image present", attachment?.image != nil)
+            let fg = attr.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+            print("    [diag] bullet fg color: \(String(describing: fg))")
+            check("bullet has foreground color attribute", fg != nil)
+            if let fg = fg, let srgb = fg.usingColorSpace(.sRGB) {
+                let r = Int((srgb.redComponent * 255).rounded())
+                let g = Int((srgb.greenComponent * 255).rounded())
+                let b = Int((srgb.blueComponent * 255).rounded())
+                print("    [diag] bullet sRGB: r=\(r) g=\(g) b=\(b) (expected 108/184/110)")
+                check("bullet color matches brand RGB",
+                      abs(r - 108) <= 1 && abs(g - 184) <= 1 && abs(b - 110) <= 1,
+                      "got r=\(r) g=\(g) b=\(b)")
+            }
         } else {
             check("attributedTitle non-nil", false, "nil — titlebarFont not yet set?")
         }
@@ -114,11 +119,21 @@ enum BellTitleSelfTest {
             check("tab button attributedTitle non-empty", bAttr.length > 0)
             if bAttr.length > 0 {
                 let first = (bAttr.string as NSString).substring(with: NSRange(location: 0, length: 1))
-                check("tab button leads with attachment char", first == "\u{FFFC}",
-                      "got \"\(first)\" — title was set on the button but image attachment didn't propagate")
-                let attachment = bAttr.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment
-                check("tab button has NSTextAttachment", attachment != nil)
-                check("attachment image present", attachment?.image != nil)
+                check("tab button leads with bullet char", first == "●",
+                      "got \"\(first)\"")
+                let fg = bAttr.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+                if let fg = fg, let srgb = fg.usingColorSpace(.sRGB) {
+                    let r = Int((srgb.redComponent * 255).rounded())
+                    let g = Int((srgb.greenComponent * 255).rounded())
+                    let b = Int((srgb.blueComponent * 255).rounded())
+                    print("    [diag] tab button bullet sRGB: r=\(r) g=\(g) b=\(b) (expected 108/184/110)")
+                    check("tab button bullet color matches brand RGB",
+                          abs(r - 108) <= 1 && abs(g - 184) <= 1 && abs(b - 110) <= 1,
+                          "got r=\(r) g=\(g) b=\(b)")
+                } else {
+                    check("tab button bullet fg attribute present", false,
+                          "no foregroundColor attribute on bullet — KVC propagation failed?")
+                }
             }
         } else {
             check("tab button lookup", false, "couldn't resolve target's button")
@@ -127,4 +142,5 @@ enum BellTitleSelfTest {
         print("\n\(passes) passed, \(failures) failed")
         return failures == 0 ? 0 : 1
     }
+
 }
