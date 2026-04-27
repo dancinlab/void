@@ -1203,7 +1203,10 @@ class BaseTerminalController: NSWindowController,
             ? VoidPathTitleStyle.format(title)
             : title
         if bell && void.config.bellFeatures.contains(.title) {
-            result = "🔔 \(result)"
+            // Green-circle "live" indicator instead of the bell emoji —
+            // matches the per-cell indicator in grid mode so the visual
+            // language is consistent across tab/grid layouts.
+            result = "🟢 \(result)"
         }
 
         return result

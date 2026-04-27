@@ -179,15 +179,33 @@ private struct TerminalSplitLeaf: View {
     /// Per-pane top-center label showing this leaf's working directory.
     /// Only rendered inside a split/grid — a single full-window surface
     /// already shows its title in the window titlebar.
+    /// When this pane's bell is active (e.g. a TUI like Claude Code rang
+    /// the bell on turn completion, or shell integration fired
+    /// notify-on-command-finish for an unfocused pane), a small green
+    /// "live" dot appears so the user can spot which cell finished at a
+    /// glance. Bell auto-clears when this surface gains focus, so the dot
+    /// disappears the moment the user clicks in.
     @ViewBuilder private var pwdLabel: some View {
-        if isSplit, let pwd = surfaceView.pwd, !pwd.isEmpty {
-            let label = VoidPathTitleStyle.format(pwd)
-            if !label.isEmpty {
-                Text(label)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.head)
+        if isSplit {
+            let pwd = surfaceView.pwd ?? ""
+            let pathLabel = pwd.isEmpty ? "" : VoidPathTitleStyle.format(pwd)
+            let bell = surfaceView.bell
+            if bell || !pathLabel.isEmpty {
+                HStack(spacing: 6) {
+                    if bell {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 7, height: 7)
+                            .shadow(color: Color.green.opacity(0.6), radius: 2)
+                    }
+                    if !pathLabel.isEmpty {
+                        Text(pathLabel)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(.regularMaterial, in: Capsule())

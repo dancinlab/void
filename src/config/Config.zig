@@ -1214,7 +1214,7 @@ command: ?Command = null,
 /// options.
 ///
 /// Available since 1.3.0.
-@"notify-on-command-finish": NotifyOnCommandFinish = .never,
+@"notify-on-command-finish": NotifyOnCommandFinish = .unfocused,
 
 /// If command finished notifications are enabled, this controls how the user is
 /// notified.
