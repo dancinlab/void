@@ -61,15 +61,9 @@ extension SplitView {
                 Color.clear
                     .frame(width: invisibleWidth, height: invisibleHeight)
                     .contentShape(Rectangle()) // Makes it hit testable for pointerStyle
-                if resizeEnabled {
-                    // Visible separator only when the divider is actually
-                    // draggable. When resize is locked the panes look seamless
-                    // — no decorative line to imply an interaction that isn't
-                    // available.
-                    Rectangle()
-                        .fill(color)
-                        .frame(width: visibleWidth, height: visibleHeight)
-                }
+                Rectangle()
+                    .fill(color)
+                    .frame(width: visibleWidth, height: visibleHeight)
             }
             .backport.pointerStyle(resizeEnabled ? pointerStyle : nil)
             .onHover { isHovered in
