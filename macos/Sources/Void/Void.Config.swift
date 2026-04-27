@@ -293,6 +293,19 @@ extension VD {
             return v
         }
 
+        /// Whether dragging a split divider (direct mouse drag on the line, or
+        /// the magnetic Cmd+drag gesture) changes pane proportions. Default
+        /// false — visual hints still render and double-tap-to-equalize still
+        /// works, but no resize is committed unless the user opts in via
+        /// `split-divider-resize`.
+        var splitDividerResize: Bool {
+            guard let config = self.config else { return false }
+            var v = false
+            let key = "split-divider-resize"
+            _ = void_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
         /// Returns the fullscreen mode if fullscreen is enabled, or nil if disabled.
         /// This parses the `fullscreen` enum config which supports both
         /// native and non-native fullscreen modes.

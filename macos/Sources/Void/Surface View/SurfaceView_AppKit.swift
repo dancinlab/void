@@ -901,11 +901,14 @@ extension VD {
         override func mouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return }
             // Cmd+mouseDown is reserved for the grid's magnetic resize gesture.
-            // If we forwarded the press the terminal would start a text
-            // selection underneath the dashed preview overlay and the user
-            // would see the screen "scrape" while dragging.
+            // We DO call super so the responder chain (and SwiftUI's gesture
+            // recognizers attached upstream via .simultaneousGesture) still
+            // receive the event. We set cmdSuppressedMouseDown so we know to
+            // also short-circuit the matching mouseUp without firing a
+            // release into the surface.
             if event.modifierFlags.contains(.command) {
                 cmdSuppressedMouseDown = true
+                super.mouseDown(with: event)
                 return
             }
             cmdSuppressedMouseDown = false

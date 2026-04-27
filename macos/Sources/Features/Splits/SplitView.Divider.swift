@@ -8,6 +8,10 @@ extension SplitView {
         let invisibleSize: CGFloat
         let color: Color
         @Binding var split: CGFloat
+        /// Suppresses the resize-arrow pointer style + NSCursor.push on hover
+        /// when the divider isn't actually draggable. Mirrors SplitView's
+        /// `resizeEnabled` so the cursor matches reality.
+        var resizeEnabled: Bool = true
 
         private var visibleWidth: CGFloat? {
             switch direction {
@@ -61,13 +65,14 @@ extension SplitView {
                     .fill(color)
                     .frame(width: visibleWidth, height: visibleHeight)
             }
-            .backport.pointerStyle(pointerStyle)
+            .backport.pointerStyle(resizeEnabled ? pointerStyle : nil)
             .onHover { isHovered in
                 // macOS 15+ we use the pointerStyle helper which is much less
                 // error-prone versus manual NSCursor push/pop
                 if #available(macOS 15, *) {
                     return
                 }
+                guard resizeEnabled else { return }
 
                 if isHovered {
                     switch direction {

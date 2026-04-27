@@ -40,6 +40,7 @@ struct TerminalSplitTreeView: View {
     let tree: SplitTree<VD.SurfaceView>
     let action: (TerminalSplitOperation) -> Void
 
+    @EnvironmentObject private var void: VD.App
     @StateObject private var magnetic = MagneticDragController()
     @StateObject private var cmdMonitor = CmdModifierMonitor()
 
@@ -62,7 +63,9 @@ struct TerminalSplitTreeView: View {
                     .id(node.structuralIdentity)
 
                     if magnetic.snapshot != nil {
-                        MagneticPreviewOverlay(controller: magnetic)
+                        MagneticPreviewOverlay(
+                            controller: magnetic,
+                            resizePreviewEnabled: void.config.splitDividerResize)
                             .allowsHitTesting(false)
                     }
                 }
@@ -108,6 +111,7 @@ private struct TerminalSplitSubtreeView: View {
                 }),
                 dividerColor: void.config.splitDividerColor,
                 resizeIncrements: .init(width: 1, height: 1),
+                resizeEnabled: void.config.splitDividerResize,
                 left: {
                     TerminalSplitSubtreeView(
                         node: split.left,
@@ -143,6 +147,7 @@ private struct TerminalSplitLeaf: View {
 
     @FocusedValue(\.voidSurfaceView) private var focusedSurface
     @EnvironmentObject private var cmdMonitor: CmdModifierMonitor
+    @EnvironmentObject private var void: VD.App
 
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
@@ -255,14 +260,19 @@ private struct TerminalSplitLeaf: View {
             }
             // Deferred commit: only update the overlay state, do NOT touch the
             // surface tree. This avoids per-frame Metal pipeline rebuilds.
-            magnetic.update(translation: value.translation)
+            magnetic.update(translation: value.translation, location: value.location)
         }
         .onEnded { _ in
             guard magnetic.snapshot != nil else { return }
-            // Single commit at drag end — one tree mutation, one re-render.
-            let items = magnetic.resizeOps()
-            if !items.isEmpty {
-                action(.resizeBatch(.init(items: items)))
+            // Resize commit is gated by `split-divider-resize` (default false).
+            // When disabled the gesture still drives visual hints during the
+            // drag, but the surface tree is left alone on release — pane
+            // proportions stay locked unless the user opted in.
+            if void.config.splitDividerResize {
+                let items = magnetic.resizeOps()
+                if !items.isEmpty {
+                    action(.resizeBatch(.init(items: items)))
+                }
             }
             magnetic.end()
         }
@@ -454,15 +464,31 @@ final class MagneticDragController: ObservableObject {
         let parentBounds: CGRect
     }
 
+    /// A leaf cell's bounds in root coords, paired with its view for identity
+    /// comparison. Captured at drag start so cursor-over-cell detection during
+    /// the drag is a flat lookup — the tree doesn't mutate mid-drag.
+    struct LeafSlot {
+        let view: VD.SurfaceView
+        let bounds: CGRect
+    }
+
     struct Snapshot {
         let direction: SplitTree<VD.SurfaceView>.Direction
         let primary: Handle
         let secondaries: [Handle]
         let rootSize: CGSize
+        let leafSlots: [LeafSlot]
+        /// The leaf the drag started over. Excluded from hover highlighting so
+        /// the user sees a hint only when hovering OVER ANOTHER cell.
+        let sourceView: VD.SurfaceView?
     }
 
     @Published private(set) var snapshot: Snapshot?
     @Published private(set) var translation: CGSize = .zero
+    /// Cursor position in the root coord space, updated every drag tick. Used
+    /// for edge-snap detection so the hint follows the mouse, not the divider —
+    /// the user's intuition is "near edge = hint", not "divider near edge".
+    @Published private(set) var cursorLocation: CGPoint = .zero
 
     var allHandles: [Handle] {
         guard let s = snapshot else { return [] }
@@ -485,13 +511,24 @@ final class MagneticDragController: ObservableObject {
 
         let spatial = root.spatial(within: rootSize)
         var candidates: [Handle] = []
+        var leafSlots: [LeafSlot] = []
+        var sourceView: VD.SurfaceView?
         for slot in spatial.slots {
-            guard case .split(let split) = slot.node, split.direction == direction else { continue }
-            guard let path = root.path(to: slot.node) else { continue }
-            candidates.append(Handle(
-                path: path,
-                initialRatio: split.ratio,
-                parentBounds: slot.bounds))
+            switch slot.node {
+            case .split(let split) where split.direction == direction:
+                guard let path = root.path(to: slot.node) else { continue }
+                candidates.append(Handle(
+                    path: path,
+                    initialRatio: split.ratio,
+                    parentBounds: slot.bounds))
+            case .leaf(let view):
+                leafSlots.append(LeafSlot(view: view, bounds: slot.bounds))
+                if slot.bounds.contains(point) {
+                    sourceView = view
+                }
+            default:
+                continue
+            }
         }
         guard !candidates.isEmpty else { return false }
 
@@ -527,13 +564,17 @@ final class MagneticDragController: ObservableObject {
             direction: direction,
             primary: primary,
             secondaries: secondaries,
-            rootSize: rootSize)
+            rootSize: rootSize,
+            leafSlots: leafSlots,
+            sourceView: sourceView)
         self.translation = translation
+        self.cursorLocation = point
         return true
     }
 
-    func update(translation: CGSize) {
+    func update(translation: CGSize, location: CGPoint) {
         self.translation = translation
+        self.cursorLocation = location
     }
 
     func end() {
@@ -587,18 +628,35 @@ final class MagneticDragController: ObservableObject {
         return start + delta
     }
 
-    /// Edge of the root view the preview line is currently within
-    /// `edgeSnapThreshold` of, or nil. Axis-locked: horizontal splits can only
-    /// hit `.left`/`.right`, vertical splits only `.top`/`.bottom`.
+    /// Bounds of the OTHER leaf cell the cursor is currently over, or nil if
+    /// the cursor is still in (or returned to) the source cell, or outside any
+    /// cell. Drives the white outline that signals "this cell is the hover
+    /// target". Source cell is excluded so the user only sees a hint when
+    /// they've moved over a different pane.
+    var hoveredLeafBounds: CGRect? {
+        guard let snap = snapshot else { return nil }
+        for slot in snap.leafSlots where slot.bounds.contains(cursorLocation) {
+            if slot.view === snap.sourceView { return nil }
+            return slot.bounds
+        }
+        return nil
+    }
+
+    /// Edge of the root view the cursor is currently within `edgeSnapThreshold`
+    /// of, or nil. Cursor-driven (not divider-driven) so the hint surfaces as
+    /// soon as the user's pointer hugs an edge, regardless of where along the
+    /// drag axis the divider currently sits. Axis-locked: horizontal splits
+    /// can only hit `.left`/`.right`, vertical splits only `.top`/`.bottom`.
     var edgeSnap: EdgeSnapZone? {
-        guard let snap = snapshot, let coord = previewLineCoord else { return nil }
+        guard let snap = snapshot else { return nil }
+        let p = cursorLocation
         switch snap.direction {
         case .horizontal:
-            if coord <= Self.edgeSnapThreshold { return .left }
-            if coord >= snap.rootSize.width - Self.edgeSnapThreshold { return .right }
+            if p.x <= Self.edgeSnapThreshold { return .left }
+            if p.x >= snap.rootSize.width - Self.edgeSnapThreshold { return .right }
         case .vertical:
-            if coord <= Self.edgeSnapThreshold { return .top }
-            if coord >= snap.rootSize.height - Self.edgeSnapThreshold { return .bottom }
+            if p.y <= Self.edgeSnapThreshold { return .top }
+            if p.y >= snap.rootSize.height - Self.edgeSnapThreshold { return .bottom }
         }
         return nil
     }
@@ -606,26 +664,40 @@ final class MagneticDragController: ObservableObject {
 
 private struct MagneticPreviewOverlay: View {
     @ObservedObject var controller: MagneticDragController
+    /// Render the resize preview visuals (accent rectangles, accent divider
+    /// band, dotted preview line). When false, only the white hover/edge
+    /// hints render — matching the locked-resize default UX where the
+    /// dotted line would falsely promise a resize.
+    let resizePreviewEnabled: Bool
 
     var body: some View {
         GeometryReader { geo in
             if let snap = controller.snapshot, let coord = controller.previewLineCoord {
                 ZStack(alignment: .topLeading) {
-                    // Stroked rectangles outlining the future bounds of the two
-                    // halves of every affected split — the user sees where panes
-                    // will end up without us mutating the tree mid-drag.
-                    ForEach(Array(controller.allHandles.enumerated()), id: \.offset) { _, h in
-                        let (a, b) = subBounds(for: h, at: coord, direction: snap.direction, in: geo.size)
-                        rectOutline(a)
-                        rectOutline(b)
+                    if resizePreviewEnabled {
+                        // Stroked rectangles outlining the future bounds of the two
+                        // halves of every affected split — the user sees where panes
+                        // will end up without us mutating the tree mid-drag.
+                        ForEach(Array(controller.allHandles.enumerated()), id: \.offset) { _, h in
+                            let (a, b) = subBounds(for: h, at: coord, direction: snap.direction, in: geo.size)
+                            rectOutline(a)
+                            rectOutline(b)
+                        }
+                        // Highlight the moving divider line itself (a thin accent band).
+                        ForEach(Array(controller.allHandles.enumerated()), id: \.offset) { _, h in
+                            highlightBand(for: h, at: coord, direction: snap.direction, in: geo.size)
+                        }
+                        // Dotted full-extent preview line in the orthogonal axis.
+                        previewLine(coord: coord, direction: snap.direction, in: geo.size)
                     }
-                    // Highlight the moving divider line itself (a thin accent band).
-                    ForEach(Array(controller.allHandles.enumerated()), id: \.offset) { _, h in
-                        highlightBand(for: h, at: coord, direction: snap.direction, in: geo.size)
+                    // White outline around another grid cell the cursor is
+                    // hovering over — signals the swap/move target. Source
+                    // cell is excluded so the hint only appears once the
+                    // cursor has crossed into a different pane.
+                    if let bounds = controller.hoveredLeafBounds {
+                        cellHoverHint(bounds: bounds)
                     }
-                    // Dotted full-extent preview line in the orthogonal axis.
-                    previewLine(coord: coord, direction: snap.direction, in: geo.size)
-                    // White half-window outline when the divider hugs a window
+                    // White half-window outline when the cursor hugs a window
                     // edge — signals the cardinal snap target (no diagonals).
                     if let zone = controller.edgeSnap {
                         edgeSnapHint(zone: zone, in: geo.size)
@@ -633,6 +705,12 @@ private struct MagneticPreviewOverlay: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func cellHoverHint(bounds: CGRect) -> some View {
+        Path { p in p.addRect(bounds) }
+            .stroke(Color.white.opacity(0.95), lineWidth: 3)
     }
 
     @ViewBuilder
@@ -649,7 +727,7 @@ private struct MagneticPreviewOverlay: View {
             }
         }()
         Path { p in p.addRect(rect) }
-            .stroke(Color.white.opacity(0.9), lineWidth: 2)
+            .stroke(Color.white.opacity(0.95), lineWidth: 3)
     }
 
     /// Computes the future bounds of a split's two halves at the given line coord.

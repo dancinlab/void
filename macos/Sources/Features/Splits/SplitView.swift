@@ -24,6 +24,11 @@ struct SplitView<L: View, R: View>: View {
     /// Called when the divider is double-tapped to equalize splits.
     let onEqualize: () -> Void
 
+    /// When false, manually dragging the divider does NOT change the ratio.
+    /// Double-tap-to-equalize still works. Used to lock pane proportions
+    /// while still surfacing the magnetic Cmd+drag visual hints.
+    let resizeEnabled: Bool
+
     /// The minimum size (in points) of a split
     let minSize: CGFloat = 10
 
@@ -62,9 +67,10 @@ struct SplitView<L: View, R: View>: View {
                         visibleSize: splitterVisibleSize,
                         invisibleSize: splitterInvisibleSize,
                         color: dividerColor,
-                        split: $split)
+                        split: $split,
+                        resizeEnabled: resizeEnabled)
                     .position(splitterPoint)
-                    .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
+                    .gesture(resizeEnabled ? dragGesture(geo.size, splitterPoint: splitterPoint) : nil)
                     .onTapGesture(count: 2) {
                         onEqualize()
                     }
@@ -80,6 +86,7 @@ struct SplitView<L: View, R: View>: View {
         _ split: Binding<CGFloat>,
         dividerColor: Color,
         resizeIncrements: NSSize = .init(width: 1, height: 1),
+        resizeEnabled: Bool = true,
         @ViewBuilder left: (() -> L),
         @ViewBuilder right: (() -> R),
         onEqualize: @escaping () -> Void
@@ -88,6 +95,7 @@ struct SplitView<L: View, R: View>: View {
         self._split = split
         self.dividerColor = dividerColor
         self.resizeIncrements = resizeIncrements
+        self.resizeEnabled = resizeEnabled
         self.left = left()
         self.right = right()
         self.onEqualize = onEqualize

@@ -2233,6 +2233,15 @@ keybind: Keybinds = .{},
 /// only supported on macOS.
 @"window-step-resize": bool = false,
 
+/// Whether dragging a split divider — either by direct mouse drag on the
+/// divider itself, or via the Cmd+drag magnetic gesture — changes pane
+/// proportions. When `false` (default), pane proportions stay locked: the
+/// magnetic Cmd+drag still surfaces visual hints over hover cells and window
+/// edges (used for upcoming swap/move actions) but no resize is committed,
+/// and dragging the visible divider line is a no-op. Double-tap-to-equalize
+/// is unaffected. Currently only supported on macOS.
+@"split-divider-resize": bool = false,
+
 /// The position where new tabs are created. Valid values:
 ///
 ///   * `current` - Insert the new tab after the currently focused tab,
