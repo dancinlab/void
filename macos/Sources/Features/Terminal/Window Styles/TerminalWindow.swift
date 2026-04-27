@@ -571,11 +571,23 @@ class TerminalWindow: NSWindow {
     var attributedTitle: NSAttributedString? {
         guard let titlebarFont = titlebarFont else { return nil }
 
+        let baseColor = isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor
         let attributes: [NSAttributedString.Key: Any] = [
             .font: titlebarFont,
-            .foregroundColor: isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
+            .foregroundColor: baseColor,
         ]
-        return NSAttributedString(string: title, attributes: attributes)
+        let result = NSMutableAttributedString(string: title, attributes: attributes)
+
+        // BaseTerminalController.computeTitle prefixes "● " when a surface
+        // in this window has bell active. Repaint that bullet with the brand
+        // "live" green (R108 G184 B110) so the indicator matches the SwiftUI
+        // Circle used by grid-mode pwdLabel. Other consumers that read raw
+        // `window.title` still see a legible bullet character.
+        if title.hasPrefix("● ") {
+            let liveGreen = NSColor(red: 108.0/255.0, green: 184.0/255.0, blue: 110.0/255.0, alpha: 1)
+            result.addAttribute(.foregroundColor, value: liveGreen, range: NSRange(location: 0, length: 1))
+        }
+        return result
     }
 
     var titlebarContainer: NSView? {

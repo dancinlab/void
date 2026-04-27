@@ -1203,10 +1203,13 @@ class BaseTerminalController: NSWindowController,
             ? VoidPathTitleStyle.format(title)
             : title
         if bell && void.config.bellFeatures.contains(.title) {
-            // Green-circle "live" indicator instead of the bell emoji —
-            // matches the per-cell indicator in grid mode so the visual
-            // language is consistent across tab/grid layouts.
-            result = "🟢 \(result)"
+            // Plain bullet sentinel — TerminalWindow.attributedTitle paints
+            // the leading "● " range with the brand "live" green (R108 G184
+            // B110), matching the per-cell SwiftUI Circle in grid mode.
+            // Keeping the sentinel as a real character (not a NSTextAttachment)
+            // means the unattributed `window.title` and any consumers reading
+            // it stay legible.
+            result = "● \(result)"
         }
 
         return result
