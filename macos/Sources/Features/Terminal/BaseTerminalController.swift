@@ -1167,6 +1167,34 @@ class BaseTerminalController: NSWindowController,
             splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
         case .resizeBatch(let batch):
             splitDidResizeBatch(items: batch.items)
+        case .swap(let swap):
+            splitDidSwap(source: swap.source, destination: swap.destination)
+        }
+    }
+
+    /// Exchange two leaves' positions in the surface tree. Both leaves keep
+    /// their view identity (so renderer state, focus, scrollback all survive)
+    /// — only their tree slots are swapped. Both replacements are computed
+    /// against pre-mutation paths so the second replace doesn't accidentally
+    /// hit the freshly-relocated leaf.
+    private func splitDidSwap(source: VD.SurfaceView, destination: VD.SurfaceView) {
+        guard source !== destination else { return }
+        guard let root = surfaceTree.root else { return }
+        let srcLeaf: SplitTree<VD.SurfaceView>.Node = .leaf(view: source)
+        let dstLeaf: SplitTree<VD.SurfaceView>.Node = .leaf(view: destination)
+        guard let srcPath = root.path(to: srcLeaf),
+              let dstPath = root.path(to: dstLeaf) else { return }
+        do {
+            let r1 = try root.replacingNode(at: srcPath, with: dstLeaf)
+            let r2 = try r1.replacingNode(at: dstPath, with: srcLeaf)
+            let newTree = SplitTree<VD.SurfaceView>(root: r2, zoomed: surfaceTree.zoomed)
+            replaceSurfaceTree(
+                newTree,
+                moveFocusTo: source,
+                moveFocusFrom: focusedSurface,
+                undoAction: "Swap Cells")
+        } catch {
+            VD.logger.warning("failed to swap cells: \(error)")
         }
     }
 

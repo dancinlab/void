@@ -10,6 +10,9 @@ enum TerminalSplitOperation {
     /// Atomic multi-divider resize used by Cmd+drag magnetic grid resize.
     /// Applied deepest-path-first so ancestors don't clobber descendant updates.
     case resizeBatch(BatchResize)
+    /// Cmd+drag release over another grid cell — exchange the two leaves'
+    /// positions in the tree so the panes effectively swap places.
+    case swap(Swap)
 
     struct Resize {
         let node: SplitTree<VD.SurfaceView>.Node
@@ -33,6 +36,11 @@ enum TerminalSplitOperation {
             let path: SplitTree<VD.SurfaceView>.Path
             let ratio: Double
         }
+    }
+
+    struct Swap {
+        let source: VD.SurfaceView
+        let destination: VD.SurfaceView
     }
 }
 
@@ -263,12 +271,14 @@ private struct TerminalSplitLeaf: View {
             magnetic.update(translation: value.translation, location: value.location)
         }
         .onEnded { _ in
-            guard magnetic.snapshot != nil else { return }
-            // Resize commit is gated by `split-divider-resize` (default false).
-            // When disabled the gesture still drives visual hints during the
-            // drag, but the surface tree is left alone on release — pane
-            // proportions stay locked unless the user opted in.
-            if void.config.splitDividerResize {
+            guard let snap = magnetic.snapshot else { return }
+            // Drop priority:
+            //   1. cursor over another cell → swap (always-on)
+            //   2. else, if `split-divider-resize` opted in → resize commit
+            //   3. else → no-op (hint-only, locked layout)
+            if let source = snap.sourceView, let target = magnetic.hoveredView, source !== target {
+                action(.swap(.init(source: source, destination: target)))
+            } else if void.config.splitDividerResize {
                 let items = magnetic.resizeOps()
                 if !items.isEmpty {
                     action(.resizeBatch(.init(items: items)))
@@ -634,10 +644,20 @@ final class MagneticDragController: ObservableObject {
     /// target". Source cell is excluded so the user only sees a hint when
     /// they've moved over a different pane.
     var hoveredLeafBounds: CGRect? {
+        hoveredLeafSlot?.bounds
+    }
+
+    /// The OTHER leaf cell's view the cursor is currently over, or nil. Used
+    /// at drag end to decide whether to perform a swap commit.
+    var hoveredView: VD.SurfaceView? {
+        hoveredLeafSlot?.view
+    }
+
+    private var hoveredLeafSlot: LeafSlot? {
         guard let snap = snapshot else { return nil }
         for slot in snap.leafSlots where slot.bounds.contains(cursorLocation) {
             if slot.view === snap.sourceView { return nil }
-            return slot.bounds
+            return slot
         }
         return nil
     }
