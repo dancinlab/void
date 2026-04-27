@@ -169,6 +169,11 @@ private struct TerminalSplitLeaf: View {
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
     @State private var hovered: Bool = false
+    /// True while a Cmd+drag magnetic resize originated from this leaf is in
+    /// flight. Mirrored from the gesture closures rather than observed on the
+    /// MagneticDragController so per-tick translation updates don't churn the
+    /// SwiftUI body. Drives the closed-hand cursor during the actual drag.
+    @State private var magneticActive: Bool = false
 
     /// Show the focus indicator only inside a split/grid where it carries
     /// information — a single full-window surface is unambiguously focused.
@@ -275,6 +280,16 @@ private struct TerminalSplitLeaf: View {
             // Cmd+drag = magnetic grid resize. Runs simultaneously so terminal
             // selection (plain drag) and surface clicks are unaffected.
             .simultaneousGesture(magneticDragGesture)
+            // Hand cursor for the Cmd+drag move affordance: open-hand the
+            // moment Cmd is held over a pane (matches the dashed-border hint),
+            // closed-hand once the drag is actually in flight. nil otherwise
+            // so the underlying surface cursor (iBeam etc.) is unaffected.
+            // No-op on macOS < 15 (Backport.pointerStyle returns content
+            // unchanged), which is acceptable since the magnetic gesture
+            // itself targets the same OS floor as the rest of the grid UI.
+            .backport.pointerStyle(
+                magneticActive ? .grabActive :
+                    (cmdMonitor.isHeld && hovered ? .grabIdle : nil))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal pane")
         }
@@ -296,12 +311,20 @@ private struct TerminalSplitLeaf: View {
                     in: rootTree,
                     rootSize: rootSize)
                 guard started else { return }
+                // Flip to closed-hand for the duration of the drag. Set on
+                // the begin transition only so we don't churn state on every
+                // tick.
+                magneticActive = true
             }
             // Deferred commit: only update the overlay state, do NOT touch the
             // surface tree. This avoids per-frame Metal pipeline rebuilds.
             magnetic.update(translation: value.translation, location: value.location)
         }
         .onEnded { _ in
+            // Always reset the cursor flag on drag end, even if the gesture
+            // never produced a snapshot (e.g. Cmd was released before the
+            // activation distance was reached).
+            defer { magneticActive = false }
             guard let snap = magnetic.snapshot else { return }
             // Drop priority — first match wins:
             //   1. cursor in window edge band → edge snap (source fills that
