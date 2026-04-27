@@ -496,13 +496,27 @@ class BaseTerminalController: NSWindowController,
         // cell closes (e.g. bottom row 1:2 instead of the fresh grid's 1:1).
         // Rebuild as a canonical grid so the shape matches what user would
         // get by spawning the same N cells from scratch.
+        //
+        // Pin-aware: if any pane is pinned and the post-removal root is a
+        // split with one side entirely pinned and the other entirely
+        // unpinned (the post-edge-snap shape), regrid only the unpinned
+        // side. Otherwise fall through to the legacy full rebuild.
         let tabGroupWins = self.window?.tabGroup?.windows.count ?? 0
         if tabGroupWins <= 1, next.isSplit {
             let leaves = Array(next)
             if leaves.count >= 2 {
                 let frameSize = self.window?.frame.size ?? .zero
-                let prefersTall = frameSize.height > frameSize.width
-                next = SplitTree<VD.SurfaceView>.grid(views: leaves, prefersTall: prefersTall)
+                let pinnedLeaves = leaves.filter { $0.isPinned }
+                if !pinnedLeaves.isEmpty,
+                   case .split(let rootSplit) = next.root,
+                   let regridded = regridUnpinnedSideOnRemoval(
+                       root: rootSplit,
+                       frameSize: frameSize) {
+                    next = .init(root: .split(regridded), zoomed: next.zoomed)
+                } else {
+                    let prefersTall = frameSize.height > frameSize.width
+                    next = SplitTree<VD.SurfaceView>.grid(views: leaves, prefersTall: prefersTall)
+                }
             }
         }
 
@@ -906,6 +920,42 @@ class BaseTerminalController: NSWindowController,
         case .leaf(let v): return [v]
         case .split(let s): return collectLeaves(s.left) + collectLeaves(s.right)
         }
+    }
+
+    /// Pane-removal sibling of `regridUnpinnedSide`: rebuilds only the
+    /// unpinned half of the root split. No newly-added cell to fold in —
+    /// the unpinned leaves regrid as-is to recover canonical ratios after
+    /// SplitTree.removing leaves stale ancestor proportions behind.
+    private func regridUnpinnedSideOnRemoval(
+        root: SplitTree<VD.SurfaceView>.Node.Split,
+        frameSize: CGSize
+    ) -> SplitTree<VD.SurfaceView>.Node.Split? {
+        let leftLeaves = collectLeaves(root.left)
+        let rightLeaves = collectLeaves(root.right)
+        let leftAllPinned = !leftLeaves.isEmpty && leftLeaves.allSatisfy { $0.isPinned }
+        let leftAllUnpinned = !leftLeaves.isEmpty && leftLeaves.allSatisfy { !$0.isPinned }
+        let rightAllPinned = !rightLeaves.isEmpty && rightLeaves.allSatisfy { $0.isPinned }
+        let rightAllUnpinned = !rightLeaves.isEmpty && rightLeaves.allSatisfy { !$0.isPinned }
+
+        let halfPrefersTall: Bool
+        switch root.direction {
+        case .horizontal: halfPrefersTall = frameSize.height > frameSize.width / 2
+        case .vertical:   halfPrefersTall = frameSize.height / 2 > frameSize.width
+        }
+
+        if leftAllPinned, rightAllUnpinned, rightLeaves.count >= 1 {
+            guard let newRight = SplitTree<VD.SurfaceView>.grid(
+                views: rightLeaves, prefersTall: halfPrefersTall).root else { return nil }
+            return .init(direction: root.direction, ratio: root.ratio,
+                         left: root.left, right: newRight)
+        }
+        if rightAllPinned, leftAllUnpinned, leftLeaves.count >= 1 {
+            guard let newLeft = SplitTree<VD.SurfaceView>.grid(
+                views: leftLeaves, prefersTall: halfPrefersTall).root else { return nil }
+            return .init(direction: root.direction, ratio: root.ratio,
+                         left: newLeft, right: root.right)
+        }
+        return nil
     }
 
     /// Collect every leaf surface across `tabs` (in tab order), build a grid SplitTree,
