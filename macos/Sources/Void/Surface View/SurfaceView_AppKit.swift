@@ -45,6 +45,17 @@ extension VD {
         // Ephemeral (not Codable) — pin state doesn't survive process restart.
         @Published var isPinned: Bool = false
 
+        // Which window edge this pane is pinned to, if any. Captured at the
+        // moment of pinning (either via edge snap, which knows the zone, or
+        // via the manual pin button, which infers from current spatial
+        // bounds). Used to restore the pane's slot across operations that
+        // rebuild the tree from a flat list of leaves — most importantly
+        // tab↔grid mode transitions, where the in-tab tree carries no
+        // spatial info to reconstruct from. Ephemeral, like isPinned.
+        // Stored as a string to keep the TerminalSplitDropZone import
+        // out of this file.
+        @Published var pinnedZoneRaw: String? = nil
+
         // The current search state. When non-nil, the search overlay should be shown.
         override var searchState: SearchState? {
             didSet {
