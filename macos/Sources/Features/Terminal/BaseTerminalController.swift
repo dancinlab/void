@@ -1175,23 +1175,33 @@ class BaseTerminalController: NSWindowController,
     }
 
     /// Promote `source` to fill the entire half on the snapped side. The
-    /// source is removed from its current slot, then the new root becomes a
-    /// 50/50 split with the source on the snapped side and the
-    /// source-removed remainder on the other. No-op if the source is alone.
+    /// remaining panes get rebuilt into a fresh balanced grid that fills the
+    /// other half — old ratios and stale tree shape are discarded so the
+    /// post-snap layout looks tidy regardless of how the source had been
+    /// nested before. No-op if the source is alone.
     private func splitDidEdgeSnap(
         source: VD.SurfaceView,
         zone: TerminalSplitDropZone
     ) {
-        guard let root = surfaceTree.root else { return }
-        // Need at least one other leaf — promoting the only pane is a no-op.
-        let allLeaves = Array(surfaceTree)
-        guard allLeaves.count > 1 else { return }
+        let leaves = Array(surfaceTree)
+        let remainingLeaves = leaves.filter { $0 !== source }
+        guard !remainingLeaves.isEmpty else { return }
 
         let sourceLeaf: SplitTree<VD.SurfaceView>.Node = .leaf(view: source)
-        guard root.path(to: sourceLeaf) != nil else { return }
 
-        let withoutSource = surfaceTree.removing(sourceLeaf)
-        guard let remaining = withoutSource.root else { return }
+        // Aspect-aware grid: the remainder occupies a wide rect (top/bottom
+        // edge) or a tall rect (left/right edge). Picking the right
+        // `prefersTall` keeps the rebuilt layout from being lopsided in
+        // the half it has to fit into.
+        let remainderPrefersTall: Bool
+        switch zone {
+        case .top, .bottom: remainderPrefersTall = false  // wide half
+        case .left, .right: remainderPrefersTall = true   // tall half
+        }
+        let remainderTree = SplitTree<VD.SurfaceView>.grid(
+            views: remainingLeaves,
+            prefersTall: remainderPrefersTall)
+        guard let remainderRoot = remainderTree.root else { return }
 
         let direction: SplitTree<VD.SurfaceView>.Direction
         let sourceOnLeft: Bool
@@ -1204,8 +1214,8 @@ class BaseTerminalController: NSWindowController,
         let newRoot: SplitTree<VD.SurfaceView>.Node = .split(.init(
             direction: direction,
             ratio: 0.5,
-            left:  sourceOnLeft ? sourceLeaf : remaining,
-            right: sourceOnLeft ? remaining  : sourceLeaf))
+            left:  sourceOnLeft ? sourceLeaf   : remainderRoot,
+            right: sourceOnLeft ? remainderRoot : sourceLeaf))
 
         let newTree = SplitTree<VD.SurfaceView>(root: newRoot, zoomed: surfaceTree.zoomed)
         replaceSurfaceTree(
