@@ -24,6 +24,7 @@ const Command = @import("../Command.zig");
 const SegmentedPool = @import("../datastruct/main.zig").SegmentedPool;
 const ptypkg = @import("../pty.zig");
 const Pty = ptypkg.Pty;
+const PersistRing = @import("PersistRing.zig"); // P7 Phase B1-impl-msync
 const EnvMap = std.process.EnvMap;
 const PasswdEntry = internal_os.passwd.Entry;
 const windows = internal_os.windows;
@@ -33,6 +34,13 @@ const log = std.log.scoped(.io_exec);
 
 /// The termios poll rate in milliseconds.
 const TERMIOS_POLL_MS = 200;
+
+/// P7 Phase B1-impl-msync: persist-ring msync interval in
+/// milliseconds. 1 second balances macOS-crash data-loss bound
+/// (≤ 1s) against syscall overhead (msync MS_ASYNC schedules
+/// flush, returns immediately — cost is negligible). See
+/// `docs/design/sighup-resistant-session.md` Phase B section.
+const PERSIST_MSYNC_INTERVAL_MS = 1_000;
 
 /// If we build with flatpak support then we have to keep track of
 /// a potential execution on the host.
@@ -135,6 +143,11 @@ pub fn threadEnter(
     var termios_timer = try xev.Timer.init();
     errdefer termios_timer.deinit();
 
+    // P7 Phase B1-impl-msync: 1s timer for persist-ring msync.
+    // Always init (cheap) — only armed if Termio has a persist_ring.
+    var persist_msync_timer = try xev.Timer.init();
+    errdefer persist_msync_timer.deinit();
+
     // Start our read thread
     const read_thread = try std.Thread.spawn(
         .{},
@@ -152,6 +165,11 @@ pub fn threadEnter(
         .read_thread_pipe = pipe[1],
         .read_thread_fd = pty_fds.read,
         .termios_timer = termios_timer,
+        .persist_msync_timer = persist_msync_timer,
+        // P7 Phase B1-impl-msync: pointer to Termio's optional ring.
+        // The if-clause uses `&io.persist_ring.?` rather than the
+        // optional payload pointer to keep the resulting type clean.
+        .persist_ring_ptr = if (io.persist_ring != null) &io.persist_ring.? else null,
     } };
 
     // Start our process watcher. If we have an xev.Process use it.
@@ -189,6 +207,21 @@ pub fn threadEnter(
             td,
             termiosTimer,
         );
+    }
+
+    // P7 Phase B1-impl-msync: arm 1s persist-ring msync timer iff
+    // the Termio has a persist_ring. Cheap branch when off.
+    if (comptime builtin.os.tag != .windows) {
+        if (io.persist_ring != null) {
+            persist_msync_timer.run(
+                td.loop,
+                &td.backend.exec.persist_msync_timer_c,
+                PERSIST_MSYNC_INTERVAL_MS,
+                termio.Termio.ThreadData,
+                td,
+                persistMsyncTimer,
+            );
+        }
     }
 }
 
@@ -400,6 +433,52 @@ fn termiosTimer(
     return .disarm;
 }
 
+/// P7 Phase B1-impl-msync: 1-second tick that calls
+/// `Termio.persist_ring.msyncAsync()` to schedule async page-cache
+/// flush of the mmap'd PTY byte stream ring. msync(MS_ASYNC) is
+/// essentially free (just marks pages for writeback, doesn't block).
+/// Bounds macOS-crash data loss to ≤ 1 second.
+fn persistMsyncTimer(
+    td_: ?*termio.Termio.ThreadData,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    if (comptime builtin.os.tag == .windows) {
+        @panic("persist msync timer not supported on Windows");
+    }
+
+    _ = r catch |err| switch (err) {
+        error.Canceled => return .disarm,
+        else => {
+            log.warn("error in persist msync timer callback err={}", .{err});
+            return .disarm;
+        },
+    };
+
+    const td = td_.?;
+    assert(td.backend == .exec);
+    const exec = &td.backend.exec;
+
+    if (exec.persist_ring_ptr) |ring| {
+        ring.msyncAsync() catch |err| {
+            log.warn("P7 persist-bytes-mmap: msync tick err={}", .{err});
+        };
+    }
+
+    // Repeat.
+    exec.persist_msync_timer.run(
+        td.loop,
+        &exec.persist_msync_timer_c,
+        PERSIST_MSYNC_INTERVAL_MS,
+        termio.Termio.ThreadData,
+        td,
+        persistMsyncTimer,
+    );
+
+    return .disarm;
+}
+
 pub fn queueWrite(
     self: *Exec,
     alloc: Allocator,
@@ -537,6 +616,21 @@ pub const ThreadData = struct {
     /// to prevent unnecessary locking of expensive mutexes.
     termios_mode: ptypkg.Mode = .{},
 
+    /// P7 Phase B1-impl-msync: 1-second timer that calls
+    /// `persist_ring_ptr.?.msyncAsync()` to schedule async page-cache
+    /// flush. Bounds macOS-crash data loss to ≤ 1 second. Only armed
+    /// when `persist_ring_ptr` is non-null (opt-in via
+    /// `persist-bytes-mmap = true` config).
+    persist_msync_timer: xev.Timer,
+    persist_msync_timer_c: xev.Completion = .{},
+
+    /// P7 Phase B1-impl-msync: pointer back to Termio's optional
+    /// persist_ring. Set in `threadEnter` when `io.persist_ring`
+    /// is non-null, else null. Read by `persistMsyncTimer` callback.
+    /// Pointer (not value) because the ring lives on Termio for its
+    /// full lifetime — we never move it.
+    persist_ring_ptr: ?*PersistRing = null,
+
     pub fn deinit(self: *ThreadData, alloc: Allocator) void {
         posix.close(self.read_thread_pipe);
 
@@ -554,6 +648,9 @@ pub const ThreadData = struct {
 
         // Stop our termios timer
         self.termios_timer.deinit();
+
+        // Stop our persist msync timer
+        self.persist_msync_timer.deinit();
     }
 };
 
