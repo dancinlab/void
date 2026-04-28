@@ -1,8 +1,34 @@
 # P7 — SIGHUP-Resistant Session Preservation
 
-Status: design (planned, not yet implemented)
+Status: in-progress (Phase A1 landed 2026-04-29)
 Created: 2026-04-29 (date-tick during draft)
 Origin: 2026-04-28 user diagnosis — all claude TUIs in one iTerm window died simultaneously when the window closed. Root cause is generic to every PTY-spawning terminal emulator (void/ghostty included): `killpg(pgid, SIGHUP)` on surface close.
+
+## Phase A1 — landed 2026-04-29 (config flag + stop() short-circuit)
+
+**Scope**: opt-in scaffolding only. Default behavior unchanged.
+
+**Files touched**:
+- `src/config/Config.zig` — added `@"detach-on-close": bool = false` field with full docstring.
+- `src/termio/Exec.zig` — added `detach_on_close` to `Exec.Config` (plumbing) and `Subprocess` (stored), populated in `Subprocess.init`, branched in `Subprocess.stop()` to skip `killCommand` and log a warning when set.
+- `src/Surface.zig` — populated the new Exec.Config field from `config.@"detach-on-close"`.
+
+**What it does today**:
+- When the user sets `detach-on-close = true` in config, surface close logs `P7 detach-on-close: skipping killpg(SIGHUP) ...` and *does not* run our explicit `killpg`.
+- The kernel can still SIGHUP the child once the master pty fd closes during `Subprocess.deinit` (because the master-side close drops the controlling tty's last reader). So Phase A1 alone does NOT yet preserve the child across window close — that's Phase A2's job.
+
+**What Phase A1 IS useful for**:
+- Foundation: config wiring, plumbing, stop()-path branch verified. Phase A2 plugs the actual fd-handoff into the same branch.
+- Audit: turning on the flag and watching log output verifies the new code path fires for every surface close.
+- Safety: default false, zero behavior change for existing users.
+
+**Phase A2 next** (separate phase, sketch):
+- App-level `DetachedSessionPool` (single per-app for v1, daemon for v2 cross-app).
+- `Subprocess.detach()` method that hands master fd + pid + cwd to pool *before* `deinit` closes anything.
+- Pool runs background read loop (discards bytes for v1 — Phase A3 adds ring buffer).
+- New `void --attach <sid>` rebinds a fresh surface to a pool entry.
+
+See `Open questions` section below for the 6 design decisions still required for Phase A2 promote.
 
 ## Problem
 

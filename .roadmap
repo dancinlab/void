@@ -82,7 +82,7 @@
   why "capture void baseline benches, set void regression budgets"
 - todo   [P6] diverge / upstream strategy
   why "decide which changes feed back to ghostty-org vs stay void-only"
-- todo   [P7] sighup-resistant session preservation
+- wip    [P7] sighup-resistant session preservation (Phase A1 landed 2026-04-29)
   why "void window close (cmd+W or full-window close) → Exec.zig:1156
         killpg(pgid, SIGHUP) → child PTY group dies. iTerm reproduces
         identical pattern (controlling pts close → SIGHUP cascade).
@@ -107,6 +107,21 @@
       Window → Attach Session… (lists ~/.void/sessions/).
     - cli: void --attach <sid> spawns new window bound to existing
       pty master fd. void --list-sessions emits sid+cwd+age.
+  phase a1 (landed 2026-04-29)
+    - src/config/Config.zig: opt-in field `@"detach-on-close": bool=false`
+      with full doc. default keeps existing behavior intact.
+    - src/termio/Exec.zig: `detach_on_close` plumbed through Exec.Config
+      and Subprocess. `Subprocess.stop()` short-circuits killCommand and
+      logs `P7 detach-on-close: skipping killpg(SIGHUP) ...` when set.
+    - src/Surface.zig: Exec.Config init populates the new field from
+      `config.@"detach-on-close"`.
+    - phase a1 alone does NOT preserve the child across window close —
+      master pty fd still closes during `Subprocess.deinit` and the
+      kernel SIGHUPs the controlling-tty group. value is plumbing,
+      audit log path, and a verified branch for phase a2 to extend.
+    - phase a2 next: app-level DetachedSessionPool that takes ownership
+      of the master fd before deinit closes it. cross-app daemon =
+      phase a3. ring buffer + reattach = phase a4.
   open questions
     - daemon lifecycle: lazy-spawn first detach + idle-reap, or
       always-on launchd plist? lazy chosen for now (zero overhead

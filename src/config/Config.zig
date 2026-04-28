@@ -2851,6 +2851,27 @@ keybind: Keybinds = .{},
 /// `xterm-256color` with environment variables if terminfo installation fails.
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
+/// SIGHUP-resistant detach on surface close (P7 Phase A1, opt-in).
+///
+/// Default: `false`. When `false`, void's behavior is unchanged — closing
+/// a surface sends `SIGHUP` to the child process group via `killpg`, which
+/// terminates long-running TUIs (claude, vim, ssh, REPLs) along with the
+/// window. This matches every other PTY-based terminal emulator (iTerm,
+/// Terminal.app, ghostty upstream).
+///
+/// When `true`, void short-circuits the `killpg` call on graceful surface
+/// close and logs a warning. This is **Phase A1 scaffolding only** — the
+/// child will still receive `SIGHUP` from the kernel when the master PTY
+/// fd is closed during `Subprocess.deinit`. Phase A2 (next, planned) will
+/// add the detached-session pool that holds the master fd open after the
+/// surface dies, allowing `void --attach <sid>` to reattach from a fresh
+/// window.
+///
+/// See `docs/design/sighup-resistant-session.md` for the full architecture.
+/// Origin: 2026-04-28 user diagnosis (mass claude-TUI death on iTerm
+/// window close).
+@"detach-on-close": bool = false,
+
 /// Custom entries into the command palette.
 ///
 /// Each entry requires the title, the corresponding action, and an optional

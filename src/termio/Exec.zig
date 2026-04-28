@@ -568,6 +568,11 @@ pub const Config = struct {
     resources_dir: ?[]const u8,
     term: []const u8,
 
+    /// P7 Phase A1: SIGHUP-resistant detach on surface close (opt-in).
+    /// See Config.zig "@detach-on-close" docs and
+    /// docs/design/sighup-resistant-session.md.
+    detach_on_close: bool = false,
+
     rt_pre_exec_info: Command.RtPreExecInfo,
     rt_post_fork_info: Command.RtPostForkInfo,
 };
@@ -587,6 +592,14 @@ const Subprocess = struct {
     screen_size: renderer.ScreenSize,
     pty: ?Pty = null,
     process: ?Process = null,
+
+    /// P7 Phase A1: when true, `stop()` skips the killpg(SIGHUP) so the
+    /// child isn't terminated synchronously by us. The kernel may still
+    /// SIGHUP the child once the master pty fd is closed in `deinit` —
+    /// Phase A2 will hand the master fd off to a session pool to prevent
+    /// that. For Phase A1 this gives a foundation + an audit-loggable
+    /// short-circuit that can be exercised end-to-end safely.
+    detach_on_close: bool = false,
 
     rt_pre_exec_info: Command.RtPreExecInfo,
     rt_post_fork_info: Command.RtPostForkInfo,
@@ -865,6 +878,9 @@ const Subprocess = struct {
             .rt_pre_exec_info = cfg.rt_pre_exec_info,
             .rt_post_fork_info = cfg.rt_post_fork_info,
 
+            // P7 Phase A1.
+            .detach_on_close = cfg.detach_on_close,
+
             // Should be initialized with initTerminal call.
             .grid_size = .{},
             .screen_size = .{ .width = 1, .height = 1 },
@@ -1088,6 +1104,24 @@ const Subprocess = struct {
     /// for it to terminate, so it will not block.
     /// This does not close the pty.
     pub fn stop(self: *Subprocess) void {
+        // P7 Phase A1 short-circuit. When `detach-on-close` is set in
+        // config, do NOT killpg(SIGHUP) the child. We still drop our
+        // Process handle (so subsequent stop() calls are no-ops and the
+        // pty is closed in deinit), but the child process is left to be
+        // reaped by init/launchd. Phase A2 will hand the master pty fd
+        // off to a session pool *before* deinit closes it, preventing
+        // the kernel-side SIGHUP that fires when the master fd disappears.
+        // For Phase A1 the child receives that kernel SIGHUP and dies —
+        // the value is the audit-loggable scaffolding + flag plumbing.
+        if (self.detach_on_close) {
+            log.warn("P7 detach-on-close: skipping killpg(SIGHUP). " ++
+                "Phase A1 only: master pty fd still closes in deinit; " ++
+                "kernel will SIGHUP child on master close. Phase A2 " ++
+                "implements pool handoff to truly preserve the child.", .{});
+            self.process = null;
+            return;
+        }
+
         switch (self.process orelse return) {
             .fork_exec => |*cmd| {
                 // Note: this will also wait for the command to exit, so
