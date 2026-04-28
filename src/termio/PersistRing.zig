@@ -174,7 +174,7 @@ pub fn msyncAsync(self: *PersistRing) !void {
     const c = std.c;
     const rc = c.msync(self.mapped.ptr, self.mapped.len, c.MSF.ASYNC);
     if (rc != 0) {
-        log.warn("msync failed errno={d}", .{c.getErrno(rc).?});
+        log.warn("msync failed errno={d}", .{std.c._errno().*});
         return error.MsyncFailed;
     }
 }
