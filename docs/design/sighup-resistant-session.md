@@ -30,6 +30,85 @@ Origin: 2026-04-28 user diagnosis — all claude TUIs in one iTerm window died s
 
 See `Open questions` section below for the 6 design decisions still required for Phase A2 promote.
 
+## Phase B — abnormal-termination + macOS-crash recovery (B1-prep landed 2026-04-29)
+
+Sister axis to Phase A. Where Phase A preserves **live processes** across surface close,
+Phase B preserves **content + topology** across abnormal termination of void itself
+(crash, OOM, jetsam SIGKILL) and across **macOS reboot/panic/power-loss**.
+
+**Two scenarios:**
+
+| Scenario | Event | Child PTY processes |
+|---|---|---|
+| **A** (void only dies) | segfault, OOM, jetsam SIGKILL | macOS still up — init can inherit children, but PTY master fd close → kernel SIGHUP → most TUIs die unless Phase A2 daemon holds the master fd |
+| **B** (macOS dies) | kernel panic, hard shutdown, power loss | All processes die — no live recovery possible at all. Best we can do is restore content + respawn shells. |
+
+**Hybrid persistence policy** (axis-2: WHEN to persist):
+
+| Data | Policy | Cost | Loss in Scenario A | Loss in Scenario B |
+|---|---|---|---|---|
+| Grid topology + SplitTree | atomic write on every structural change (split/tab/grid/broadcast) | negligible (~1 event/sec typical) | 0 | 0 |
+| Per-pane PTY byte stream | mmap'd ring, append in termio read path; `msync(MS_ASYNC)` every 1s | ~0 µs append, <0.1% CPU msync | < 16 KB (one read batch) | ≤ 1 second |
+| Per-pane screen state (cursor, modes, alt-screen, scroll region) | 5s timer + dirty-mark | cheap | 5s — *recomputable* from byte stream replay | 5s — *recomputable* |
+
+The screen-state column is "recomputable" because the byte stream IS the screen — replaying it
+through a fresh terminal parser reproduces cursor/modes/etc. So Tier-A loss bound is the byte
+stream loss, not the screen-state loss. Scenario B worst case ≤ 1 second of unrecorded PTY output.
+
+**Disk layout** (matches PersistRing.zig + SessionPersistManager.swift):
+
+```
+~/.void/sessions/
+  daemon.sock              ← Phase A2 daemon socket
+  daemon.pid               ← daemon pid (raw 78 stale-lock pattern)
+  windows/
+    <window-id>/
+      meta.json            ← window pos/size/fullscreen, grid topology
+      split.json           ← top-level SplitTree (Codable already wired)
+      tabs/
+        <tab-id>/
+          split.json       ← per-tab SplitTree
+          panes/
+            <pane-id>/
+              meta.json    ← cwd, command, env_hash, started_at
+              bytes.ring   ← mmap'd ring buffer (binary, 4 MB default)
+```
+
+**Restore flow** (Phase B2, planned):
+
+```
+void launch
+  → SessionPersistManager.enumeratePersistedWindows()
+  → for each window:
+       restore window geometry + grid topology
+       decode SplitTree (Codable, already works)
+       for each pane:
+         daemon has live pty.fd for this session id?  (Scenario A)
+           YES: hot reattach via SCM_RIGHTS receive (Phase B3)
+           NO:  cold respawn (Scenario B, or daemon down)
+                ├─ spawn shell at saved cwd
+                └─ replay bytes.ring to terminal screen for visual continuity
+```
+
+**Phase B sub-phases:**
+
+| Phase | Scope | LoC est | Status |
+|---|---|---|---|
+| B1-prep | Config opt-in flags + PersistRing.zig skeleton + SessionPersistManager.swift skeleton | ~250 Zig + ~120 Swift | **landed 2026-04-29** |
+| B1-impl | Wire PersistRing into termio read path + msync 1s timer + wire SessionPersistManager into TerminalController structural events | ~150 Zig + ~250 Swift | next |
+| B2 | Cold-restart respawn — startup scan + grid/SplitTree decode + shell respawn at saved cwd + screen replay | ~500 Swift + ~150 Zig | after B1-impl |
+| B3 | Hot reattach — daemon pool check, SCM_RIGHTS receive of live pty.fd, fallback to B2 respawn | ~250 Zig | needs A2 + B1-impl + B2 |
+
+**Phase B1-prep landed 2026-04-29** (this commit):
+- `src/config/Config.zig` — added `@"persist-grid-on-change": bool = false` + `@"persist-bytes-mmap": bool = false` opt-in fields
+- `src/termio/PersistRing.zig` — new file, mmap'd ring buffer with `open` / `append` / `msyncAsync` / `replay` API. Two unit tests included (round-trip + wrap-around). Not yet wired into termio read path.
+- `macos/Sources/Features/Terminal/SessionPersistManager.swift` — new file, atomic write helper for SplitTree + window metadata. `enumeratePersistedWindows()` already provided for B2 use. Not yet wired into TerminalController structural events.
+- `.roadmap` P7 entry — added "phase b1-prep" sub-block.
+- `docs/design/sighup-resistant-session.md` — this section.
+
+Phase B1-prep is **scaffolding only** — no behavior change, no new code paths fire by default,
+opt-in flags do nothing yet because nothing reads them. Phase B1-impl is the wiring commit.
+
 ## Problem
 
 ```

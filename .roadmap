@@ -122,6 +122,30 @@
     - phase a2 next: app-level DetachedSessionPool that takes ownership
       of the master fd before deinit closes it. cross-app daemon =
       phase a3. ring buffer + reattach = phase a4.
+  phase b1-prep (landed 2026-04-29)
+    - sister axis to phase a. phase a preserves LIVE PROCESSES across
+      surface close; phase b preserves CONTENT + TOPOLOGY across
+      abnormal void termination AND macos crash/reboot.
+    - hybrid persist policy: structural (split/tab/grid) atomic write
+      immediate; pty bytes mmap ring append per-read + msync(MS_ASYNC)
+      every 1s; screen state recomputable from byte stream replay
+      (5s timer OK because not load-bearing for recovery).
+    - data loss bounds: scenario A (void crash, mac up) <16KB per pane;
+      scenario B (mac panic/reboot) ≤ 1 second.
+    - landed: src/config/Config.zig opt-in flags `@"persist-grid-on-change"`
+      and `@"persist-bytes-mmap"` (both bool=false default). Two new
+      files: src/termio/PersistRing.zig (mmap ring buffer + open/append/
+      msyncAsync/replay + 2 unit tests) and macos/Sources/Features/
+      Terminal/SessionPersistManager.swift (atomic SplitTree/meta write,
+      enumeratePersistedWindows for B2). NO wiring yet — phase b1-impl
+      is the integration commit.
+    - phase b1-impl next: wire PersistRing into termio read path +
+      msync 1s timer; wire SessionPersistManager into TerminalController
+      structural events (split create/close, tab open/close, grid move).
+    - phase b2: cold-restart respawn (scan persistedWindows, decode
+      SplitTree, respawn shells at saved cwd, replay bytes.ring).
+    - phase b3: hot-reattach (check daemon pool, SCM_RIGHTS receive
+      live pty.fd, fallback to b2 cold respawn). Needs phase a2 + b1-impl + b2.
   open questions
     - daemon lifecycle: lazy-spawn first detach + idle-reap, or
       always-on launchd plist? lazy chosen for now (zero overhead

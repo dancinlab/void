@@ -2851,6 +2851,39 @@ keybind: Keybinds = .{},
 /// `xterm-256color` with environment variables if terminfo installation fails.
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
+/// Session persistence — write SplitTree topology + grid layout to
+/// `~/.void/sessions/<window-id>/` immediately on every structural
+/// change (split create/destroy, tab open/close, grid slot move).
+/// (P7 Phase B1-prep, opt-in.) Default: `false`.
+///
+/// Combine with `persist-bytes-mmap` for full crash-recovery (void
+/// abnormal termination + macOS reboot). Topology alone restores the
+/// grid+split layout on relaunch but respawns shells fresh — no
+/// scrollback, no live processes. Use bytes-mmap for scrollback.
+///
+/// Cost: structural events are rare (≤ 1/sec typical interactive
+/// usage). Atomic write via `*.tmp` + `rename(2)` (raw 65 idempotency).
+@"persist-grid-on-change": bool = false,
+
+/// PTY byte stream persistence via mmap'd ring buffer per pane.
+/// (P7 Phase B1-prep, opt-in.) Default: `false`.
+///
+/// When `true`, every `read()` from the PTY master appends to a
+/// ring at `~/.void/sessions/<wid>/tabs/<tid>/panes/<pid>/bytes.ring`
+/// (default 4 MB cap, ~100k rows of 80×100). The ring is `mmap`'d
+/// MAP_SHARED so write cost is `memcpy` — kernel page cache flushes
+/// to disk asynchronously. We additionally call `msync(MS_ASYNC)`
+/// every 1 second to bound macOS-crash data loss to ≤ 1 second.
+///
+/// On relaunch with a saved ring, the bytes are replayed to the
+/// terminal screen for visual continuity (the historical content is
+/// restored even if the PTY process is dead).
+///
+/// Cost: ~16 KB per typical PTY read, mmap memcpy ≈ 0 µs. msync
+/// every 1s amortizes to negligible CPU (<0.1%). Disk: 4 MB per pane
+/// × N panes — typically <100 MB for a power user session set.
+@"persist-bytes-mmap": bool = false,
+
 /// SIGHUP-resistant detach on surface close (P7 Phase A1, opt-in).
 ///
 /// Default: `false`. When `false`, void's behavior is unchanged — closing
