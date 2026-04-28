@@ -82,6 +82,54 @@
   why "capture void baseline benches, set void regression budgets"
 - todo   [P6] diverge / upstream strategy
   why "decide which changes feed back to ghostty-org vs stay void-only"
+- todo   [P7] sighup-resistant session preservation
+  why "void window close (cmd+W or full-window close) → Exec.zig:1156
+        killpg(pgid, SIGHUP) → child PTY group dies. iTerm reproduces
+        identical pattern (controlling pts close → SIGHUP cascade).
+        2026-04-28 diagnosis: user lost all claude TUIs in one window
+        when window closed. root-cause fix at terminal-emulator host
+        level: detach PTY + child to long-lived session daemon, allow
+        reattach from new window. complement to P2 (restores
+        scrollback bytes after termination); P7 prevents termination
+        itself. user request 2026-04-28."
+  sketch
+    - zig: src/termio/SessionDaemon.zig — long-lived bg thread/process
+      owning detached PTY pool. registry at ~/.void/sessions/<sid>/
+      { pty.fd via SCM_RIGHTS handoff, pid, env, cwd, bytes.ring }.
+    - zig: src/termio/Exec.zig — Termio.deinit hook: if config
+      detach_on_close=true (default false at first, opt-in), send
+      master_fd via Unix domain socket fd-passing to daemon, skip
+      killpg(SIGHUP). pid is reparented to daemon (already via
+      setsid, daemon picks up via session id registry).
+    - zig: src/apprt/action.zig — new actions detach_session,
+      attach_session, list_sessions. keybinds tbd.
+    - swift: BaseTerminalController menu — Window → Detach Session,
+      Window → Attach Session… (lists ~/.void/sessions/).
+    - cli: void --attach <sid> spawns new window bound to existing
+      pty master fd. void --list-sessions emits sid+cwd+age.
+  open questions
+    - daemon lifecycle: lazy-spawn first detach + idle-reap, or
+      always-on launchd plist? lazy chosen for now (zero overhead
+      when feature unused).
+    - terminate UX: explicit kill = Cmd+Shift+W with confirmation;
+      auto-reap if no reattach within configurable idle (default
+      48h?), no SSH-peer-dies signal because session is local.
+    - scrollback ring during detach — reuse P2 cap (2000 rows).
+    - composition with P2: P2 serializes screen to NSCoder blob
+      on graceful save; P7 keeps PTY alive across save/restore.
+      attach path skips P2 replay (live PTY drives screen directly).
+    - daemon = same-binary thread vs separate process? separate
+      process survives main void crash (stronger guarantee), single
+      binary simpler. lean separate process via socket-activated
+      launchd or self-fork on first detach.
+  cross-link
+    - hive raw 100 (kick canonical) + raw 91 (honest C3): this P7
+      entry created via in-context fallback after nexus kick double-
+      FAIL 2026-04-28 (witness-not-captured + all-claude-slots-
+      exhausted). raw 100 F-1 falsifier evidence accumulates.
+    - composes with P2 abnormal-termination scrollback restore.
+    - touches ai-native P4: detached session + reattach is needed
+      for agent handoff between windows / over time.
 
 # non-goals
 # - drop-in ghostty replacement (we will diverge in UX)
