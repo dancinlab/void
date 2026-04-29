@@ -82,95 +82,48 @@
   why "capture void baseline benches, set void regression budgets"
 - todo   [P6] diverge / upstream strategy
   why "decide which changes feed back to ghostty-org vs stay void-only"
-- wip    [P7] sighup-resistant session preservation (Phase A1 landed 2026-04-29)
-  why "void window close (cmd+W or full-window close) → Exec.zig:1156
-        killpg(pgid, SIGHUP) → child PTY group dies. iTerm reproduces
-        identical pattern (controlling pts close → SIGHUP cascade).
-        2026-04-28 diagnosis: user lost all claude TUIs in one window
-        when window closed. root-cause fix at terminal-emulator host
-        level: detach PTY + child to long-lived session daemon, allow
-        reattach from new window. complement to P2 (restores
-        scrollback bytes after termination); P7 prevents termination
-        itself. user request 2026-04-28."
-  sketch
-    - zig: src/termio/SessionDaemon.zig — long-lived bg thread/process
-      owning detached PTY pool. registry at ~/.void/sessions/<sid>/
-      { pty.fd via SCM_RIGHTS handoff, pid, env, cwd, bytes.ring }.
-    - zig: src/termio/Exec.zig — Termio.deinit hook: if config
-      detach_on_close=true (default false at first, opt-in), send
-      master_fd via Unix domain socket fd-passing to daemon, skip
-      killpg(SIGHUP). pid is reparented to daemon (already via
-      setsid, daemon picks up via session id registry).
-    - zig: src/apprt/action.zig — new actions detach_session,
-      attach_session, list_sessions. keybinds tbd.
-    - swift: BaseTerminalController menu — Window → Detach Session,
-      Window → Attach Session… (lists ~/.void/sessions/).
-    - cli: void --attach <sid> spawns new window bound to existing
-      pty master fd. void --list-sessions emits sid+cwd+age.
-  phase a1 (landed 2026-04-29)
-    - src/config/Config.zig: opt-in field `@"detach-on-close": bool=false`
-      with full doc. default keeps existing behavior intact.
-    - src/termio/Exec.zig: `detach_on_close` plumbed through Exec.Config
-      and Subprocess. `Subprocess.stop()` short-circuits killCommand and
-      logs `P7 detach-on-close: skipping killpg(SIGHUP) ...` when set.
-    - src/Surface.zig: Exec.Config init populates the new field from
-      `config.@"detach-on-close"`.
-    - phase a1 alone does NOT preserve the child across window close —
-      master pty fd still closes during `Subprocess.deinit` and the
-      kernel SIGHUPs the controlling-tty group. value is plumbing,
-      audit log path, and a verified branch for phase a2 to extend.
-    - phase a2 next: app-level DetachedSessionPool that takes ownership
-      of the master fd before deinit closes it. cross-app daemon =
-      phase a3. ring buffer + reattach = phase a4.
-  phase b1-prep (landed 2026-04-29)
-    - sister axis to phase a. phase a preserves LIVE PROCESSES across
-      surface close; phase b preserves CONTENT + TOPOLOGY across
-      abnormal void termination AND macos crash/reboot.
-    - hybrid persist policy: structural (split/tab/grid) atomic write
-      immediate; pty bytes mmap ring append per-read + msync(MS_ASYNC)
-      every 1s; screen state recomputable from byte stream replay
-      (5s timer OK because not load-bearing for recovery).
-    - data loss bounds: scenario A (void crash, mac up) <16KB per pane;
-      scenario B (mac panic/reboot) ≤ 1 second.
-    - landed: src/config/Config.zig opt-in flags `@"persist-grid-on-change"`
-      and `@"persist-bytes-mmap"` (both bool=false default). Two new
-      files: src/termio/PersistRing.zig (mmap ring buffer + open/append/
-      msyncAsync/replay + 2 unit tests) and macos/Sources/Features/
-      Terminal/SessionPersistManager.swift (atomic SplitTree/meta write,
-      enumeratePersistedWindows for B2). NO wiring yet — phase b1-impl
-      is the integration commit.
-    - phase b1-impl next: wire PersistRing into termio read path +
-      msync 1s timer; wire SessionPersistManager into TerminalController
-      structural events (split create/close, tab open/close, grid move).
-    - phase b2: cold-restart respawn (scan persistedWindows, decode
-      SplitTree, respawn shells at saved cwd, replay bytes.ring).
-    - phase b3: hot-reattach (check daemon pool, SCM_RIGHTS receive
-      live pty.fd, fallback to b2 cold respawn). Needs phase a2 + b1-impl + b2.
-  honest scope reset (2026-04-29)
-    - measurement: void/ghostty already has FULL window+grid+SplitTree
-      restoration via macos NSWindowRestoration. See
-      macos/Sources/Features/Terminal/TerminalRestorable.swift (193 LoC,
-      pre-existing, encodes surfaceTree). Activation: user sets
-      `window-save-state = always` in config — zero new code needed.
-    - so the "그리드 복구" half of the user request is already SOLVED by
-      existing code + one config line. Only PTY scrollback / live screen
-      content remains as the gap requiring new code.
-    - SessionPersistManager.swift (b1-prep, a3f6c7d37) is partially
-      redundant with TerminalRestorable. Cleanup pending.
-    - phase a1 detach-on-close (dcccc2b3e) is ORTHOGONAL to crash recovery
-      (it addresses surface close, not abnormal termination). Should be
-      classified separately from P7 crash-recovery axis.
-  phase b1-tool (landed 2026-04-29)
-    - bin/void-session-replay shell tool that reads PersistRing files
-      (validates PVER magic) and dumps recovered PTY bytes to stdout.
-      Supports --list, --latest, --all, <path>. Smoke-tested with
-      synthetic 4MB ring (PVER + write_offset=11 + "hello world" →
-      correctly recovers "hello world").
-    - gives user immediate manual recovery path for content preserved
-      in rings while phase b2 (auto-replay-on-restore) is pending.
-    - phase b2 minimum is now ~150 LoC (smaller than original 500+150
-      estimate) because TerminalRestorable already does most of the
-      work — just need UUID plumbing + Termio.init replay hook.
+- wip    [P7] session preservation across abnormal termination
+  why "user request 2026-04-28: void가 비정상 종료시 다시 실행 시
+        그리드 + 터미널 내용 그대로 복구, macOS 크래시 후 재실행 포함.
+        scenarios — A: void crash (segfault, OOM, jetsam SIGKILL),
+        B: macOS panic / power loss. recovery goal on relaunch:
+        same grid layout, same terminal content."
+  current state (2026-04-29)
+    - GRID + SPLITTREE restore: ALREADY SOLVED by existing code +
+      one config line. macos/Sources/Features/Terminal/
+      TerminalRestorable.swift (193 LoC pre-existing) encodes
+      surfaceTree via NSWindowRestoration. Activation:
+      `window-save-state = always` in user config. ZERO new code.
+    - PTY BYTES on disk: solved this session.
+      src/termio/PersistRing.zig — mmap ring buffer per Termio,
+      append in processOutput, 1s msync(MS_ASYNC) timer in
+      Exec.threadEnter. Opt-in via `persist-bytes-mmap = true`.
+      Loss bounds: scenario A < 16KB; scenario B ≤ 1s.
+    - PTY BYTES manual recovery: tool/void-session-replay.sh
+      reads ring files, validates PVER magic, dumps recovered
+      bytes to stdout. --list / --latest / --all / <path>.
+  phase b2 (NOT yet landed) — automatic replay on restore
+    - ~150 LoC (smaller than original 500+150 because
+      TerminalRestorable already does the heavy lifting).
+    - scope: add surface_uuid: ?UUID to VD.SurfaceConfiguration
+      (Swift) + extend C ABI surface-init struct + Surface.zig
+      reads UUID + Termio.zig uses by-uuid/<uuid>.ring path +
+      Termio.init replay-on-init hook. SplitTree Codable already
+      preserves the UUID across launches.
+  retired / over-coded — removed 2026-04-29 cleanup
+    - phase a1 detach-on-close (dcccc2b3e) — addressed window
+      close cascade-kill (different axis from crash recovery)
+      and was non-functional alone (skipped our explicit killpg
+      but kernel still SIGHUPed on master pty close in deinit).
+      true window-close survival needs a DetachedSessionPool
+      which is a separate larger work item.
+    - SessionPersistManager.swift (b1-prep half) — redundant
+      with TerminalRestorable.
+    - @"persist-grid-on-change" config — dead, no callers.
+      grid persistence handled by TerminalRestorable + window-
+      save-state.
+    - cleanup commit retains all real value: PersistRing.zig +
+      Termio wire + msync timer + void-session-replay.sh.
   open questions
     - daemon lifecycle: lazy-spawn first detach + idle-reap, or
       always-on launchd plist? lazy chosen for now (zero overhead

@@ -2851,20 +2851,6 @@ keybind: Keybinds = .{},
 /// `xterm-256color` with environment variables if terminfo installation fails.
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
-/// Session persistence — write SplitTree topology + grid layout to
-/// `~/.void/sessions/<window-id>/` immediately on every structural
-/// change (split create/destroy, tab open/close, grid slot move).
-/// (P7 Phase B1-prep, opt-in.) Default: `false`.
-///
-/// Combine with `persist-bytes-mmap` for full crash-recovery (void
-/// abnormal termination + macOS reboot). Topology alone restores the
-/// grid+split layout on relaunch but respawns shells fresh — no
-/// scrollback, no live processes. Use bytes-mmap for scrollback.
-///
-/// Cost: structural events are rare (≤ 1/sec typical interactive
-/// usage). Atomic write via `*.tmp` + `rename(2)` (raw 65 idempotency).
-@"persist-grid-on-change": bool = false,
-
 /// PTY byte stream persistence via mmap'd ring buffer per pane.
 /// (P7 Phase B1-prep, opt-in.) Default: `false`.
 ///
@@ -2883,27 +2869,6 @@ keybind: Keybinds = .{},
 /// every 1s amortizes to negligible CPU (<0.1%). Disk: 4 MB per pane
 /// × N panes — typically <100 MB for a power user session set.
 @"persist-bytes-mmap": bool = false,
-
-/// SIGHUP-resistant detach on surface close (P7 Phase A1, opt-in).
-///
-/// Default: `false`. When `false`, void's behavior is unchanged — closing
-/// a surface sends `SIGHUP` to the child process group via `killpg`, which
-/// terminates long-running TUIs (claude, vim, ssh, REPLs) along with the
-/// window. This matches every other PTY-based terminal emulator (iTerm,
-/// Terminal.app, ghostty upstream).
-///
-/// When `true`, void short-circuits the `killpg` call on graceful surface
-/// close and logs a warning. This is **Phase A1 scaffolding only** — the
-/// child will still receive `SIGHUP` from the kernel when the master PTY
-/// fd is closed during `Subprocess.deinit`. Phase A2 (next, planned) will
-/// add the detached-session pool that holds the master fd open after the
-/// surface dies, allowing `void --attach <sid>` to reattach from a fresh
-/// window.
-///
-/// See `docs/design/sighup-resistant-session.md` for the full architecture.
-/// Origin: 2026-04-28 user diagnosis (mass claude-TUI death on iTerm
-/// window close).
-@"detach-on-close": bool = false,
 
 /// Custom entries into the command palette.
 ///

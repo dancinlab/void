@@ -665,8 +665,6 @@ pub fn init(
             .term = config.term,
             .rt_pre_exec_info = .init(config),
             .rt_post_fork_info = .init(config),
-            // P7 Phase A1: SIGHUP-resistant detach on close (opt-in).
-            .detach_on_close = config.@"detach-on-close",
         });
         errdefer io_exec.deinit();
 
