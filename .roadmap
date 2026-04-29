@@ -146,6 +146,31 @@
       SplitTree, respawn shells at saved cwd, replay bytes.ring).
     - phase b3: hot-reattach (check daemon pool, SCM_RIGHTS receive
       live pty.fd, fallback to b2 cold respawn). Needs phase a2 + b1-impl + b2.
+  honest scope reset (2026-04-29)
+    - measurement: void/ghostty already has FULL window+grid+SplitTree
+      restoration via macos NSWindowRestoration. See
+      macos/Sources/Features/Terminal/TerminalRestorable.swift (193 LoC,
+      pre-existing, encodes surfaceTree). Activation: user sets
+      `window-save-state = always` in config — zero new code needed.
+    - so the "그리드 복구" half of the user request is already SOLVED by
+      existing code + one config line. Only PTY scrollback / live screen
+      content remains as the gap requiring new code.
+    - SessionPersistManager.swift (b1-prep, a3f6c7d37) is partially
+      redundant with TerminalRestorable. Cleanup pending.
+    - phase a1 detach-on-close (dcccc2b3e) is ORTHOGONAL to crash recovery
+      (it addresses surface close, not abnormal termination). Should be
+      classified separately from P7 crash-recovery axis.
+  phase b1-tool (landed 2026-04-29)
+    - bin/void-session-replay shell tool that reads PersistRing files
+      (validates PVER magic) and dumps recovered PTY bytes to stdout.
+      Supports --list, --latest, --all, <path>. Smoke-tested with
+      synthetic 4MB ring (PVER + write_offset=11 + "hello world" →
+      correctly recovers "hello world").
+    - gives user immediate manual recovery path for content preserved
+      in rings while phase b2 (auto-replay-on-restore) is pending.
+    - phase b2 minimum is now ~150 LoC (smaller than original 500+150
+      estimate) because TerminalRestorable already does most of the
+      work — just need UUID plumbing + Termio.init replay hook.
   open questions
     - daemon lifecycle: lazy-spawn first detach + idle-reap, or
       always-on launchd plist? lazy chosen for now (zero overhead

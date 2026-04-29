@@ -109,6 +109,83 @@ void launch
 Phase B1-prep is **scaffolding only** — no behavior change, no new code paths fire by default,
 opt-in flags do nothing yet because nothing reads them. Phase B1-impl is the wiring commit.
 
+## Phase B1 honest scope reset (2026-04-29)
+
+After landing B1-prep, B1-impl-bytes, and B1-impl-msync-timer, **measurement** of the
+existing void/ghostty codebase revealed that **window + grid + SplitTree restoration is
+already fully implemented** via macOS `NSWindowRestoration`:
+
+- `macos/Sources/Features/Terminal/TerminalRestorable.swift` (193 LoC, pre-existing) —
+  `TerminalRestorableState` encodes `surfaceTree: SplitTree<VD.SurfaceView>` + focused
+  surface UUID + fullscreen + tabColor + titleOverride.
+- `TerminalWindowRestoration.restoreWindow` decodes on relaunch and reconstructs the
+  controller with the same `SplitTree`, restoring focus and fullscreen.
+- Activation gate: `window-save-state = always` in user config (or `default` + system
+  force-quit / Settings.app systemwide setting).
+
+So the user's stated requirement — *"void가 비정상 종료시 다시 실행 시 그리드 + 터미널
+내용 복구, macOS 크래시 후 재실행 포함"* — decomposes into:
+
+1. **Grid + SplitTree restore** → ALREADY WORKS via `TerminalRestorable` once user
+   sets `window-save-state = always`. No code needed.
+2. **Window position/size/fullscreen** → ALREADY WORKS via AppKit standard restoration.
+3. **PTY scrollback / live screen content** → NOT auto-restored. Phase B1-impl-bytes +
+   B1-impl-msync-timer give us the bytes on disk; auto-injection on next launch
+   requires:
+   - Stable cross-launch surface identifier (currently `Surface.id: u64` is randomly
+     generated per launch, ephemeral)
+   - That UUID plumbed through the Swift→Zig C ABI surface init boundary
+   - Termio.init reads the matching ring file and calls `processOutput(replayed_bytes)`
+     before threadEnter starts the real PTY
+
+Plumbing the stable UUID end-to-end is a separate phase (Phase B2) because it touches
+the C ABI surface init. As an interim measure, Phase B1-tool ships a CLI utility:
+
+### Phase B1-tool: `void-session-replay` (landed 2026-04-29)
+
+`bin/void-session-replay` reads any `~/.void/sessions/by-pid/*/*.ring` file, validates
+the `PVER` magic header, and dumps the recovered PTY bytes to stdout.
+
+```sh
+void-session-replay --list                  # enumerate ring files
+void-session-replay --latest                # dump most recent ring
+void-session-replay --all                   # dump every ring
+void-session-replay <path-to-specific-ring> # dump one
+```
+
+Pipe to `less -R`, `cat`, or save to a file. The bytes are genuinely preserved with
+the documented bounds:
+
+- Scenario A (void crash, mac up): < 16 KB lost (only the in-flight PTY read)
+- Scenario B (mac panic / power loss): ≤ 1 second lost (msync 1s cadence)
+
+This does NOT auto-replay into a freshly-spawned void surface during AppKit window
+restoration — that requires Phase B2's UUID plumbing. But it gives the user immediate
+read access to recovered content, which is the substantive part of the user's request
+("터미널 내용 복구") even without the visual re-render.
+
+Smoke test (PASS): synthetic 4MB ring with `PVER` magic + `write_offset=11` + payload
+`"hello world"` correctly replays via `--latest`.
+
+## Phase B2 (next): cross-launch UUID plumbing for auto-replay
+
+Required scope:
+- Add `surface_uuid: ?UUID` to `VD.SurfaceConfiguration` (Swift)
+- Add new C ABI field to `void_surface_config_s` for surface UUID
+- `Surface.zig` reads the UUID from surface options, passes to Termio.Options
+- `Termio.zig` ring path becomes `~/.void/sessions/by-uuid/<uuid>.ring`
+- `Termio.init` checks if a ring already exists at that path; if so, opens RDONLY,
+  calls `replay()`, then `processOutput(replayed_bytes)` BEFORE the read thread
+  starts. Then re-opens RDWR for ongoing append.
+- `TerminalWindowRestoration.restoreWindow` already reconstructs `SurfaceView` with
+  preserved UUID via `SplitTree` Codable round-trip — no Swift changes needed there.
+
+Estimated LoC: ~150 (Zig ABI shim + Termio replay-on-init + Swift SurfaceConfiguration
+field).
+
+Phase B2 is the "auto-restore" phase. Until landed, `void-session-replay` is the
+manual recovery path.
+
 ## Problem
 
 ```
