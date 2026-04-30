@@ -2852,7 +2852,7 @@ keybind: Keybinds = .{},
 @"shell-integration-features": ShellIntegrationFeatures = .{},
 
 /// PTY byte stream persistence via mmap'd ring buffer per pane.
-/// (P7 Phase B1-prep, opt-in.) Default: `false`.
+/// (P7 Phase B1.) Default: `true`.
 ///
 /// When `true`, every `read()` from the PTY master appends to a
 /// ring at `~/.void/sessions/<wid>/tabs/<tid>/panes/<pid>/bytes.ring`
@@ -2868,7 +2868,7 @@ keybind: Keybinds = .{},
 /// Cost: ~16 KB per typical PTY read, mmap memcpy ≈ 0 µs. msync
 /// every 1s amortizes to negligible CPU (<0.1%). Disk: 4 MB per pane
 /// × N panes — typically <100 MB for a power user session set.
-@"persist-bytes-mmap": bool = false,
+@"persist-bytes-mmap": bool = true,
 
 /// Custom entries into the command palette.
 ///
