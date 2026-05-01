@@ -192,7 +192,7 @@ extension VD {
                 // If we're part of a split view and don't have focus, we put a semi-transparent
                 // rectangle above our view to make it look unfocused. We include the last
                 // focused surface so this still works while SwiftUI focus is temporarily nil.
-                if isSplit && !isFocusedSurface {
+                if isSplit && !isFocusedSurface && void.config.gridDimInactive {
                     let overlayOpacity = void.config.unfocusedSplitOpacity
                     if overlayOpacity > 0 {
                         Rectangle()

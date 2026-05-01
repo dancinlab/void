@@ -224,6 +224,7 @@ class AppDelegate: NSObject,
         // Install the programmatic Shell menu (toggles for runtime config
         // overrides that aren't worth modeling in the XIB).
         installShellMenu()
+        installGridMenu()
 
         // Setup a local event monitor for app-level keyboard shortcuts. See
         // localEventHandler for more info why.
@@ -1007,6 +1008,11 @@ class AppDelegate: NSObject,
         UserDefaults.void.set(next, forKey: VD.Config.tabKeyCyclesOverrideKey)
     }
 
+    @IBAction func toggleGridDimInactive(_ sender: Any?) {
+        let next = !void.config.gridDimInactive
+        UserDefaults.void.set(next, forKey: VD.Config.gridDimInactiveOverrideKey)
+    }
+
     /// Build the "Shell" top-level menu and insert it before the Window menu.
     /// Done programmatically so we don't have to round-trip through Interface
     /// Builder for runtime-only toggles.
@@ -1031,6 +1037,33 @@ class AppDelegate: NSObject,
         let helpIdx = mainMenu.items.firstIndex { $0.submenu?.title == "Help" }
         let insertIdx = windowIdx ?? helpIdx ?? mainMenu.items.count
         mainMenu.insertItem(shellMenuItem, at: insertIdx)
+    }
+
+    /// Build the "Grid" top-level menu and insert it next to Shell. Hosts
+    /// runtime toggles for grid-mode visual behavior.
+    private func installGridMenu() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+
+        let gridMenuItem = NSMenuItem(title: "Grid", action: nil, keyEquivalent: "")
+        let gridMenu = NSMenu(title: "Grid")
+
+        let dimInactiveItem = NSMenuItem(
+            title: "Dim Inactive Cells",
+            action: #selector(toggleGridDimInactive(_:)),
+            keyEquivalent: ""
+        )
+        dimInactiveItem.target = self
+        gridMenu.addItem(dimInactiveItem)
+
+        gridMenuItem.submenu = gridMenu
+
+        // Insert directly after the Shell menu when present, falling back to
+        // the same anchors as installShellMenu.
+        let shellIdx = mainMenu.items.firstIndex { $0.submenu?.title == "Shell" }
+        let windowIdx = mainMenu.items.firstIndex { $0.submenu?.title == "Window" }
+        let helpIdx = mainMenu.items.firstIndex { $0.submenu?.title == "Help" }
+        let insertIdx = shellIdx.map { $0 + 1 } ?? windowIdx ?? helpIdx ?? mainMenu.items.count
+        mainMenu.insertItem(gridMenuItem, at: insertIdx)
     }
 
     @IBAction func toggleQuickTerminal(_ sender: Any) {
@@ -1331,6 +1364,10 @@ extension AppDelegate: NSMenuItemValidation {
 
         case #selector(toggleMacosTabKeyCycles(_:)):
             item.state = void.config.macosTabKeyCycles ? .on : .off
+            return true
+
+        case #selector(toggleGridDimInactive(_:)):
+            item.state = void.config.gridDimInactive ? .on : .off
             return true
 
         case #selector(floatOnTop(_:)),

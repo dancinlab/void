@@ -547,6 +547,23 @@ extension VD {
             return 1 - opacity
         }
 
+        var gridDimInactive: Bool {
+            // Runtime override from the Grid menu wins over the config file,
+            // for the same reason as macosTabKeyCycles.
+            if let override = UserDefaults.void.object(forKey: Self.gridDimInactiveOverrideKey) as? Bool {
+                return override
+            }
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "grid-dim-inactive"
+            _ = void_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        /// UserDefaults key for the Grid menu's runtime override of
+        /// `grid-dim-inactive`.
+        static let gridDimInactiveOverrideKey = "VoidGridDimInactiveOverride"
+
         var unfocusedSplitFill: Color {
             guard let config = self.config else { return .white }
 
