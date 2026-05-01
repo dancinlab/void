@@ -6908,12 +6908,10 @@ pub const Keybinds = struct {
             );
         }
 
-        // Toggle fullscreen
-        try self.set.put(
-            alloc,
-            .{ .key = .{ .physical = .enter }, .mods = inputpkg.ctrlOrSuper(.{}) },
-            .{ .toggle_fullscreen = {} },
-        );
+        // void: cmd+enter → toggle_fullscreen is OFF by default and re-enabled
+        // from the macOS Window menu ("Use ⌘↵ for Full Screen"). The menu item
+        // owns the key equivalent at runtime so users can flip it without
+        // editing config.
 
         // Toggle zoom a split
         try self.set.put(

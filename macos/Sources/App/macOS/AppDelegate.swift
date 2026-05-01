@@ -155,6 +155,16 @@ class AppDelegate: NSObject,
 
     @MainActor private lazy var menuShortcutManager = VD.MenuShortcutManager()
 
+    /// Programmatically managed menu items for the "Use ⌘↵ for Full Screen"
+    /// toggle. The action item owns the Cmd+Return key equivalent only while
+    /// the toggle is on; the toggle item is the user-facing checkbox.
+    @MainActor private var menuCmdEnterFullscreenAction: NSMenuItem?
+    @MainActor private var menuCmdEnterFullscreenToggle: NSMenuItem?
+
+    /// UserDefaults key controlling whether ⌘↵ toggles full screen.
+    /// Default off — see Config.zig comment for the matching keybind removal.
+    static let cmdEnterFullscreenEnabledKey = "VoidCmdEnterFullscreenEnabled"
+
     override init() {
 #if DEBUG
         void = VD.App(configPath: ProcessInfo.processInfo.environment["VOID_CONFIG_PATH"])
@@ -225,6 +235,7 @@ class AppDelegate: NSObject,
         // overrides that aren't worth modeling in the XIB).
         installShellMenu()
         installGridMenu()
+        installCmdEnterFullscreenMenu()
 
         // Setup a local event monitor for app-level keyboard shortcuts. See
         // localEventHandler for more info why.
@@ -1013,6 +1024,56 @@ class AppDelegate: NSObject,
         UserDefaults.void.set(next, forKey: VD.Config.gridDimInactiveOverrideKey)
     }
 
+    @IBAction func toggleCmdEnterFullscreen(_ sender: Any?) {
+        let next = !UserDefaults.void.bool(forKey: Self.cmdEnterFullscreenEnabledKey)
+        UserDefaults.void.set(next, forKey: Self.cmdEnterFullscreenEnabledKey)
+        applyCmdEnterFullscreenState()
+    }
+
+    /// Sync the action menu item's key equivalent and visibility to the
+    /// persisted UserDefaults flag.
+    @MainActor private func applyCmdEnterFullscreenState() {
+        let enabled = UserDefaults.void.bool(forKey: Self.cmdEnterFullscreenEnabledKey)
+        if let action = menuCmdEnterFullscreenAction {
+            action.keyEquivalent = enabled ? "\r" : ""
+            action.keyEquivalentModifierMask = enabled ? .command : []
+            action.isHidden = !enabled
+        }
+        menuCmdEnterFullscreenToggle?.state = enabled ? .on : .off
+    }
+
+    /// Build the "Use ⌘↵ for Full Screen" toggle plus a hidden action item
+    /// that owns the Cmd+Return shortcut. Inserted into the Window menu
+    /// alongside the existing "Toggle Full Screen" entry.
+    @MainActor private func installCmdEnterFullscreenMenu() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+        guard let windowMenu = mainMenu.items.first(where: { $0.submenu?.title == "Window" })?.submenu else { return }
+
+        let toggleItem = NSMenuItem(
+            title: "Use ⌘↵ for Full Screen",
+            action: #selector(toggleCmdEnterFullscreen(_:)),
+            keyEquivalent: ""
+        )
+        toggleItem.target = self
+        menuCmdEnterFullscreenToggle = toggleItem
+
+        let actionItem = NSMenuItem(
+            title: "Toggle Full Screen (⌘↵)",
+            action: #selector(TerminalController.toggleVoidFullScreen(_:)),
+            keyEquivalent: ""
+        )
+        actionItem.target = nil // responder chain
+        menuCmdEnterFullscreenAction = actionItem
+
+        // Insert after the existing "Toggle Full Screen" entry if present.
+        let anchorIdx = windowMenu.items.firstIndex { $0.action == #selector(TerminalController.toggleVoidFullScreen(_:)) }
+        let insertIdx = anchorIdx.map { $0 + 1 } ?? windowMenu.items.count
+        windowMenu.insertItem(actionItem, at: insertIdx)
+        windowMenu.insertItem(toggleItem, at: insertIdx + 1)
+
+        applyCmdEnterFullscreenState()
+    }
+
     /// Build the "Shell" top-level menu and insert it before the Window menu.
     /// Done programmatically so we don't have to round-trip through Interface
     /// Builder for runtime-only toggles.
@@ -1368,6 +1429,10 @@ extension AppDelegate: NSMenuItemValidation {
 
         case #selector(toggleGridDimInactive(_:)):
             item.state = void.config.gridDimInactive ? .on : .off
+            return true
+
+        case #selector(toggleCmdEnterFullscreen(_:)):
+            item.state = UserDefaults.void.bool(forKey: Self.cmdEnterFullscreenEnabledKey) ? .on : .off
             return true
 
         case #selector(floatOnTop(_:)),
