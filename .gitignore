@@ -44,3 +44,8 @@ vgcore.*
 # Icon source backups (kept locally for restore-on-iterate workflow)
 macos/Assets.xcassets/AppIcon.appiconset/.original-bak/
 macos/Assets.xcassets/AppIconImage.imageset/.original-bak/
+
+# .workspace machine-local SSOT (mk2 schema, NEVER github push) — added 2026-05-02
+.workspace
+.workspace.*
+.workspace.lock
