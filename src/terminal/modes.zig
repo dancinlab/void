@@ -282,7 +282,11 @@ const entries: []const ModeEntry = &.{
     .{ .name = "focus_event", .value = 1004 },
     .{ .name = "mouse_format_utf8", .value = 1005 },
     .{ .name = "mouse_format_sgr", .value = 1006 },
-    .{ .name = "mouse_alternate_scroll", .value = 1007, .default = true },
+    // Void default: off (xterm default is on). Why: alt-screen TUIs like
+    //   Claude Code translate the synthesized arrow keys back into a warning
+    //   ("Scroll wheel is sending arrow keys"). Off lets the wheel pass
+    //   through as a normal mouse event / no-op in alt-screen.
+    .{ .name = "mouse_alternate_scroll", .value = 1007 },
     .{ .name = "mouse_format_urxvt", .value = 1015 },
     .{ .name = "mouse_format_sgr_pixels", .value = 1016 },
     .{ .name = "ignore_keypad_with_numlock", .value = 1035, .default = true },
