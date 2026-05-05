@@ -1,7 +1,7 @@
 ---
 schema: void/handoff/self_mk2_tuning/1
 last_updated: 2026-05-02
-ssot: docs/void_self_mk2_tuning_landed_2026_05_02.ai.md
+ssot: void_self/doc/void_self_mk2_tuning_landed_2026_05_02.ai.md
 related_raw: [270, 271, 272, 273]
 related_doc:
   - .roadmap.grid
@@ -171,7 +171,7 @@ raw 270 + raw 271 + raw 272 + raw 273 = **hive-origin** core+module architecture
 | `/Users/ghost/core/void/.roadmap.perf_baseline` | Domain SSOT — perf budget |
 | `/Users/ghost/core/void/.roadmap.upstream_diverge` | Domain SSOT — hard-fork policy |
 | `/Users/ghost/core/void/.roadmap.ai_native_structure` | Meta SSOT — raw 270/271/272/273 compliance evaluation |
-| `/Users/ghost/core/void/docs/void_self_mk2_tuning_landed_2026_05_02.ai.md` | This handoff doc |
+| `/Users/ghost/core/void/void_self/doc/void_self_mk2_tuning_landed_2026_05_02.ai.md` | This handoff doc |
 | `/Users/ghost/core/void/state/markers/void_self_mk2_tuning_landed.marker` | Land-completion marker |
 
 ### Referenced (read-only, not modified)
