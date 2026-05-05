@@ -3508,16 +3508,17 @@ keybind: Keybinds = .{},
 /// Whether the bare `Tab` and `Shift+Tab` keys cycle between tabs (in tab
 /// mode) or grid cells (in grid mode) on macOS.
 ///
-/// When `true` (the default), pressing `Tab` cycles to the next tab/grid
-/// cell and `Shift+Tab` cycles to the previous one.
+/// When `true`, pressing `Tab` cycles to the next tab/grid cell and
+/// `Shift+Tab` cycles to the previous one.
 ///
-/// When `false`, pressing `Tab` or `Shift+Tab` is forwarded to the shell
-/// or running program as usual — set this to preserve shell tab
-/// completion and other in-terminal Tab usage.
+/// When `false` (the default), pressing `Tab` or `Shift+Tab` is forwarded
+/// to the shell or running program as usual — preserving shell tab
+/// completion and other in-terminal Tab usage. Toggle it on from the
+/// Shell menu ("Tab Moves Focus") when you want the cycling behavior.
 ///
 /// Only `Tab` and `Shift+Tab` with no other modifiers are intercepted; all
 /// other Tab combinations (e.g. `Ctrl+Tab`, `Cmd+Tab`) are unaffected.
-@"macos-tab-key-cycles": bool = true,
+@"macos-tab-key-cycles": bool = false,
 
 /// Put every surface (tab, split, window) into a transient `systemd` scope.
 ///

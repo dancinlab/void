@@ -197,9 +197,9 @@ class TerminalWindow: NSWindow {
         guard event.type == .keyDown else { return nil }
 
         if let direction = Self.tabNavigationDirection(for: event) {
-            // Bare Tab / Shift+Tab cycling is on by default. Users who need
-            // shell tab completion can disable it with
-            // `macos-tab-key-cycles = false` in config.void.
+            // Bare Tab / Shift+Tab cycling is off by default — the Shell menu
+            // "Tab Moves Focus" toggle (or `macos-tab-key-cycles = true` in
+            // config.void) opts in. Why: shell tab completion wins by default.
             guard let appDelegate = NSApp.delegate as? AppDelegate,
                   appDelegate.void.config.macosTabKeyCycles
             else { return nil }
