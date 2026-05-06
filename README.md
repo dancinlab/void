@@ -24,10 +24,10 @@
 
 <!-- SHARED:PROJECTS:START -->
 <!-- AUTO:COMMON_LINKS:START -->
-**[YouTube](https://www.youtube.com/@dancinlife)** · **[💬 Discord](https://discord.gg/u2spd3wwU)** · **[Email](mailto:nerve011235@gmail.com)** · **[☕ Ko-fi](https://ko-fi.com/dancinlife)** · **[💖 Sponsor](https://github.com/sponsors/need-singularity)** · **[💳 PayPal](https://www.paypal.com/donate?business=nerve011235%40gmail.com)** · **[🗺️ Atlas](https://need-singularity.github.io/TECS-L/atlas/)** · **[📄 Papers](https://need-singularity.github.io/papers/)**
+**[🎥 YouTube](https://www.youtube.com/@dancinlife)** · **[💬 Discord](https://discord.gg/mYzqYr67R)** · **[📬 Email](mailto:nerve011235@gmail.com)** · **[☕ Ko-fi](https://ko-fi.com/dancinlife)** · **[💖 Sponsor](https://github.com/sponsors/need-singularity)** · **[💳 PayPal](https://www.paypal.com/donate?business=nerve011235%40gmail.com)** · **[🗺️ Atlas](https://need-singularity.github.io/TECS-L/atlas/)** · **[📄 Papers](https://need-singularity.github.io/papers/)**
 <!-- AUTO:COMMON_LINKS:END -->
 
-**Main projects**
+## Main projects
 
 > **[🔭 NEXUS](https://github.com/need-singularity/nexus)** — Universal Discovery Engine. 216 lenses + OUROBOROS evolution + 5-phase singularity cycle.
 >
@@ -39,15 +39,15 @@
 >
 > **[📄 Papers](https://github.com/need-singularity/papers)** — Complete paper collection (92 papers, Zenodo DOIs).
 
-**Sub-projects**
+> **[Other projects →](https://github.com/orgs/need-singularity/repositories)**
 
-> **[🐝 Hive](https://github.com/need-singularity/hive)** — pi-mono fork. AI-agent swarm: multi-cell parallel agents, layered persistent memory, need-singularity bridges.
->
-> **[🕳️ Void](https://github.com/need-singularity/void)** — Ghostty fork. AI-native terminal: grid mode (N×M auto-layout), agent I/O alongside PTY, perf-first budget.
->
-> **[🧬 airgenome](https://github.com/need-singularity/airgenome)** — OS genome scanner: 6-axis hexagon projection of host vitals + pattern accumulation + anomaly detection.
+## 💬 Community
 
-<!-- private repos stored in projects.json private_repos field (do not expose) -->
+[![Join our Discord](https://invidget.switchblade.xyz/mYzqYr67R)](https://discord.gg/mYzqYr67R)
+
+Live research discussion, paper drops, stage-gate reviews, cross-project dispatch.
+
+<!-- private repos는 projects.json의 private_repos 필드에 저장됨 (노출 금지) -->
 <!-- SHARED:PROJECTS:END -->
 
 
