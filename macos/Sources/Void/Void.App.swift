@@ -1432,6 +1432,19 @@ extension VD {
             title: String,
             body: String,
             requireFocus: Bool = true) {
+            // Mirror the OSC desktop notification onto the in-app bell so the
+            // grid pwdLabel's green dot lights up even when the user denies
+            // (or hasn't approved) system notification permissions. Without
+            // this, OSC-9/777 emitters like the Claude Code TUI's
+            // "awaiting input" signal show a system banner but leave no
+            // intra-window cue, so users miss completions while glancing
+            // across split panes. Bell auto-clears on focus, so focused
+            // surfaces stay quiet.
+            NotificationCenter.default.post(
+                name: .voidBellDidRing,
+                object: surfaceView
+            )
+
             let center = UNUserNotificationCenter.current()
             center.requestAuthorization(options: [.alert, .sound]) { _, error in
                 if let error = error {
@@ -1772,7 +1785,17 @@ extension VD {
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 guard let pwd = String(cString: v.pwd!, encoding: .utf8) else { return }
-                surfaceView.pwd = pwd
+                // libvoid invokes the action callback from the IO thread.
+                // Mutating an @Published property off-main produces a
+                // SwiftUI warning AND can drop the objectWillChange signal
+                // — observers (here, the grid pwdLabel) then keep the
+                // stale value. Symptom: after exiting a TUI like Claude
+                // Code, plain shell `cd` no longer updates the per-pane
+                // path label even though OSC 7 is still being emitted.
+                // Hopping to main makes the publish reliable.
+                DispatchQueue.main.async {
+                    surfaceView.pwd = pwd
+                }
 
             default:
                 assertionFailure()
