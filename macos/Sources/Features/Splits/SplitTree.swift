@@ -241,24 +241,20 @@ extension SplitTree {
 
     /// Build a grid tree from a flat list of views.
     ///
-    /// Layout rule (landscape): `cols = ceil(sqrt(N))`, `rows = ceil(N / cols)` —
-    /// wider than tall. Pass `prefersTall: true` (e.g. portrait monitors)
-    /// to grow downward first: stay single-column for N≤3 (so the 3rd pane
-    /// added to a 1×2 stack lands directly below, not to the right), and
-    /// cap columns at 2 from N=4 onward — any 3+ column grid leaves each
-    /// pane uncomfortably narrow on a portrait display.
+    /// Layout rule: panes flow row-major — fill rightward across the
+    /// current row, wrap down to a fresh row anchored at the left when
+    /// the row is full. Same visual ordering for landscape and portrait
+    /// (e.g. N=3 is always a top row of 2 + a single bottom row, never
+    /// `[v1/v2] | [v3]`). Column counts:
+    ///   landscape: `cols = ceil(sqrt(N))`
+    ///   portrait : `cols = min(2, ceil(sqrt(N)))` — capped at 2 so each
+    ///              pane stays usably wide on a tall display.
+    /// Rows are derived from `ceil(N / cols)`.
     /// Ratios are equalized via the existing leaf-count weighting.
-    static func gridDimensions(count n: Int, prefersTall: Bool) -> (cols: Int, rows: Int, major: Int) {
+    static func gridDimensions(count n: Int, prefersTall: Bool = false) -> (cols: Int, rows: Int, major: Int) {
         guard n > 0 else { return (0, 0, 0) }
-
-        if prefersTall {
-            if n <= 3 { return (1, n, n) }
-            let cols = 2
-            let rows = (n + cols - 1) / cols
-            return (cols, rows, rows)
-        }
-
-        let cols = Int(ceil(Double(n).squareRoot()))
+        let sqrtCols = Int(ceil(Double(n).squareRoot()))
+        let cols = prefersTall ? Swift.min(2, sqrtCols) : sqrtCols
         let rows = Swift.max(1, Int(ceil(Double(n) / Double(cols))))
         return (cols, rows, cols)
     }
@@ -267,8 +263,8 @@ extension SplitTree {
         guard !views.isEmpty else { return .init() }
         if views.count == 1 { return .init(view: views[0]) }
         let major = gridDimensions(count: views.count, prefersTall: prefersTall).major
-        let groupDirection: Direction = prefersTall ? .vertical : .horizontal
-        let stackDirection: Direction = prefersTall ? .horizontal : .vertical
+        let groupDirection: Direction = .horizontal
+        let stackDirection: Direction = .vertical
         var groups: [Node] = []
         var i = 0
         while i < views.count {

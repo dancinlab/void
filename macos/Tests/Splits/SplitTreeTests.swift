@@ -697,16 +697,18 @@ struct SplitTreeTests {
         #expect(rootDirection(tree) == .vertical)
     }
 
-    @Test func gridPortraitStacksColumnsHorizontally() {
-        // N=6 portrait: 2 columns × 3 rows. Columns are joined vertically,
-        // then stacked left-to-right — root split is horizontal.
+    @Test func gridPortraitAlsoStacksRowsVertically() {
+        // Portrait uses the same row-major flow as landscape — rows of
+        // cells stacked top-to-bottom — so the root split is vertical.
+        // Only the column count differs (capped at 2 for portrait).
         let views = (0..<6).map { _ in MockView() }
         let tree = SplitTree<MockView>.grid(views: views, prefersTall: true)
-        #expect(rootDirection(tree) == .horizontal)
+        #expect(rootDirection(tree) == .vertical)
     }
 
-    @Test func gridPortraitNineViewsSkewsToTwoColumns() {
-        // N=9 portrait: avoid a 3×3 square and skew taller instead.
+    @Test func gridPortraitNineViewsCapsAtTwoColumns() {
+        // N=9 portrait: cols capped at 2, so the layout is 2×5
+        // (last row has a single cell spanning the full width).
         let views = (0..<9).map { _ in MockView() }
         let tree = SplitTree<MockView>.grid(views: views, prefersTall: true)
         let slots = tree.root?.spatial().slots ?? []
@@ -729,23 +731,25 @@ struct SplitTreeTests {
         #expect(Array(tree) == [v1, v2])
     }
 
-    @Test func gridTwoViewsPortraitIsVerticalSplit() {
-        // N=2 portrait: a single column of 2 → root is vertical.
+    @Test func gridTwoViewsPortraitMatchesLandscape() {
+        // N=2 portrait: row-major with cap-at-2 means a single row of 2,
+        // identical to landscape — root horizontal.
         let v1 = MockView()
         let v2 = MockView()
         let tree = SplitTree<MockView>.grid(views: [v1, v2], prefersTall: true)
-        #expect(rootDirection(tree) == .vertical)
+        #expect(rootDirection(tree) == .horizontal)
+        #expect(Array(tree) == [v1, v2])
     }
 
-    @Test func gridLandscapeAndPortraitArePermutationsOfEachOther() {
-        // The leaf order is preserved regardless of orientation; only the
-        // splitting direction flips. This is the property that makes
-        // cmd+1..N consistent across orientation.
+    @Test func gridPortraitAndLandscapeShareRootDirection() {
+        // Both orientations now use row-major flow — root split direction
+        // matches. Only the cap on column count varies. Leaf order is
+        // preserved so cmd+1..N navigates the same logical sequence.
         let views = (0..<5).map { _ in MockView() }
         let landscape = SplitTree<MockView>.grid(views: views, prefersTall: false)
         let portrait = SplitTree<MockView>.grid(views: views, prefersTall: true)
         #expect(Array(landscape) == views)
         #expect(Array(portrait) == views)
-        #expect(rootDirection(landscape) != rootDirection(portrait))
+        #expect(rootDirection(landscape) == rootDirection(portrait))
     }
 }
