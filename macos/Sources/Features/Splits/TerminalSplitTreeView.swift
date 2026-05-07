@@ -60,6 +60,7 @@ struct TerminalSplitTreeView: View {
     @EnvironmentObject private var void: VD.App
     @StateObject private var magnetic = MagneticDragController()
     @StateObject private var cmdMonitor = CmdModifierMonitor()
+    @StateObject private var mouseMonitor = MouseButtonMonitor()
 
     var body: some View {
         if let node = tree.zoomed ?? tree.root {
@@ -73,6 +74,7 @@ struct TerminalSplitTreeView: View {
                         rootSize: geo.size,
                         action: action)
                     .environmentObject(cmdMonitor)
+                    .environmentObject(mouseMonitor)
                     // This is necessary because we can't rely on SwiftUI's implicit
                     // structural identity to detect changes to this view. Due to
                     // the tree structure of splits it could result in bad behaviors.
@@ -164,6 +166,7 @@ private struct TerminalSplitLeaf: View {
 
     @FocusedValue(\.voidSurfaceView) private var focusedSurface
     @EnvironmentObject private var cmdMonitor: CmdModifierMonitor
+    @EnvironmentObject private var mouseMonitor: MouseButtonMonitor
     @EnvironmentObject private var void: VD.App
 
     @State private var dropState: DropState = .idle
@@ -253,10 +256,12 @@ private struct TerminalSplitLeaf: View {
                         .allowsHitTesting(false)
                 }
                 // Subtle "movable" hint: only renders when Cmd is held AND this
-                // is the focused pane AND mouse is hovering it. Cmd state is
-                // event-driven (no polling); the body skips this branch entirely
-                // when Cmd is released, so the cost is zero outside drag intent.
-                if cmdMonitor.isHeld && isFocusedLeaf && hovered {
+                // is the focused pane AND mouse is hovering it AND the mouse
+                // button is up. Suppressing while the mouse is pressed prevents
+                // the dashed border from flickering in if the user happens to
+                // tap Cmd mid-drag (e.g. during a text selection) — that's not
+                // an intent to move the pane.
+                if cmdMonitor.isHeld && !mouseMonitor.isDown && isFocusedLeaf && hovered {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .strokeBorder(
                             Color.accentColor.opacity(0.55),
@@ -289,7 +294,7 @@ private struct TerminalSplitLeaf: View {
             // itself targets the same OS floor as the rest of the grid UI.
             .backport.pointerStyle(
                 magneticActive ? .grabActive :
-                    (cmdMonitor.isHeld && hovered ? .grabIdle : nil))
+                    (cmdMonitor.isHeld && !mouseMonitor.isDown && hovered ? .grabIdle : nil))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal pane")
         }
@@ -301,10 +306,14 @@ private struct TerminalSplitLeaf: View {
             coordinateSpace: .named(MagneticDragController.coordinateSpaceName)
         )
         .onChanged { value in
-            // Only act when Cmd is held — checked once at activation. Without
-            // Cmd, we silently no-op so plain drags fall through to the surface.
+            // Only act when Cmd was held BEFORE the mouse went down — checked
+            // once at activation. Pressing Cmd mid-drag (e.g. while making a
+            // text selection) must not promote the gesture into a magnetic
+            // move; it's the press order that signals intent. Without Cmd at
+            // mouse-down time, we silently no-op so plain drags fall through
+            // to the surface.
             if magnetic.snapshot == nil {
-                guard NSEvent.modifierFlags.contains(.command) else { return }
+                guard mouseMonitor.cmdHeldAtMouseDown else { return }
                 let started = magnetic.begin(
                     at: value.startLocation,
                     translation: value.translation,
@@ -505,6 +514,40 @@ final class CmdModifierMonitor: ObservableObject {
 
     deinit {
         if let monitor { NSEvent.removeMonitor(monitor) }
+    }
+}
+
+/// Tracks the left mouse button state and remembers whether Cmd was held at
+/// the moment the button went down. Lets gesture handlers distinguish
+/// "Cmd-then-drag" (intentional magnetic move) from "drag-then-Cmd"
+/// (accidental modifier press during a text selection or a swipe).
+@MainActor
+final class MouseButtonMonitor: ObservableObject {
+    @Published private(set) var isDown: Bool = false
+    /// True only between mouseDown and mouseUp, and only if Cmd was already
+    /// held at mouseDown. Reset to false on mouseUp regardless of state.
+    @Published private(set) var cmdHeldAtMouseDown: Bool = false
+    private var downMonitor: Any?
+    private var upMonitor: Any?
+
+    init() {
+        downMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self else { return event }
+            self.cmdHeldAtMouseDown = event.modifierFlags.contains(.command)
+            self.isDown = true
+            return event
+        }
+        upMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            guard let self else { return event }
+            self.isDown = false
+            self.cmdHeldAtMouseDown = false
+            return event
+        }
+    }
+
+    deinit {
+        if let downMonitor { NSEvent.removeMonitor(downMonitor) }
+        if let upMonitor { NSEvent.removeMonitor(upMonitor) }
     }
 }
 
