@@ -37,11 +37,34 @@
 
 # Note that updating options with `builtin emulate -L zsh` affects the global options
 # if it's called outside of a function. So nearly all code has to be in functions.
+_void_promote_agent_bin() {
+    # User rc (.zshrc) often prepends paths like `export PATH="$HOME/.foo:$PATH"`
+    # which pushes the agent-bin Surface.zig already injected toward the back of
+    # PATH. Anything earlier in PATH that ships its own `claude` (or any other
+    # agent we wrap) wins over our wrapper, defeating the green-dot signal.
+    # Hook this into precmd so it runs *after* .zshrc — at first-prompt time —
+    # to move agent-bin back to position 1. Self-removes so it runs only once.
+    builtin emulate -L zsh -o no_warn_create_global -o no_aliases
+    [[ -n "${VOID_RESOURCES_DIR:-}" ]] || return 0
+    builtin local d="$VOID_RESOURCES_DIR/agent-bin"
+    [[ -d "$d" ]] || return 0
+    builtin typeset -ga path
+    # Remove existing entry (if any) and reinsert at front. `${path[@]:#$d}` is
+    # a zsh array filter that drops elements equal to $d.
+    path=("$d" ${path[@]:#$d})
+    # add-zsh-hook is autoloaded (not a builtin), so don't prefix with `builtin`.
+    add-zsh-hook -d precmd _void_promote_agent_bin 2>/dev/null
+}
+
 _entrypoint() {
     builtin emulate -L zsh -o no_warn_create_global -o no_aliases
 
     [[ -o interactive ]]              || builtin return 0  # non-interactive shell
     (( ! $+_void_state ))          || builtin return 0  # already initialized
+
+    # Promote Void's agent-bin to PATH position 1 once .zshrc has run.
+    builtin autoload -Uz add-zsh-hook
+    add-zsh-hook precmd _void_promote_agent_bin
 
     # We require zsh 5.1+ (released Sept 2015) for features like functions_source,
     # introspection arrays, and array pattern substitution.

@@ -652,6 +652,29 @@ pub fn init(
             std.fmt.bufPrint(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
         );
 
+        // Prepend share/void/agent-bin to PATH so wrappers (currently
+        // `claude`) take priority over the real binary. The wrapper
+        // pass-through guards on VOID_SURFACE_ID being set, so non-Void
+        // shells inheriting this same PATH still work — but they won't,
+        // because PATH lives in env, not on the user's shell rc, so the
+        // mutation is scoped to the surface's child process tree.
+        path_inject: {
+            const resources_dir = global_state.resources_dir.host() orelse break :path_inject;
+            const wrapper_dir = std.fmt.allocPrint(
+                alloc,
+                "{s}/agent-bin",
+                .{resources_dir},
+            ) catch break :path_inject;
+            defer alloc.free(wrapper_dir);
+            const old_path = env.get("PATH") orelse "";
+            const new_path = if (old_path.len > 0)
+                std.fmt.allocPrint(alloc, "{s}:{s}", .{ wrapper_dir, old_path }) catch break :path_inject
+            else
+                alloc.dupe(u8, wrapper_dir) catch break :path_inject;
+            defer alloc.free(new_path);
+            env.put("PATH", new_path) catch break :path_inject;
+        }
+
         // Initialize our IO backend
         var io_exec = try termio.Exec.init(alloc, .{
             .command = command,

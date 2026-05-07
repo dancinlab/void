@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Void claude wrapper — emit BEL on Stop so the green dot lights up
+# on the surface where the agent was running. Pass-through outside Void
+# surfaces or when explicitly disabled.
+#
+# Mechanism: prepend share/void/agent-bin to PATH (Surface.zig) so this
+# wrapper takes priority over the real claude binary; we exec the real
+# binary with `--settings <inline JSON>` injecting a Stop hook that
+# writes BEL to /dev/tty. libghostty's bell action posts
+# .voidBellDidRing → SurfaceView sets bell=true → grid pwdLabel green
+# dot lights up. Idempotent: BEL on already-set bell is a no-op.
+#
+# Disable per-process with VOID_CLAUDE_HOOK_DISABLED=1.
+# Pass-through subcommands that don't accept --settings are listed below.
+
+set -e
+
+find_real_claude() {
+    local self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
+    done
+    return 1
+}
+
+REAL="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+
+# Pass-through outside Void or when disabled.
+if [[ -z "$VOID_SURFACE_ID" || "$VOID_CLAUDE_HOOK_DISABLED" == "1" ]]; then
+    exec "$REAL" "$@"
+fi
+
+# Subcommands that don't accept --settings.
+case "${1:-}" in
+    mcp|config|api-key|rc|remote-control)
+        exec "$REAL" "$@"
+        ;;
+esac
+
+# Inject a Stop hook. Claude merges --settings additively with the
+# user's ~/.claude/settings.json so existing user hooks are preserved.
+HOOKS_JSON='{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"printf '"'"'\\a'"'"' > /dev/tty 2>/dev/null","timeout":2}]}]}}'
+
+exec "$REAL" --settings "$HOOKS_JSON" "$@"
