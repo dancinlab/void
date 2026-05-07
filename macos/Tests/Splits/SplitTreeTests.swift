@@ -705,6 +705,21 @@ struct SplitTreeTests {
         #expect(rootDirection(tree) == .horizontal)
     }
 
+    @Test func gridPortraitNineViewsSkewsToTwoColumns() {
+        // N=9 portrait: avoid a 3×3 square and skew taller instead.
+        let views = (0..<9).map { _ in MockView() }
+        let tree = SplitTree<MockView>.grid(views: views, prefersTall: true)
+        let slots = tree.root?.spatial().slots ?? []
+        let leafBounds = slots.compactMap { slot -> CGRect? in
+            if case .leaf = slot.node { return slot.bounds }
+            return nil
+        }
+        let xs = Set(leafBounds.map { Int($0.minX.rounded()) })
+        let ys = Set(leafBounds.map { Int($0.minY.rounded()) })
+        #expect(xs.count == 2)
+        #expect(ys.count == 5)
+    }
+
     @Test func gridTwoViewsLandscapeIsHorizontalSplit() {
         // N=2 landscape: a single row of 2 → root is the row itself, horizontal.
         let v1 = MockView()

@@ -243,27 +243,30 @@ extension SplitTree {
     ///
     /// Layout rule (landscape): `cols = ceil(sqrt(N))`, `rows = ceil(N / cols)` —
     /// wider than tall. Pass `prefersTall: true` (e.g. portrait monitors)
-    /// to swap so `rows = ceil(sqrt(N))` and the layout grows downward first.
-    /// For perfect squares ≥9 in portrait we drop one column so the layout
-    /// stays asymmetric (e.g. 9 → 2×[5,4] instead of 3×3, 16 → 3×[6,5,5]
-    /// instead of 4×4). Otherwise an NxN grid in portrait is identical to
-    /// landscape and defeats the orientation preference, leaving each pane
-    /// uncomfortably narrow on tall-but-thin displays.
+    /// to grow downward first: stay single-column for N≤3 (so the 3rd pane
+    /// added to a 1×2 stack lands directly below, not to the right), and
+    /// cap columns at 2 from N=4 onward — any 3+ column grid leaves each
+    /// pane uncomfortably narrow on a portrait display.
     /// Ratios are equalized via the existing leaf-count weighting.
+    static func gridDimensions(count n: Int, prefersTall: Bool) -> (cols: Int, rows: Int, major: Int) {
+        guard n > 0 else { return (0, 0, 0) }
+
+        if prefersTall {
+            if n <= 3 { return (1, n, n) }
+            let cols = 2
+            let rows = (n + cols - 1) / cols
+            return (cols, rows, rows)
+        }
+
+        let cols = Int(ceil(Double(n).squareRoot()))
+        let rows = Swift.max(1, Int(ceil(Double(n) / Double(cols))))
+        return (cols, rows, cols)
+    }
+
     static func grid(views: [ViewType], prefersTall: Bool = false) -> Self {
         guard !views.isEmpty else { return .init() }
         if views.count == 1 { return .init(view: views[0]) }
-        let n = views.count
-        let major: Int = {
-            if prefersTall {
-                let sq = Int(Double(n).squareRoot().rounded())
-                if sq * sq == n && n >= 9 {
-                    let cols = sq - 1
-                    return (n + cols - 1) / cols
-                }
-            }
-            return Int(ceil(Double(n).squareRoot()))
-        }()
+        let major = gridDimensions(count: views.count, prefersTall: prefersTall).major
         let groupDirection: Direction = prefersTall ? .vertical : .horizontal
         let stackDirection: Direction = prefersTall ? .horizontal : .vertical
         var groups: [Node] = []
