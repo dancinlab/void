@@ -244,11 +244,26 @@ extension SplitTree {
     /// Layout rule (landscape): `cols = ceil(sqrt(N))`, `rows = ceil(N / cols)` —
     /// wider than tall. Pass `prefersTall: true` (e.g. portrait monitors)
     /// to swap so `rows = ceil(sqrt(N))` and the layout grows downward first.
+    /// For perfect squares ≥9 in portrait we drop one column so the layout
+    /// stays asymmetric (e.g. 9 → 2×[5,4] instead of 3×3, 16 → 3×[6,5,5]
+    /// instead of 4×4). Otherwise an NxN grid in portrait is identical to
+    /// landscape and defeats the orientation preference, leaving each pane
+    /// uncomfortably narrow on tall-but-thin displays.
     /// Ratios are equalized via the existing leaf-count weighting.
     static func grid(views: [ViewType], prefersTall: Bool = false) -> Self {
         guard !views.isEmpty else { return .init() }
         if views.count == 1 { return .init(view: views[0]) }
-        let major = Int(ceil(Double(views.count).squareRoot()))
+        let n = views.count
+        let major: Int = {
+            if prefersTall {
+                let sq = Int(Double(n).squareRoot().rounded())
+                if sq * sq == n && n >= 9 {
+                    let cols = sq - 1
+                    return (n + cols - 1) / cols
+                }
+            }
+            return Int(ceil(Double(n).squareRoot()))
+        }()
         let groupDirection: Direction = prefersTall ? .vertical : .horizontal
         let stackDirection: Direction = prefersTall ? .horizontal : .vertical
         var groups: [Node] = []
