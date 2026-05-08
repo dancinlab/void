@@ -553,8 +553,8 @@ extension VD {
             if let override = UserDefaults.void.object(forKey: Self.gridDimInactiveOverrideKey) as? Bool {
                 return override
             }
-            guard let config = self.config else { return true }
-            var v = true
+            guard let config = self.config else { return false }
+            var v = false
             let key = "grid-dim-inactive"
             _ = void_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
             return v

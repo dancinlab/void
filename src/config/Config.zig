@@ -1079,11 +1079,11 @@ palette: Palette = .{},
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"unfocused-split-fill": ?Color = null,
 
-/// When `true` (the default), inactive cells in grid mode are dimmed using
-/// `unfocused-split-opacity` / `unfocused-split-fill`. When `false`, the
-/// dimming overlay is skipped and every cell renders at full opacity. The
-/// runtime toggle in the macOS "Grid" menu writes this value.
-@"grid-dim-inactive": bool = true,
+/// When `true`, inactive cells in grid mode are dimmed using
+/// `unfocused-split-opacity` / `unfocused-split-fill`. When `false` (the
+/// default), the dimming overlay is skipped and every cell renders at full
+/// opacity. The runtime toggle in the macOS "Grid" menu writes this value.
+@"grid-dim-inactive": bool = false,
 
 /// The color of the split divider. If this is not set, a default will be chosen.
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
