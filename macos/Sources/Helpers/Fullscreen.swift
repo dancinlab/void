@@ -453,6 +453,6 @@ class NonNativeFullscreenPaddedNotch: NonNativeFullscreen {
 }
 
 extension Notification.Name {
-    static let fullscreenDidEnter = Notification.Name("com.need-singularity.fullscreenDidEnter")
-    static let fullscreenDidExit = Notification.Name("com.need-singularity.fullscreenDidExit")
+    static let fullscreenDidEnter = Notification.Name("com.dancinlab.fullscreenDidEnter")
+    static let fullscreenDidExit = Notification.Name("com.dancinlab.fullscreenDidExit")
 }

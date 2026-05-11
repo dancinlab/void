@@ -112,7 +112,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.need-singularity.voidSurfaceId</string>
+			<string>com.dancinlab.voidSurfaceId</string>
 			<key>UTTypeDescription</key>
 			<string>Void Surface Identifier</string>
 			<key>UTTypeConformsTo</key>

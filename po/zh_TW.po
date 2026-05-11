@@ -1,11 +1,11 @@
-# Traditional Chinese (Taiwan) translation for com.need-singularity.void package.
+# Traditional Chinese (Taiwan) translation for com.dancinlab.void package.
 # Copyright (C) 2025 Mitchell Hashimoto
-# This file is distributed under the same license as the com.need-singularity.void package.
+# This file is distributed under the same license as the com.dancinlab.void package.
 # Peter Dave Hello <hsu@peterdavehello.org>, 2025.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: com.need-singularity.void\n"
+"Project-Id-Version: com.dancinlab.void\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-17 23:16+0100\n"
 "PO-Revision-Date: 2026-02-18 13:58+0800\n"

@@ -6,5 +6,5 @@ Actions=RunVoidDir
 
 [Desktop Action RunVoidDir]
 Name=Open Void Here
-Icon=com.need-singularity.void
+Icon=com.dancinlab.void
 Exec=void +new-window --working-directory=%F

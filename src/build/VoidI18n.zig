@@ -6,7 +6,7 @@ const Config = @import("Config.zig");
 const gresource = @import("../apprt/gtk/build/gresource.zig");
 const locales = @import("../os/i18n_locales.zig").locales;
 
-const domain = "com.need-singularity.void";
+const domain = "com.dancinlab.void";
 
 owner: *std.Build,
 steps: []*std.Build.Step,

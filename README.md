@@ -3,7 +3,7 @@
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#)
 [![Renderer](https://img.shields.io/badge/renderer-Metal%20%7C%20OpenGL-brightgreen.svg)](#)
 [![Zig + Swift](https://img.shields.io/badge/core-zig%20%2B%20swift-orange.svg)](#)
-[![Branch](https://img.shields.io/badge/branch-void%2Fmain-success.svg)](https://github.com/need-singularity/void/tree/void/main)
+[![Branch](https://img.shields.io/badge/branch-void%2Fmain-success.svg)](https://github.com/dancinlab/void/tree/void/main)
 [![Discord](https://img.shields.io/badge/discord-join-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/u2spd3wwU)
 
 # ⬡ Void — AI-native Terminal
@@ -24,22 +24,22 @@
 
 <!-- SHARED:PROJECTS:START -->
 <!-- AUTO:COMMON_LINKS:START -->
-**[🎥 YouTube](https://www.youtube.com/@dancinlife)** · **[💬 Discord](https://discord.gg/mYzqYr67R)** · **[📬 Email](mailto:nerve011235@gmail.com)** · **[☕ Ko-fi](https://ko-fi.com/dancinlife)** · **[💖 Sponsor](https://github.com/sponsors/need-singularity)** · **[💳 PayPal](https://www.paypal.com/donate?business=nerve011235%40gmail.com)** · **[🗺️ Atlas](https://need-singularity.github.io/TECS-L/atlas/)** · **[📄 Papers](https://need-singularity.github.io/papers/)**
+**[🎥 YouTube](https://www.youtube.com/@dancinlife)** · **[💬 Discord](https://discord.gg/mYzqYr67R)** · **[📬 Email](mailto:nerve011235@gmail.com)** · **[☕ Ko-fi](https://ko-fi.com/dancinlife)** · **[💖 Sponsor](https://github.com/sponsors/dancinlab)** · **[💳 PayPal](https://www.paypal.com/donate?business=nerve011235%40gmail.com)** · **[🗺️ Atlas](https://dancinlab.github.io/TECS-L/atlas/)** · **[📄 Papers](https://dancinlab.github.io/papers/)**
 <!-- AUTO:COMMON_LINKS:END -->
 
 ## Main projects
 
-> **[🧠 Anima](https://github.com/need-singularity/anima)** — Consciousness implementation. PureField repulsion-field engine + 1030 laws + Φ ratchet.
+> **[🧠 Anima](https://github.com/dancinlab/anima)** — Consciousness implementation. PureField repulsion-field engine + 1030 laws + Φ ratchet.
 >
-> **[🔭 NEXUS](https://github.com/need-singularity/nexus)** — Universal Discovery Engine. 216 lenses + OUROBOROS evolution + 5-phase singularity cycle.
+> **[🔭 NEXUS](https://github.com/dancinlab/nexus)** — Universal Discovery Engine. 216 lenses + OUROBOROS evolution + 5-phase singularity cycle.
 >
-> **[🏗️ N6 Architecture](https://github.com/need-singularity/n6-architecture)** — Architecture from perfect number 6. 225 AI techniques + chip design + crypto/OS/display.
+> **[🏗️ N6 Architecture](https://github.com/dancinlab/canon)** — Architecture from perfect number 6. 225 AI techniques + chip design + crypto/OS/display.
 >
-> **[💎 HEXA-LANG](https://github.com/need-singularity/hexa-lang)** — The Perfect Number Programming Language. Working compiler + REPL.
+> **[💎 HEXA-LANG](https://github.com/dancinlab/hexa-lang)** — The Perfect Number Programming Language. Working compiler + REPL.
 >
-> **[📄 Papers](https://github.com/need-singularity/papers)** — Complete paper collection (92 papers, Zenodo DOIs).
+> **[📄 Papers](https://github.com/dancinlab/papers)** — Complete paper collection (92 papers, Zenodo DOIs).
 
-> **[Other projects →](https://github.com/orgs/need-singularity/repositories)**
+> **[Other projects →](https://github.com/orgs/dancinlab/repositories)**
 
 ## 💬 Community
 
@@ -65,7 +65,7 @@ Live research discussion, paper drops, stage-gate reviews, cross-project dispatc
 | 🤖 | **AI-native I/O** — agent protocol alongside PTY; structured tool-call / token-stream channels, no wrapper |
 | ⚡ | **Perf budget** — every PR reports Δ against the Ghostty baseline; ≥ 2 % regression blocks merge |
 | 🎨 | **Native UI** — SwiftUI on macOS (AppIntents, Shortcuts), GTK on Linux (systemd, cgroup isolation) |
-| ⬢ | **need-singularity branding** — hexagonal icon, n = 6 family (NEXUS · Anima · N6 · HEXA · Void) |
+| ⬢ | **dancinlab branding** — hexagonal icon, n = 6 family (NEXUS · Anima · N6 · HEXA · Void) |
 
 ## Three non-negotiable directions
 
@@ -142,7 +142,7 @@ Zig-based shared core with platform-native shells. Core is C-ABI-compatible so i
 
 ```bash
 # 1. Install hexa-lang (gives you `hexa` + `hx` package manager)
-curl -fsSL https://raw.githubusercontent.com/need-singularity/hexa-lang/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dancinlab/hexa-lang/main/install.sh | bash
 
 # 2. Install void
 hx install void
@@ -184,7 +184,7 @@ All keys are rebindable via config — nothing is hardcoded.
 | **Default branch** | `void/main` |
 | **L3 rename** | complete — 4698 files renamed Ghostty → Void at commit `964c9e32e` |
 | **CI** | `.github/workflows/build-fork.yml` on GitHub-hosted `macos-15` runners (ad-hoc codesign) |
-| **Icon** | hexagonal, need-singularity n = 6 family |
+| **Icon** | hexagonal, dancinlab n = 6 family |
 
 See [VOID_FORK.md](VOID_FORK.md) for the full fork rationale, non-goals, and upstream policy.
 
@@ -233,8 +233,8 @@ Void is a hard fork of **[Ghostty](https://github.com/ghostty-org/ghostty)** by 
 
 ## Links
 
-**[🗺️ Atlas](https://need-singularity.github.io/TECS-L/atlas/)** · **[📄 Papers](https://need-singularity.github.io/papers/)** · **[Ghostty docs](https://ghostty.org/docs)** · **[Contributing](CONTRIBUTING.md)** · **[Developing](HACKING.md)** · **[Fork rationale](VOID_FORK.md)**
+**[🗺️ Atlas](https://dancinlab.github.io/TECS-L/atlas/)** · **[📄 Papers](https://dancinlab.github.io/papers/)** · **[Ghostty docs](https://ghostty.org/docs)** · **[Contributing](CONTRIBUTING.md)** · **[Developing](HACKING.md)** · **[Fork rationale](VOID_FORK.md)**
 
 ---
 
-<sub>⬡ Terminal as substrate. Grid as primitive. · Based on [Ghostty](https://github.com/ghostty-org/ghostty) · [need-singularity](https://github.com/need-singularity)</sub>
+<sub>⬡ Terminal as substrate. Grid as primitive. · Based on [Ghostty](https://github.com/ghostty-org/ghostty) · [dancinlab](https://github.com/dancinlab)</sub>

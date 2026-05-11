@@ -3,7 +3,7 @@
 // @no-lock-needed
 //
 // Pipeline:
-//   1. Read avatar.svg (need-singularity hexagon, viewBox 0 0 512 512).
+//   1. Read avatar.svg (dancinlab hexagon, viewBox 0 0 512 512).
 //   2. Strip its outer <svg> wrapper → inner geometry.
 //   3. For each of 12 macOS iconset sizes, compose a per-size SVG that
 //      contains:
@@ -146,7 +146,7 @@ fn main() {
     if avatar_check != "y" {
         eprintln("avatar.svg missing at " + avatar_path)
         eprintln("fetch with:")
-        eprintln("  curl -sL https://raw.githubusercontent.com/need-singularity/.github/main/profile/avatar.svg -o " + avatar_path)
+        eprintln("  curl -sL https://raw.githubusercontent.com/dancinlab/.github/main/profile/avatar.svg -o " + avatar_path)
         exit(1)
     }
 

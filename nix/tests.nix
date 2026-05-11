@@ -192,9 +192,9 @@ in {
               check_for_pink() == False
           ), "Pink was present on the screen before we even launched a terminal!"
 
-      machine.systemctl("enable app-com.need-singularity.void-debug.service", user="${user.name}")
+      machine.systemctl("enable app-com.dancinlab.void-debug.service", user="${user.name}")
       machine.succeed("${su "${void} +new-window"}")
-      machine.wait_until_succeeds("${wm_class} | grep -q 'com.need-singularity.void-debug'")
+      machine.wait_until_succeeds("${wm_class} | grep -q 'com.dancinlab.void-debug'")
 
       machine.sleep(2)
 
@@ -203,7 +203,7 @@ in {
               check_for_pink() == True
           ), "Pink was not found on the screen!"
 
-      machine.systemctl("stop app-com.need-singularity.void-debug.service", user="${user.name}")
+      machine.systemctl("stop app-com.dancinlab.void-debug.service", user="${user.name}")
     '';
   };
 
@@ -271,9 +271,9 @@ in {
           client.start()
           client.wait_for_x()
           client.wait_for_file("${bus_path}")
-          client.systemctl("enable app-com.need-singularity.void-debug.service", user="${user.name}")
+          client.systemctl("enable app-com.dancinlab.void-debug.service", user="${user.name}")
           client.succeed("${su "${void} +new-window"}")
-          client.wait_until_succeeds("${wm_class} | grep -q 'com.need-singularity.void-debug'")
+          client.wait_until_succeeds("${wm_class} | grep -q 'com.dancinlab.void-debug'")
 
       with subtest("SSH from client to server and verify that the Void terminfo is copied."):
           client.sleep(2)

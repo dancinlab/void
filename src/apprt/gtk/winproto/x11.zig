@@ -62,7 +62,7 @@ pub const App = struct {
         //
         // This makes the property show up like so when using xprop:
         //
-        //     WM_CLASS(STRING) = "void", "com.need-singularity.void"
+        //     WM_CLASS(STRING) = "void", "com.dancinlab.void"
         //
         // Append "-debug" on both when using the debug build.
         glib.setPrgname(x11_program_name);

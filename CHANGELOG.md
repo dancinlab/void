@@ -12,22 +12,22 @@ single merge base.
 
 **Identity sweep applied 2026-04-25** (this commit):
 
-- macOS bundle identifier namespace: `com.mitchellh.*` → `com.need-singularity.*`
+- macOS bundle identifier namespace: `com.mitchellh.*` → `com.dancinlab.*`
   (Xcode `PRODUCT_BUNDLE_IDENTIFIER`, `CFBundleIdentifier`,
   `src/build_config.zig` `bundle_id`, all Swift `Notification.Name` /
   `UserDefaults(suiteName:)` / `UTType` / `NSPasteboard` / menu identifiers)
-- GTK D-Bus base application id: `com.mitchellh.void` → `com.need-singularity.void`
+- GTK D-Bus base application id: `com.mitchellh.void` → `com.dancinlab.void`
   (`src/apprt/gtk/build/info.zig`, all GTK class application/window/surface
   refs, `inspector-window.blp` icon, `ipc/new_window.zig` doc examples)
 - Linux distribution paths: flatpak/snap/desktop/metainfo/icon install paths
-  rebased to `com.need-singularity.void`
-- gettext domain: `com.mitchellh.void` → `com.need-singularity.void`
+  rebased to `com.dancinlab.void`
+- gettext domain: `com.mitchellh.void` → `com.dancinlab.void`
   (`src/build/VoidI18n.zig`, all 53 locale `.po` headers, `.pot` rename)
 - Renamed files to match new namespace:
-  - `flatpak/com.mitchellh.void.yml` → `flatpak/com.need-singularity.void.yml`
-  - `flatpak/com.mitchellh.void-debug.yml` → `flatpak/com.need-singularity.void-debug.yml`
-  - `dist/linux/com.mitchellh.void.metainfo.xml.in` → `dist/linux/com.need-singularity.void.metainfo.xml.in`
-  - `po/com.mitchellh.void.pot` → `po/com.need-singularity.void.pot`
+  - `flatpak/com.mitchellh.void.yml` → `flatpak/com.dancinlab.void.yml`
+  - `flatpak/com.mitchellh.void-debug.yml` → `flatpak/com.dancinlab.void-debug.yml`
+  - `dist/linux/com.mitchellh.void.metainfo.xml.in` → `dist/linux/com.dancinlab.void.metainfo.xml.in`
+  - `po/com.mitchellh.void.pot` → `po/com.dancinlab.void.pot`
 
 **Not touched** (out of scope, separate cleanup):
 
@@ -43,7 +43,7 @@ single merge base.
 
 Existing TCC permissions (Full Disk Access, Accessibility, Automation) were
 granted to `com.mitchellh.void` and do **not** transfer to
-`com.need-singularity.void`. Re-grant is required after this fork. The bundled
+`com.dancinlab.void`. Re-grant is required after this fork. The bundled
 `install.hexa` already runs `tccutil reset All` against the new bundle id;
 the user must approve permission prompts on first launch of the rebuilt app.
 
@@ -61,7 +61,7 @@ the new identity is a clean slate.
   symbol names preserved where required for ABI stability), and benchmark
   comparison context (Δ vs ghostty perf budget per `README.md`).
 - The original Ghostty git history is preserved on the `origin` remote
-  (`need-singularity/void`); see `git log` for the unbroken chain back to the
+  (`dancinlab/void`); see `git log` for the unbroken chain back to the
   initial Ghostty commit.
 
 ## upstream Ghostty history — preserved below for attribution

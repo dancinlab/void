@@ -1741,7 +1741,7 @@ pub const Window = extern struct {
         self: *Self,
     ) callconv(.c) void {
         const name = "Void";
-        const icon = "com.need-singularity.void";
+        const icon = "com.dancinlab.void";
         const website = "https://void.org";
 
         if (adw_version.supportsDialogs()) {

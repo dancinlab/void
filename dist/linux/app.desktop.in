@@ -5,7 +5,7 @@ Type=Application
 Comment=A terminal emulator
 TryExec=@VOID@
 Exec=@VOID@ --gtk-single-instance=true
-Icon=com.need-singularity.void
+Icon=com.dancinlab.void
 Categories=System;TerminalEmulator;
 Keywords=terminal;tty;pty;
 StartupNotify=true

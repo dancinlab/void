@@ -247,14 +247,21 @@ extension SplitTree {
     /// (e.g. N=3 is always a top row of 2 + a single bottom row, never
     /// `[v1/v2] | [v3]`). Column counts:
     ///   landscape: `cols = ceil(sqrt(N))`
-    ///   portrait : `cols = min(2, ceil(sqrt(N)))` — capped at 2 so each
-    ///              pane stays usably wide on a tall display.
+    ///   portrait : N=2 → 1 col (stack top/bottom — a tall display
+    ///              prefers vertical split for two panes); N≥3 →
+    ///              `min(2, ceil(sqrt(N)))`, capped at 2 so each pane
+    ///              stays usably wide.
     /// Rows are derived from `ceil(N / cols)`.
     /// Ratios are equalized via the existing leaf-count weighting.
     static func gridDimensions(count n: Int, prefersTall: Bool = false) -> (cols: Int, rows: Int, major: Int) {
         guard n > 0 else { return (0, 0, 0) }
         let sqrtCols = Int(ceil(Double(n).squareRoot()))
-        let cols = prefersTall ? Swift.min(2, sqrtCols) : sqrtCols
+        let cols: Int
+        if prefersTall {
+            cols = n <= 2 ? 1 : Swift.min(2, sqrtCols)
+        } else {
+            cols = sqrtCols
+        }
         let rows = Swift.max(1, Int(ceil(Double(n) / Double(cols))))
         return (cols, rows, cols)
     }

@@ -1,10 +1,10 @@
-app-id: com.need-singularity.void-debug
+app-id: com.dancinlab.void-debug
 runtime: org.gnome.Platform
 runtime-version: "49"
 sdk: org.gnome.Sdk
 default-branch: tip
 command: void
-rename-icon: com.need-singularity.void
+rename-icon: com.dancinlab.void
 finish-args:
   # 3D rendering
   - --device=dri

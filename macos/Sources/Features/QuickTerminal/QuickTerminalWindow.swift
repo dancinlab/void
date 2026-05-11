@@ -15,7 +15,7 @@ class QuickTerminalWindow: NSPanel {
 
         // Add a custom identifier so third party apps can use the Accessibility
         // API to apply special rules to the quick terminal. 
-        self.identifier = .init(rawValue: "com.need-singularity.void.quickTerminal")
+        self.identifier = .init(rawValue: "com.dancinlab.void.quickTerminal")
 
         // Set the correct AXSubrole of kAXFloatingWindowSubrole (allows
         // AeroSpace to treat the Quick Terminal as a floating window)

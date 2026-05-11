@@ -13,10 +13,10 @@ extension void_surface_t: @unchecked @retroactive Sendable {}
 
 extension VD {
     // The user notification category identifier
-    static let userNotificationCategory = "com.need-singularity.void.userNotification"
+    static let userNotificationCategory = "com.dancinlab.void.userNotification"
 
     // The user notification "Show" action
-    static let userNotificationActionShow = "com.need-singularity.void.userNotification.Show"
+    static let userNotificationActionShow = "com.dancinlab.void.userNotification.Show"
 }
 
 // MARK: Build Info
@@ -331,145 +331,145 @@ extension VD {
 
 extension Notification.Name {
     /// Configuration change. If the object is nil then it is app-wide. Otherwise its surface-specific.
-    static let voidConfigDidChange = Notification.Name("com.need-singularity.void.configDidChange")
+    static let voidConfigDidChange = Notification.Name("com.dancinlab.void.configDidChange")
     static let VoidConfigChangeKey = voidConfigDidChange.rawValue
 
     /// Color change. Object is the surface changing.
-    static let voidColorDidChange = Notification.Name("com.need-singularity.void.voidColorDidChange")
+    static let voidColorDidChange = Notification.Name("com.dancinlab.void.voidColorDidChange")
     static let VoidColorChangeKey = voidColorDidChange.rawValue
 
     /// Goto tab. Has tab index in the userinfo.
-    static let voidMoveTab = Notification.Name("com.need-singularity.void.moveTab")
+    static let voidMoveTab = Notification.Name("com.dancinlab.void.moveTab")
     static let VoidMoveTabKey = voidMoveTab.rawValue
 
     /// Close tab
-    static let voidCloseTab = Notification.Name("com.need-singularity.void.closeTab")
+    static let voidCloseTab = Notification.Name("com.dancinlab.void.closeTab")
 
     /// Close other tabs
-    static let voidCloseOtherTabs = Notification.Name("com.need-singularity.void.closeOtherTabs")
+    static let voidCloseOtherTabs = Notification.Name("com.dancinlab.void.closeOtherTabs")
 
     /// Close tabs to the right of the focused tab
-    static let voidCloseTabsOnTheRight = Notification.Name("com.need-singularity.void.closeTabsOnTheRight")
+    static let voidCloseTabsOnTheRight = Notification.Name("com.dancinlab.void.closeTabsOnTheRight")
 
     /// Close window
-    static let voidCloseWindow = Notification.Name("com.need-singularity.void.closeWindow")
+    static let voidCloseWindow = Notification.Name("com.dancinlab.void.closeWindow")
 
     /// Resize the window to a default size.
-    static let voidResetWindowSize = Notification.Name("com.need-singularity.void.resetWindowSize")
+    static let voidResetWindowSize = Notification.Name("com.dancinlab.void.resetWindowSize")
 
     /// Ring the bell
-    static let voidBellDidRing = Notification.Name("com.need-singularity.void.voidBellDidRing")
+    static let voidBellDidRing = Notification.Name("com.dancinlab.void.voidBellDidRing")
 
     /// Readonly mode changed
-    static let voidDidChangeReadonly = Notification.Name("com.need-singularity.void.didChangeReadonly")
+    static let voidDidChangeReadonly = Notification.Name("com.dancinlab.void.didChangeReadonly")
     static let ReadonlyKey = voidDidChangeReadonly.rawValue + ".readonly"
-    static let voidCommandPaletteDidToggle = Notification.Name("com.need-singularity.void.commandPaletteDidToggle")
+    static let voidCommandPaletteDidToggle = Notification.Name("com.dancinlab.void.commandPaletteDidToggle")
 
     /// Toggle maximize of current window
-    static let voidMaximizeDidToggle = Notification.Name("com.need-singularity.void.maximizeDidToggle")
+    static let voidMaximizeDidToggle = Notification.Name("com.dancinlab.void.maximizeDidToggle")
 
     /// Notification sent when scrollbar updates
-    static let voidDidUpdateScrollbar = Notification.Name("com.need-singularity.void.didUpdateScrollbar")
+    static let voidDidUpdateScrollbar = Notification.Name("com.dancinlab.void.didUpdateScrollbar")
     static let ScrollbarKey = voidDidUpdateScrollbar.rawValue + ".scrollbar"
 
     /// Focus the search field
-    static let voidSearchFocus = Notification.Name("com.need-singularity.void.searchFocus")
+    static let voidSearchFocus = Notification.Name("com.dancinlab.void.searchFocus")
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This
 // namespace was the old namespace.
 extension VD.Notification {
     /// Used to pass a configuration along when creating a new tab/window/split.
-    static let NewSurfaceConfigKey = "com.need-singularity.void.newSurfaceConfig"
+    static let NewSurfaceConfigKey = "com.dancinlab.void.newSurfaceConfig"
 
     /// Posted when a new split is requested. The sending object will be the surface that had focus. The
     /// userdata has one key "direction" with the direction to split to.
-    static let voidNewSplit = Notification.Name("com.need-singularity.void.newSplit")
+    static let voidNewSplit = Notification.Name("com.dancinlab.void.newSplit")
 
     /// Close the calling surface.
-    static let voidCloseSurface = Notification.Name("com.need-singularity.void.closeSurface")
+    static let voidCloseSurface = Notification.Name("com.dancinlab.void.closeSurface")
 
     /// Focus previous/next split. Has a SplitFocusDirection in the userinfo.
-    static let voidFocusSplit = Notification.Name("com.need-singularity.void.focusSplit")
+    static let voidFocusSplit = Notification.Name("com.dancinlab.void.focusSplit")
     static let SplitDirectionKey = voidFocusSplit.rawValue
 
     /// Goto tab. Has tab index in the userinfo.
-    static let voidGotoTab = Notification.Name("com.need-singularity.void.gotoTab")
+    static let voidGotoTab = Notification.Name("com.dancinlab.void.gotoTab")
     static let GotoTabKey = voidGotoTab.rawValue
 
     /// Focus the Nth leaf surface in the current window's split tree
     /// (grid-mode reinterpretation of `goto_tab:N` when the window has a
     /// single tab). Userinfo carries a 1-indexed `Int` under GridCellIndexKey.
-    static let voidFocusGridCell = Notification.Name("com.need-singularity.void.focusGridCell")
+    static let voidFocusGridCell = Notification.Name("com.dancinlab.void.focusGridCell")
     static let GridCellIndexKey = voidFocusGridCell.rawValue
 
     /// Add a new leaf to the current window's split tree and rebalance as a
     /// fresh N+1 grid (grid-mode reinterpretation of `new_tab` when the window
     /// has a single tab with splits). Object is the focused SurfaceView, used
     /// as the source of inherited config.
-    static let voidAddGridCell = Notification.Name("com.need-singularity.void.addGridCell")
+    static let voidAddGridCell = Notification.Name("com.dancinlab.void.addGridCell")
 
     /// A pane's `isPinned` state was toggled by the user. Object is the
     /// SurfaceView whose pin state changed. Listeners regrid the tree so
     /// unpinned regions reflow with canonical ratios (specifically: an
     /// unpin event causes the freshly-unpinned pane to rejoin its
     /// region's grid).
-    static let voidPinChanged = Notification.Name("com.need-singularity.void.pinChanged")
+    static let voidPinChanged = Notification.Name("com.dancinlab.void.pinChanged")
 
     /// New tab. Has base surface config requested in userinfo.
-    static let voidNewTab = Notification.Name("com.need-singularity.void.newTab")
+    static let voidNewTab = Notification.Name("com.dancinlab.void.newTab")
 
     /// New window. Has base surface config requested in userinfo.
-    static let voidNewWindow = Notification.Name("com.need-singularity.void.newWindow")
+    static let voidNewWindow = Notification.Name("com.dancinlab.void.newWindow")
 
     /// Present terminal. Bring the surface's window to focus without activating the app.
-    static let voidPresentTerminal = Notification.Name("com.need-singularity.void.presentTerminal")
+    static let voidPresentTerminal = Notification.Name("com.dancinlab.void.presentTerminal")
 
     /// Toggle fullscreen of current window
-    static let voidToggleFullscreen = Notification.Name("com.need-singularity.void.toggleFullscreen")
+    static let voidToggleFullscreen = Notification.Name("com.dancinlab.void.toggleFullscreen")
     static let FullscreenModeKey = voidToggleFullscreen.rawValue
 
     /// Notification sent to toggle split maximize/unmaximize.
-    static let didToggleSplitZoom = Notification.Name("com.need-singularity.void.didToggleSplitZoom")
+    static let didToggleSplitZoom = Notification.Name("com.dancinlab.void.didToggleSplitZoom")
 
     /// Notification
-    static let didReceiveInitialWindowFrame = Notification.Name("com.need-singularity.void.didReceiveInitialWindowFrame")
-    static let FrameKey = "com.need-singularity.void.frame"
+    static let didReceiveInitialWindowFrame = Notification.Name("com.dancinlab.void.didReceiveInitialWindowFrame")
+    static let FrameKey = "com.dancinlab.void.frame"
 
     /// Notification to render the inspector for a surface
-    static let inspectorNeedsDisplay = Notification.Name("com.need-singularity.void.inspectorNeedsDisplay")
+    static let inspectorNeedsDisplay = Notification.Name("com.dancinlab.void.inspectorNeedsDisplay")
 
     /// Notification to show/hide the inspector
-    static let didControlInspector = Notification.Name("com.need-singularity.void.didControlInspector")
+    static let didControlInspector = Notification.Name("com.dancinlab.void.didControlInspector")
 
-    static let confirmClipboard = Notification.Name("com.need-singularity.void.confirmClipboard")
+    static let confirmClipboard = Notification.Name("com.dancinlab.void.confirmClipboard")
     static let ConfirmClipboardStrKey = confirmClipboard.rawValue + ".str"
     static let ConfirmClipboardStateKey = confirmClipboard.rawValue + ".state"
     static let ConfirmClipboardRequestKey = confirmClipboard.rawValue + ".request"
 
     /// Notification sent to the active split view to resize the split.
-    static let didResizeSplit = Notification.Name("com.need-singularity.void.didResizeSplit")
+    static let didResizeSplit = Notification.Name("com.dancinlab.void.didResizeSplit")
     static let ResizeSplitDirectionKey = didResizeSplit.rawValue + ".direction"
     static let ResizeSplitAmountKey = didResizeSplit.rawValue + ".amount"
 
     /// Notification sent to the split root to equalize split sizes
-    static let didEqualizeSplits = Notification.Name("com.need-singularity.void.didEqualizeSplits")
+    static let didEqualizeSplits = Notification.Name("com.dancinlab.void.didEqualizeSplits")
 
     /// Notification to toggle between Grid layout and Tab layout for all
     /// surfaces in the current window. Observed by the window controller
     /// which handles the actual layout transformation.
-    static let didToggleGridMode = Notification.Name("com.need-singularity.void.didToggleGridMode")
+    static let didToggleGridMode = Notification.Name("com.dancinlab.void.didToggleGridMode")
 
     /// Notification that renderer health changed
-    static let didUpdateRendererHealth = Notification.Name("com.need-singularity.void.didUpdateRendererHealth")
+    static let didUpdateRendererHealth = Notification.Name("com.dancinlab.void.didUpdateRendererHealth")
 
     /// Notifications related to key sequences
-    static let didContinueKeySequence = Notification.Name("com.need-singularity.void.didContinueKeySequence")
-    static let didEndKeySequence = Notification.Name("com.need-singularity.void.didEndKeySequence")
+    static let didContinueKeySequence = Notification.Name("com.dancinlab.void.didContinueKeySequence")
+    static let didEndKeySequence = Notification.Name("com.dancinlab.void.didEndKeySequence")
     static let KeySequenceKey = didContinueKeySequence.rawValue + ".key"
 
     /// Notifications related to key tables
-    static let didChangeKeyTable = Notification.Name("com.need-singularity.void.didChangeKeyTable")
+    static let didChangeKeyTable = Notification.Name("com.dancinlab.void.didChangeKeyTable")
     static let KeyTableKey = didChangeKeyTable.rawValue + ".action"
 }
 

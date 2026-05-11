@@ -1,4 +1,4 @@
-app-id: com.need-singularity.void
+app-id: com.dancinlab.void
 runtime: org.gnome.Platform
 runtime-version: "49"
 sdk: org.gnome.Sdk

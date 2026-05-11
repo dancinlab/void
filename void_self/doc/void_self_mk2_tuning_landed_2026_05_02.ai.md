@@ -95,7 +95,7 @@ void/
 ### Recent commit context (last 100 commits scope)
 
 - **P1 grid-mode toggle (cmd+G)** shipped 2026-04-22 (commits 326e5f159 → 56dc8bea6 → 15ad6e416) — flatten/explode + SplitTree.grid balanced reshape.
-- **Hard-fork** declared 2026-04-25 (commit 0ce6453b0) — upstream remote removed, com.mitchellh.* → com.need-singularity.* sweep.
+- **Hard-fork** declared 2026-04-25 (commit 0ce6453b0) — upstream remote removed, com.mitchellh.* → com.dancinlab.* sweep.
 - **Pin-aware grid** + edge-snap (2026-04-30) — pinning mechanism with reflow on unpin (commits 0dbffbfc5, 5bca28af3, fd355894c, etc).
 - **P7 session preservation** in flight (2026-04-28..29) — `src/termio/PersistRing.zig` + `tool/void-session-replay.sh` + 1s msync timer landed; phase B2 auto-replay pending.
 - **UI polish** ongoing (2026-05-01..02) — green-dot completion indicator, dim-inactive overlay toggle, fullscreen opt-in via Window menu.

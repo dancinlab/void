@@ -178,6 +178,14 @@ private struct TerminalSplitLeaf: View {
     /// SwiftUI body. Drives the closed-hand cursor during the actual drag.
     @State private var magneticActive: Bool = false
 
+    private var primaryMouseIsDown: Bool {
+        (NSEvent.pressedMouseButtons & 0x1) != 0
+    }
+
+    private var canShowCmdMoveHint: Bool {
+        cmdMonitor.isHeld && !mouseMonitor.isDown && !primaryMouseIsDown
+    }
+
     /// Show the focus indicator only inside a split/grid where it carries
     /// information — a single full-window surface is unambiguously focused.
     private var isFocusedLeaf: Bool {
@@ -261,7 +269,7 @@ private struct TerminalSplitLeaf: View {
                 // the dashed border from flickering in if the user happens to
                 // tap Cmd mid-drag (e.g. during a text selection) — that's not
                 // an intent to move the pane.
-                if cmdMonitor.isHeld && !mouseMonitor.isDown && isFocusedLeaf && hovered {
+                if canShowCmdMoveHint && isFocusedLeaf && hovered {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .strokeBorder(
                             Color.accentColor.opacity(0.55),
@@ -294,7 +302,7 @@ private struct TerminalSplitLeaf: View {
             // itself targets the same OS floor as the rest of the grid UI.
             .backport.pointerStyle(
                 magneticActive ? .grabActive :
-                    (cmdMonitor.isHeld && !mouseMonitor.isDown && hovered ? .grabIdle : nil))
+                    (canShowCmdMoveHint && hovered ? .grabIdle : nil))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal pane")
         }
@@ -313,7 +321,7 @@ private struct TerminalSplitLeaf: View {
             // mouse-down time, we silently no-op so plain drags fall through
             // to the surface.
             if magnetic.snapshot == nil {
-                guard mouseMonitor.cmdHeldAtMouseDown else { return }
+                guard surfaceView.magneticDragArmed || mouseMonitor.cmdHeldAtMouseDown else { return }
                 let started = magnetic.begin(
                     at: value.startLocation,
                     translation: value.translation,
@@ -801,19 +809,10 @@ final class MagneticDragController: ObservableObject {
         let totalCount = snap.leafSlots.count
         guard totalCount >= 2 else { return 0.5 }
         let prefersTall = snap.rootSize.height > snap.rootSize.width
-        let major = max(2, Int(ceil(Double(totalCount).squareRoot())))
-        let cols: Int
-        let rows: Int
-        if prefersTall {
-            rows = major
-            cols = max(1, Int(ceil(Double(totalCount) / Double(rows))))
-        } else {
-            cols = major
-            rows = max(1, Int(ceil(Double(totalCount) / Double(cols))))
-        }
+        let dims = SplitTree<VD.SurfaceView>.gridDimensions(count: totalCount, prefersTall: prefersTall)
         switch zone {
-        case .top, .bottom: return 1.0 / Double(rows)
-        case .left, .right: return 1.0 / Double(cols)
+        case .top, .bottom: return 1.0 / Double(dims.rows)
+        case .left, .right: return 1.0 / Double(dims.cols)
         }
     }
 }

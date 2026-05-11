@@ -4,7 +4,7 @@ _\$XDG_CONFIG_HOME/void/config.void_
 
 : Location of the default configuration file.
 
-_\$HOME/Library/Application Support/com.need-singularity.void/config.void_
+_\$HOME/Library/Application Support/com.dancinlab.void/config.void_
 
 : **On macOS**, location of the default configuration file. This location takes
 precedence over the XDG environment locations.
@@ -20,7 +20,7 @@ for configuration files.
 
 : Default location for configuration files.
 
-**$HOME/Library/Application Support/com.need-singularity.void**
+**$HOME/Library/Application Support/com.dancinlab.void**
 
 : **MACOS ONLY** default location for configuration files. This location takes
 precedence over the XDG environment locations.

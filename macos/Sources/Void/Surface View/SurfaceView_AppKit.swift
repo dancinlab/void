@@ -210,6 +210,11 @@ extension VD {
         // balanced inside the surface.
         private var cmdSuppressedMouseDown: Bool = false
 
+        // True only while the current left-button press began with Cmd held on
+        // this surface. This gives SwiftUI's magnetic drag gesture an exact,
+        // per-pane source of truth for "Cmd-then-drag" activation.
+        @Published private(set) var magneticDragArmed: Bool = false
+
         // A small delay that is introduced before a title change to avoid flickers
         private var titleChangeTimer: Timer?
 
@@ -660,11 +665,19 @@ extension VD {
                 return event
             }
 
-            // If our window/app is already focused, then this click is only
-            // being used to transfer split focus. Consume it so it does not
-            // get forwarded to the terminal as a mouse click.
+            // If our window/app is already focused, then a plain click on an
+            // unfocused split is only being used to transfer focus. Consume it
+            // so it does not get forwarded to the terminal as a mouse click.
+            //
+            // Cmd+mouseDown is different: the grid uses that press to arm the
+            // magnetic drag gesture, so we must allow the event through after
+            // moving focus. Otherwise Cmd+drag works only from the already
+            // focused pane, which regresses pane swapping/repositioning.
             if NSApp.isActive && window.isKeyWindow {
                 window.makeFirstResponder(self)
+                if event.modifierFlags.contains(.command) {
+                    return event
+                }
                 suppressNextLeftMouseUp = true
                 return nil
             }
@@ -925,15 +938,18 @@ extension VD {
             // release into the surface.
             if event.modifierFlags.contains(.command) {
                 cmdSuppressedMouseDown = true
+                magneticDragArmed = true
                 super.mouseDown(with: event)
                 return
             }
             cmdSuppressedMouseDown = false
+            magneticDragArmed = false
             let mods = VD.voidMods(event.modifierFlags)
             void_surface_mouse_button(surface, VOID_MOUSE_PRESS, VOID_MOUSE_LEFT, mods)
         }
 
         override func mouseUp(with event: NSEvent) {
+            magneticDragArmed = false
             // If this mouse-up corresponds to a focus-only click transfer,
             // suppress it so we don't emit a release without a press.
             if suppressNextLeftMouseUp {

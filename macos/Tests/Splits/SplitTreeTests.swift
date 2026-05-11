@@ -731,13 +731,14 @@ struct SplitTreeTests {
         #expect(Array(tree) == [v1, v2])
     }
 
-    @Test func gridTwoViewsPortraitMatchesLandscape() {
-        // N=2 portrait: row-major with cap-at-2 means a single row of 2,
-        // identical to landscape — root horizontal.
+    @Test func gridTwoViewsPortraitStacksTopBottom() {
+        // N=2 portrait: a tall display prefers a vertical split for two
+        // panes (top/bottom), not the side-by-side layout used in
+        // landscape — so the root split is vertical.
         let v1 = MockView()
         let v2 = MockView()
         let tree = SplitTree<MockView>.grid(views: [v1, v2], prefersTall: true)
-        #expect(rootDirection(tree) == .horizontal)
+        #expect(rootDirection(tree) == .vertical)
         #expect(Array(tree) == [v1, v2])
     }
 

@@ -33,9 +33,9 @@
         "prefix": "agm",
         "inventory_path": "/Users/ghost/core/airgenome/state/proposals/inventory.json"
       },
-      "n6-architecture": {
+      "CANON": {
         "prefix": "n6a",
-        "inventory_path": "/Users/ghost/core/n6-architecture/state/proposals/inventory.json"
+        "inventory_path": "/Users/ghost/core/canon/state/proposals/inventory.json"
       },
       "hexa-os": {
         "prefix": "hxo",

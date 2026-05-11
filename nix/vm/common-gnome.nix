@@ -86,8 +86,8 @@
       {
         settings = with lib.gvariant; {
           "org/gnome/desktop/background" = {
-            picture-uri = "file://${pkgs.void}/share/icons/hicolor/512x512/apps/com.need-singularity.void.png";
-            picture-uri-dark = "file://${pkgs.void}/share/icons/hicolor/512x512/apps/com.need-singularity.void.png";
+            picture-uri = "file://${pkgs.void}/share/icons/hicolor/512x512/apps/com.dancinlab.void.png";
+            picture-uri-dark = "file://${pkgs.void}/share/icons/hicolor/512x512/apps/com.dancinlab.void.png";
             picture-options = "centered";
             primary-color = "#000000000000";
             secondary-color = "#000000000000";
@@ -100,7 +100,7 @@
           };
           "org/gnome/desktop/screensaver" = {
             lock-enabled = false;
-            picture-uri = "file://${pkgs.void}/share/icons/hicolor/512x512/apps/com.need-singularity.void.png";
+            picture-uri = "file://${pkgs.void}/share/icons/hicolor/512x512/apps/com.dancinlab.void.png";
             picture-options = "centered";
             primary-color = "#000000000000";
             secondary-color = "#000000000000";
@@ -134,7 +134,7 @@
       text = ''
         mkdir -p /var/lib/AccountsService/{icons,users}
 
-        cp ${pkgs.void}/share/icons/hicolor/1024x1024/apps/com.need-singularity.void.png /var/lib/AccountsService/icons/void
+        cp ${pkgs.void}/share/icons/hicolor/1024x1024/apps/com.dancinlab.void.png /var/lib/AccountsService/icons/void
 
         echo -e "[User]\nIcon=/var/lib/AccountsService/icons/void\n" > /var/lib/AccountsService/users/void
 
