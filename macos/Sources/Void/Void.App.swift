@@ -1432,19 +1432,6 @@ extension VD {
             title: String,
             body: String,
             requireFocus: Bool = true) {
-            // Mirror the OSC desktop notification onto the in-app bell so the
-            // grid pwdLabel's green dot lights up even when the user denies
-            // (or hasn't approved) system notification permissions. Without
-            // this, OSC-9/777 emitters like the Claude Code TUI's
-            // "awaiting input" signal show a system banner but leave no
-            // intra-window cue, so users miss completions while glancing
-            // across split panes. Bell auto-clears on focus, so focused
-            // surfaces stay quiet.
-            NotificationCenter.default.post(
-                name: .voidBellDidRing,
-                object: surfaceView
-            )
-
             let center = UNUserNotificationCenter.current()
             center.requestAuthorization(options: [.alert, .sound]) { _, error in
                 if let error = error {
