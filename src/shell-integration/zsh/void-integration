@@ -432,6 +432,42 @@ _void_deferred_init() {
         fi
     done
 
+    # Alt+Backspace / Alt+Delete: extend backward/forward-kill-word to also
+    # eat any whitespace adjacent to the cursor after the word is killed.
+    # readline/zle's default `backward-kill-word` leaves the inter-word space
+    # behind (e.g. "hello world|" → "hello "), but most users expect a single
+    # alt+backspace to collapse to "hello". Opt out by setting
+    # VOID_ALT_KILL_WORD_NO_SPACE=1 in the environment before shell startup.
+    if [[ -z ${VOID_ALT_KILL_WORD_NO_SPACE-} ]]; then
+        _void_backward_kill_word_and_space() {
+            builtin zle backward-kill-word
+            local guard=0
+            while [[ $LBUFFER == *' ' || $LBUFFER == *$'\t' || $LBUFFER == *$'\n' ]]; do
+                (( ++guard > 4096 )) && break
+                builtin zle backward-delete-char
+            done
+        }
+        _void_kill_word_and_space() {
+            builtin zle kill-word
+            local guard=0
+            while [[ $RBUFFER == ' '* || $RBUFFER == $'\t'* || $RBUFFER == $'\n'* ]]; do
+                (( ++guard > 4096 )) && break
+                builtin zle delete-char
+            done
+        }
+        builtin zle -N _void_backward_kill_word_and_space
+        builtin zle -N _void_kill_word_and_space
+        # \e^? = ESC + DEL (alt+backspace), \e^H = ESC + BS (some keyboards),
+        # \ed = ESC + d (alt+delete via vi-style M-d), ^W = Ctrl+W (HHKB
+        # firmware remaps alt+backspace to ^W since that's the canonical
+        # backward-kill-word in readline; zsh's default ^W → backward-kill-word
+        # leaves the inter-word space behind on its own).
+        builtin bindkey '^[^?' _void_backward_kill_word_and_space
+        builtin bindkey '^[^H' _void_backward_kill_word_and_space
+        builtin bindkey '^W'   _void_backward_kill_word_and_space
+        builtin bindkey '^[d'  _void_kill_word_and_space
+    fi
+
     if (( $+functions[_void_preexec] )); then
         builtin typeset -ag preexec_functions
         preexec_functions+=(_void_preexec)

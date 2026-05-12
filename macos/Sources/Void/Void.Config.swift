@@ -974,6 +974,60 @@ extension VD.Config {
     }
 }
 
+/// Whether Ctrl+Backspace and Ctrl+Delete are forwarded to the shell with the
+/// Control modifier intact (readline default in bash/zsh erases the entire input
+/// line, which is what users hit when they reported "entire text gets deleted"),
+/// or stripped of Control so the shell sees a plain Backspace/Delete (one-char
+/// erase).
+///
+/// Read once from `$XDG_CONFIG_HOME/void/config.void` (or `~/.config/void/config.void`)
+/// at first access and cached.
+///
+/// config.void key:
+///     ctrl-erase-line = true | false
+/// Default: false (Ctrl is stripped → behaves like plain Backspace/Delete).
+enum VoidCtrlEraseLine {
+    static let enabled: Bool = VoidConfigBool.read(key: "ctrl-erase-line", default: false)
+}
+
+/// Whether Alt+Backspace and Alt+Delete are forwarded to the shell with the
+/// Option modifier intact (readline kills a word backward / forward — the
+/// common "delete word" shortcut), or stripped of Option so the shell sees a
+/// plain Backspace/Delete.
+///
+/// config.void key:
+///     alt-erase-word = true | false
+/// Default: true (kill-word behavior preserved).
+enum VoidAltEraseWord {
+    static let enabled: Bool = VoidConfigBool.read(key: "alt-erase-word", default: true)
+}
+
+/// Shared lightweight reader for boolean keys that only the Swift app cares
+/// about (VoidKit/Zig parser does not need to know them). Reads once at first
+/// access. Lines starting with `#` and blank lines are ignored.
+private enum VoidConfigBool {
+    static func read(key: String, default fallback: Bool) -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        let baseDir: URL = {
+            if let xdg = env["XDG_CONFIG_HOME"], !xdg.isEmpty {
+                return URL(fileURLWithPath: xdg)
+            }
+            return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config")
+        }()
+        let url = baseDir.appendingPathComponent("void/config.void")
+        guard let data = try? String(contentsOf: url, encoding: .utf8) else { return fallback }
+        for raw in data.split(separator: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            guard line.hasPrefix(key) else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2, parts[0] == key else { continue }
+            return parts[1].lowercased() == "true"
+        }
+        return fallback
+    }
+}
+
 /// How a pwd-like path is rendered in tab/window titles and grid pane labels.
 /// Read once from `$XDG_CONFIG_HOME/void/config.void` (or `~/.config/void/config.void`)
 /// at first access and cached — no per-frame disk hits.

@@ -40,6 +40,34 @@
 # keybind = cmd+g=grid_mode_toggle
 
 # ─────────────────────────────────────────────────────────────────
+# macOS Option = Alt (terminal-side meta)
+# ─────────────────────────────────────────────────────────────────
+# Default 는 키보드 레이아웃 의존 (US Standard 만 자동 true). 한국어 등
+# 비-US 레이아웃이면 false → Option+키 가 Unicode 입력 모드로 동작해서
+# alt+backspace 같은 터미널 escape sequence 가 안 나감. 명시적으로 true 로
+# 켜야 readline/zle 의 word-kill 단축키가 동작.
+# 좌/우 한쪽만 켜고 싶으면 `left` 또는 `right`.
+macos-option-as-alt = true
+
+# ─────────────────────────────────────────────────────────────────
+# Backspace / Delete 수식자 동작 (macOS only — Swift 측 인터셉트)
+# ─────────────────────────────────────────────────────────────────
+# Ctrl+Backspace / Ctrl+Delete:
+#   readline 환경에 따라 입력줄 전체가 지워지는 것처럼 느껴짐
+#   ("글자 전체 삭제"). false (기본) 일 때 Swift 측에서 Control 을
+#   떼고 shell 에 전달 → plain Backspace/Delete 와 동일하게 한 글자만.
+#   true 면 원래대로 통과.
+#
+# ctrl-erase-line = false
+#
+# Alt+Backspace / Alt+Delete (= Option+Backspace / Option+Delete):
+#   true (기본) 면 readline 의 backward-kill-word / kill-word 그대로
+#   통과 → 단어 단위 삭제. false 면 Option 을 떼고 plain Backspace/
+#   Delete 로 다운그레이드.
+#
+# alt-erase-word = true
+
+# ─────────────────────────────────────────────────────────────────
 # 기본 리맵 (이미 Config.zig 에 박힌 상태 — 0301c19e9 커밋)
 # ─────────────────────────────────────────────────────────────────
 # cmd+g 는 grid mode 예약 (void upstream = navigate_search next).

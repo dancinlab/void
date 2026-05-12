@@ -1150,6 +1150,39 @@ extension VD {
         }
 
         override func keyDown(with event: NSEvent) {
+            // Backspace (0x33) / Forward Delete (0x75) with a modifier:
+            //   - Ctrl: readline erases the entire input line. Off by default
+            //     (`ctrl-erase-line = false`) — Control is stripped so the
+            //     shell sees a plain one-char Backspace/Delete.
+            //   - Alt: readline kills a word backward/forward. On by default
+            //     (`alt-erase-word = true`) — pass through. When disabled, the
+            //     Option modifier is stripped likewise.
+            let event: NSEvent = {
+                let isEraseKey = event.keyCode == 0x33 || event.keyCode == 0x75
+                guard isEraseKey else { return event }
+                var mods = event.modifierFlags
+                var rewrite = false
+                if mods.contains(.control), !VoidCtrlEraseLine.enabled {
+                    mods.remove(.control); rewrite = true
+                }
+                if mods.contains(.option), !VoidAltEraseWord.enabled {
+                    mods.remove(.option); rewrite = true
+                }
+                guard rewrite else { return event }
+                return NSEvent.keyEvent(
+                    with: event.type,
+                    location: event.locationInWindow,
+                    modifierFlags: mods,
+                    timestamp: event.timestamp,
+                    windowNumber: event.windowNumber,
+                    context: nil,
+                    characters: event.characters(byApplyingModifiers: mods) ?? "",
+                    charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+                    isARepeat: event.isARepeat,
+                    keyCode: event.keyCode
+                ) ?? event
+            }()
+
             guard let surface = self.surface else {
                 self.interpretKeyEvents([event])
                 return

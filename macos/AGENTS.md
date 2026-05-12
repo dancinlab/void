@@ -10,6 +10,33 @@
   - Output: `macos/build/<configuration>/Void.app` (e.g. `macos/build/Debug/Void.app`)
 - Run unit tests directly with `macos/build.nu --action test`
 
+## Local iteration vs public release
+
+For day-to-day changes, **do NOT run `hx install` / `install.hexa`** — it does
+a full clean ReleaseFast build + stable-identity codesign + TCC reset + Full
+Disk Access prompt, which is the right thing only for a public-distribution
+install. For local edits, prefer the much faster cycle:
+
+```sh
+# from repo root — incremental build + drop into /Applications.
+vendor/zig-0.15.2/bin/zig build -Demit-macos-app -Doptimize=ReleaseFast
+osascript -e 'tell application "Void" to quit' 2>/dev/null
+pkill -x void 2>/dev/null
+rm -rf /Applications/Void.app.new
+cp -R macos/build/ReleaseLocal/Void.app /Applications/Void.app.new
+rm -rf /Applications/Void.app
+mv /Applications/Void.app.new /Applications/Void.app
+open -a /Applications/Void.app
+```
+
+Run the installed binary directly when you need to exercise it from a script:
+`/Applications/Void.app/Contents/MacOS/void` — that path is the canonical
+artifact and should be used over the `build/ReleaseLocal/` copy once an
+install is done.
+
+Reserve `hx install` for **public-release** builds where the TCC permission
+persistence and codesign identity rotation actually matter.
+
 ## AppleScript
 
 - The AppleScript scripting definition is in `macos/Void.sdef`.
