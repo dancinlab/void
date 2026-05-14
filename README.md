@@ -1,3 +1,24 @@
+<p align="center">
+  <img src="docs/logo.svg" width="140" alt="void">
+</p>
+
+<h1 align="center">⬡ void</h1>
+
+<p align="center"><strong>Void</strong> — AI-native terminal · grid-mode first · structured agent I/O · perf-first · hard fork of Ghostty</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://github.com/ghostty-org/ghostty"><img alt="Based on Ghostty" src="https://img.shields.io/badge/based_on-ghostty-blueviolet"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20·%20Linux-lightgrey">
+  <img alt="Renderer" src="https://img.shields.io/badge/renderer-Metal%20·%20OpenGL-success">
+  <img alt="Core" src="https://img.shields.io/badge/core-zig%20·%20swift-informational">
+  <a href="https://github.com/dancinlab/void/tree/void/main"><img alt="Branch" src="https://img.shields.io/badge/branch-void%2Fmain-success"></a>
+</p>
+
+<p align="center">terminal · grid-mode · ai-native-io · pty · tool-call-stream · perf-first · zig · swift · gtk · metal · opengl</p>
+
+---
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Based on Ghostty](https://img.shields.io/badge/based%20on-ghostty-blueviolet.svg)](https://github.com/ghostty-org/ghostty)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#)
@@ -234,6 +255,41 @@ Void is a hard fork of **[Ghostty](https://github.com/ghostty-org/ghostty)** by 
 ## Links
 
 **[🗺️ Atlas](https://dancinlab.github.io/TECS-L/atlas/)** · **[📄 Papers](https://dancinlab.github.io/papers/)** · **[Ghostty docs](https://ghostty.org/docs)** · **[Contributing](CONTRIBUTING.md)** · **[Developing](HACKING.md)** · **[Fork rationale](VOID_FORK.md)**
+
+## Status
+
+- Fork date: 2026-04-21 (from upstream commit `c3c8572f7`)
+- Default branch: `void/main` (not `main`)
+- L3 rename complete — 4698 files renamed Ghostty → Void at commit `964c9e32e`
+- Phase 1 (Grid mode + new-tab keybinding) in flight — `toggle_grid_mode` + `cmd+g` wired at commit `326e5f15`; surface rendering / auto-layout / slot-spawn pending
+- CI: `.github/workflows/build-fork.yml` on GitHub-hosted `macos-15` runners (ad-hoc codesign)
+
+## Repo layout
+
+```
+void/
+├── README.md
+├── AGENTS.md / AGENTS.tape         project ops manual + machine-readable companion
+├── VOID_FORK.md                    fork rationale + non-goals + upstream policy
+├── HACKING.md / CONTRIBUTING.md    dev + contribution guides
+├── LICENSE                         MIT
+├── build.zig / build.zig.zon       Zig build entry + manifest
+├── src/                            libvoid (Zig core) — parser · terminal state · renderer · grid · agent I/O
+├── macos/                          Swift app (SwiftUI · AppIntents · Metal · CoreText)
+├── linux/ + gtk/                   GTK app (systemd · OpenGL · FreeType)
+├── pkg/                            vendored package wrappers
+├── include/                        C-ABI headers for libvoid embedders
+├── images/                         icon + brand assets (hexagon n=6 family)
+├── docs/                           reference docs + logo.svg
+├── conformance/                    terminal protocol conformance tests
+├── bench/                          perf budget harness (Δ vs Ghostty baseline)
+├── nix/ + flake.nix                Nix build entry
+└── .github/workflows/              CI (build-fork.yml on macos-15 runners)
+```
+
+## License
+
+[MIT](LICENSE) — same license as upstream Ghostty. All Ghostty contributors are credited in upstream history (preserved in this repo); divergent features (grid mode, AI-native I/O, perf harness) are Void-only.
 
 ---
 

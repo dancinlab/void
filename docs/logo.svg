@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140" role="img" aria-label="void logo">
+  <polygon points="70,8 130,42 130,98 70,132 10,98 10,42"
+           fill="none" stroke="#bf8700" stroke-width="6"
+           stroke-linejoin="round" stroke-linecap="round"/>
+  <line x1="6" y1="70" x2="134" y2="70"
+        stroke="#bf8700" stroke-width="6"
+        stroke-linecap="round"/>
+  <text x="70" y="106" text-anchor="middle"
+        font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
+        font-size="22" font-weight="700" fill="#bf8700"
+        letter-spacing="2">void</text>
+</svg>
