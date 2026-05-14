@@ -47,6 +47,8 @@
   emoji = "⬡"
   one_liner = "AI-native terminal — grid-mode first, structured agent I/O, perf-first; hard fork of Ghostty"
   kind = "terminal emulator (Zig shared core + native Swift on macOS + GTK on Linux)"
+  brief = "AI-native terminal · grid-mode first · Ghostty hard fork"
+  parent = "dancinlab"
   repo = "github.com/dancinlab/void"
   upstream = "github.com/ghostty-org/ghostty (selective cherry-pick only)"
   local_path = "~/core/void/"
