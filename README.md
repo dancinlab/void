@@ -4,7 +4,7 @@
 
 <h1 align="center">⬡ void</h1>
 
-<p align="center"><strong>Void</strong> — AI-native terminal · grid-mode first · structured agent I/O · perf-first · hard fork of Ghostty</p>
+<p align="center"><strong>Void</strong> — grid-first terminal · Ghostty hard fork · N×M tiling as a core surface · structured agent I/O · perf-budget governance</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
@@ -15,102 +15,65 @@
   <a href="https://github.com/dancinlab/void/tree/void/main"><img alt="Branch" src="https://img.shields.io/badge/branch-void%2Fmain-success"></a>
 </p>
 
-<p align="center">terminal · grid-mode · ai-native-io · pty · tool-call-stream · perf-first · zig · swift · gtk · metal · opengl</p>
+<p align="center">grid-mode · tiling-surface · terminal · pty · tool-call-stream · perf-first · zig · swift · gtk · metal · opengl</p>
 
 ---
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Based on Ghostty](https://img.shields.io/badge/based%20on-ghostty-blueviolet.svg)](https://github.com/ghostty-org/ghostty)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#)
-[![Renderer](https://img.shields.io/badge/renderer-Metal%20%7C%20OpenGL-brightgreen.svg)](#)
-[![Zig + Swift](https://img.shields.io/badge/core-zig%20%2B%20swift-orange.svg)](#)
-[![Branch](https://img.shields.io/badge/branch-void%2Fmain-success.svg)](https://github.com/dancinlab/void/tree/void/main)
-[![Discord](https://img.shields.io/badge/discord-join-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/u2spd3wwU)
+Void is a hard fork of [Ghostty](https://github.com/ghostty-org/ghostty) where an N×M pane grid is a first-class rendering surface — not a window-manager bolt-on, not a tmux-style multiplexer process. When cell count `N` changes the layout auto-rebalances (`cols = ⌈√N⌉, rows = ⌈N/cols⌉, cols ≥ rows`), each cell carries its own cwd/env, and input can broadcast to all cells. It inherits Ghostty's engine (SIMD parser, Metal/OpenGL, per-terminal threads) and adds two more directions on top: a structured agent I/O channel alongside PTY, and a per-PR perf budget. Zig shared core, native Swift on macOS, GTK on Linux.
 
-# ⬡ Void — AI-native Terminal
+> [!NOTE]
+> Part of the dancinlab n = 6 family — hexagonal icon, sibling to [NEXUS](https://github.com/dancinlab/nexus), [Anima](https://github.com/dancinlab/anima), [N6](https://github.com/dancinlab/canon), and [HEXA-LANG](https://github.com/dancinlab/hexa-lang). Void is a UX divergence from Ghostty, not a drop-in replacement; upstream syncs are selective cherry-picks only and full Ghostty history/credit is preserved.
 
-**Grid-mode first. AI-native I/O. Perf-first. Based on [Ghostty](https://github.com/ghostty-org/ghostty).**
+## At a glance
 
 ```
-    ┌──── Grid ────┐       ┌──── Agent ────┐       ┌──── Perf ────┐
-    │  N × M panes │  ⇄   │  PTY + tool   │  ⇄   │  SIMD parser │
-    │  auto-layout │       │  structured   │       │  Metal/OpenGL│
-    │  per-cell cwd│       │  token stream │       │  Δ vs ghostty│
-    └──────────────┘       └───────────────┘       └──────────────┘
-               ▲                   ▲                      ▲
-               └────── three non-negotiable directions ───┘
+   spawn a pane with cmd+ctrl+1..9 — the grid auto-rebalances
+
+   N = 2          N = 4               N = 6                  N = 9
+   ┌────┬────┐    ┌────┬────┐         ┌───┬───┬───┐          ┌───┬───┬───┐
+   │ 1  │ 2  │    │ 1  │ 2  │         │ 1 │ 2 │ 3 │          │ 1 │ 2 │ 3 │
+   │~/p │~/w │    ├────┼────┤         ├───┼───┼───┤          ├───┼───┼───┤
+   └────┴────┘    │ 3  │ 4  │         │ 4 │ 5 │ 6 │          │ 4 │ 5 │ 6 │
+                  │~/l │~/r │         │~/r│~/s│~/t│          ├───┼───┼───┤
+   2 × 1          └────┴────┘         └───┴───┴───┘          │ 7 │ 8 │ 9 │
+                  2 × 2               3 × 2                  └───┴───┴───┘
+                                                             3 × 3
+
+   cols = ⌈√N⌉   rows = ⌈N/cols⌉   cols ≥ rows   ·   per-cell cwd   ·   no manual resize handles   ·   no tmux
 ```
 
-> Void is a hard fork of [Ghostty](https://github.com/ghostty-org/ghostty) rebuilt around three directions the upstream is not taking: grid mode as a first-class tiling surface (not a plugin), AI-agent I/O baked into the terminal layer alongside PTY, and a perf budget tracked on every PR. Zig shared core, native Swift on macOS, GTK on Linux.
+> Demo GIF (spawn → auto-rebalance → per-cell cwd): _pending — see release assets._
 
-<!-- SHARED:PROJECTS:START -->
-<!-- AUTO:COMMON_LINKS:START -->
-**[🎥 YouTube](https://www.youtube.com/@dancinlife)** · **[💬 Discord](https://discord.gg/mYzqYr67R)** · **[📬 Email](mailto:nerve011235@gmail.com)** · **[☕ Ko-fi](https://ko-fi.com/dancinlife)** · **[💖 Sponsor](https://github.com/sponsors/dancinlab)** · **[💳 PayPal](https://www.paypal.com/donate?business=nerve011235%40gmail.com)** · **[🗺️ Atlas](https://dancinlab.github.io/TECS-L/atlas/)** · **[📄 Papers](https://dancinlab.github.io/papers/)**
-<!-- AUTO:COMMON_LINKS:END -->
-
-## Main projects
-
-> **[🧠 Anima](https://github.com/dancinlab/anima)** — Consciousness implementation. PureField repulsion-field engine + 1030 laws + Φ ratchet.
->
-> **[🔭 NEXUS](https://github.com/dancinlab/nexus)** — Universal Discovery Engine. 216 lenses + OUROBOROS evolution + 5-phase singularity cycle.
->
-> **[🏗️ N6 Architecture](https://github.com/dancinlab/canon)** — Architecture from perfect number 6. 225 AI techniques + chip design + crypto/OS/display.
->
-> **[💎 HEXA-LANG](https://github.com/dancinlab/hexa-lang)** — The Perfect Number Programming Language. Working compiler + REPL.
->
-> **[📄 Papers](https://github.com/dancinlab/papers)** — Complete paper collection (92 papers, Zenodo DOIs).
-
-> **[Other projects →](https://github.com/orgs/dancinlab/repositories)**
-
-## 💬 Community
-
-[![Join our Discord](https://invidget.switchblade.xyz/mYzqYr67R)](https://discord.gg/mYzqYr67R)
-
-Live research discussion, paper drops, stage-gate reviews, cross-project dispatch.
-
-<!-- private repos는 projects.json의 private_repos 필드에 저장됨 (노출 금지) -->
-<!-- SHARED:PROJECTS:END -->
-
-
-
-
-
----
-
-## Highlights
-
-| | |
-|---|---|
-| ⬡ | **Ghostty-grade performance** — SIMD parser, per-terminal render/read/write threads, Metal on macOS, OpenGL on Linux |
-| ▦ | **Grid mode** — N×M pane grid as a core surface, auto-layout (cols = ⌈√N⌉, rows = ⌈N/cols⌉), per-cell cwd |
-| 🤖 | **AI-native I/O** — agent protocol alongside PTY; structured tool-call / token-stream channels, no wrapper |
-| ⚡ | **Perf budget** — every PR reports Δ against the Ghostty baseline; ≥ 2 % regression blocks merge |
-| 🎨 | **Native UI** — SwiftUI on macOS (AppIntents, Shortcuts), GTK on Linux (systemd, cgroup isolation) |
-| ⬢ | **dancinlab branding** — hexagonal icon, n = 6 family (NEXUS · Anima · N6 · HEXA · Void) |
-
-## Three non-negotiable directions
-
-Void is not a drop-in Ghostty replacement. It will diverge in UX, and upstream syncs are selective cherry-picks only.
-
-### 1. Grid mode — first-class tiling surface
-
-```
-   cells = N                              cells auto-layout
-   ──────────────────────────────         cols = ⌈√N⌉   rows = ⌈N/cols⌉
-   N = 2  →  2 × 1                        cols ≥ rows (wider before taller)
-   N = 4  →  2 × 2
-   N = 6  →  3 × 2                        ┌──────┬──────┬──────┐
-   N = 9  →  3 × 3                        │  1   │  2   │  3   │
-                                          │ ~/p  │ ~/w  │ ~/l  │
-   on add/remove: whole grid              ├──────┼──────┼──────┤
-   re-balances to equal splits            │  4   │  5   │  6   │
-   (no manual resize handles)             │ ~/r  │ ~/s  │ ~/t  │
-                                          └──────┴──────┴──────┘
+```sh
+void                   # launch terminal
+cmd+g                  # toggle grid mode <-> tab mode
+cmd+ctrl+1..9          # spawn a tab in grid slot 1..9 (auto-rebalances)
+cmd+ctrl+shift+1..9    # cycle tabs within a grid slot
+cmd+ctrl+0             # broadcast input to all cells
 ```
 
-N×M pane grid as a core surface concept — **not** a window-manager bolt-on. Auto-grid: when cell count N changes, the layout re-balances to `cols × rows` with `cols = ⌈√N⌉, rows = ⌈N/cols⌉, cols ≥ rows`. Per-cell cwd / env. Shared renderer. New renderer path (not a patch on the single-surface renderer). MVP ships as N=2 horizontal split, then generalizes to N×M.
+## Why void
 
-### 2. AI-native I/O
+Three things upstream Ghostty treats as explicit non-goals — Void forks to take exactly these bets.
+
+### 1. Grid mode — a first-class tiling surface
+
+```
+   cells = N                              on add / remove the whole grid
+   ──────────────────────────────         re-balances to equal splits:
+   N = 2  →  2 × 1                        cols = ⌈√N⌉
+   N = 4  →  2 × 2                        rows = ⌈N/cols⌉
+   N = 6  →  3 × 2                        cols ≥ rows (wider before taller)
+   N = 9  →  3 × 3                        (no manual resize handles)
+```
+
+The N×M grid is a new renderer path, not a patch on the single-surface renderer and not a multiplexer process. Per-cell cwd / env, shared input routing, broadcast. No tmux, no prefix key, no config DSL to learn. This is the headline — the other two directions sit on top of it.
+
+### 2. Ghostty hard fork — performance inherited, not rebuilt
+
+Void did not rebuild a terminal. It hard-forks a fast one and changes three things. The SIMD parser, Metal (macOS) / OpenGL (Linux) renderers, and per-terminal render/read/write threads come straight from Ghostty. 4698 files were renamed Ghostty → Void at commit `964c9e32e`; upstream history and contributor credit are preserved (cherry-pick only, no clean merges).
+
+### 3. AI-native I/O and a perf budget (secondary)
 
 ```
    shell process     ┌──── PTY ────────▶  traditional byte stream
@@ -122,19 +85,18 @@ N×M pane grid as a core surface concept — **not** a window-manager bolt-on. A
    agent process      (no wrapper process required)
 ```
 
-Running an agent does not require a wrapper. The terminal layer itself speaks both PTY and a structured channel — tool calls, token stream boundaries, and result spans are first-class, not heuristic-parsed from stdout.
+A structured agent channel **alongside** PTY — tool-call events and token-stream boundaries as a data model, not heuristic-parsed from stdout. This is a downstream direction (P3), deliberately not the headline: Void is grid-first, not an "AI overlay" terminal. And every PR reports a delta against the Ghostty baseline — a **≥ 2 % regression blocks merge**, so a fork that adds features to a speed-chosen codebase cannot die by a thousand small regressions.
 
-### 3. Perf-first
+## Highlights
 
-Speed, memory, GPU time, and syscall budgets are a tracked first-class concern. Every PR reports delta against the Ghostty baseline. Regressions ≥ 2 % block merge.
-
-```
-           Ghostty baseline              Void target
-   parse:  SIMD AVX2/NEON         →      + tool-call fast path
-   render: Metal / OpenGL         →      + grid batch reuse
-   memory: arena + screen rings   →      + per-cell allocator
-   sys:    read/write/render thr. →      + agent-channel thread
-```
+| | |
+|---|---|
+| ▦ | **Grid mode** — N×M pane grid as a core surface, auto-layout (`cols = ⌈√N⌉, rows = ⌈N/cols⌉`), per-cell cwd, broadcast |
+| ⬡ | **Ghostty-grade performance** — SIMD parser, per-terminal render/read/write threads, Metal on macOS, OpenGL on Linux |
+| ⚡ | **Perf budget** — every PR reports Δ against the Ghostty baseline; ≥ 2 % regression blocks merge |
+| ◆ | **AI-native I/O** (P3) — agent protocol alongside PTY; structured tool-call / token-stream channels, no wrapper |
+| ◈ | **Native UI** — SwiftUI on macOS (AppIntents, Shortcuts), GTK on Linux (systemd, cgroup isolation) |
+| ⬢ | **dancinlab branding** — hexagonal icon, n = 6 family (NEXUS · Anima · N6 · HEXA · Void) |
 
 ## Architecture
 
@@ -161,7 +123,7 @@ Zig-based shared core with platform-native shells. Core is C-ABI-compatible so i
 
 ## Install
 
-```bash
+```sh
 # 1. Install hexa-lang (gives you `hexa` + `hx` package manager)
 curl -fsSL https://raw.githubusercontent.com/dancinlab/hexa-lang/main/install.sh | bash
 
@@ -173,14 +135,14 @@ Or build from source — see [HACKING.md](HACKING.md). Default branch on the for
 
 ## Run
 
-```bash
+```sh
 void                   # launch terminal
 void +show-config      # print active config
 void +list-keybinds    # list keybindings
 void +crash-report     # list crash reports
 ```
 
-## Keybindings (default, Phase 1)
+## Keybindings (default)
 
 | Keys | Action |
 |------|--------|
@@ -222,18 +184,19 @@ Phases:
 
 |  #  | Phase                                                               |  ETA       | Status |
 | :-: | ------------------------------------------------------------------- | :--------: | :----: |
-| P1  | **Grid mode + new-tab keybinding** — auto-grid, slot-spawn, mode toggle | 2026-04-28 |   🛠   |
+| P1  | **Grid mode + new-tab keybinding** — auto-grid, slot-spawn, mode toggle | 2026-05-18 |   ✅   |
 | P2  | Stack analysis — map void renderer/apprt/terminal/font internals    | 2026-05-05 |   ⬜   |
 | P3  | AI-native I/O protocol — structured agent channel alongside PTY     | —          |   ⬜   |
 | P4  | Perf baseline — capture benches, set void regression budgets        | —          |   ⬜   |
 | P5  | Diverge / upstream strategy — decide what feeds back vs stays void  | —          |   ⬜   |
 
-Current state (P1): `toggle_grid_mode` action and `cmd+g` keybind wired at commit `326e5f15`. Surface rendering, auto-layout, and slot-spawn land in the rest of P1 — MVP is N=2 horizontal split, then generalizes to N×M.
+P1 (grid mode) is complete: surface rendering, N×M auto-layout (`cols = ⌈√N⌉`), `cmd+ctrl+1..9` slot-spawn, broadcast, and per-cell cwd all landed. P4 (perf baseline) is next — capturing the Ghostty-baseline benches before further divergence accumulates.
 
 ## Non-goals
 
 - **Not a drop-in Ghostty replacement** — Void will diverge in UX.
 - **Not a shell** — Void drives shells, it does not replace them.
+- **Not an "AI terminal"** — grid mode is the headline; agent I/O is a downstream direction, not an overlay.
 
 ## Crash reports
 
@@ -242,26 +205,12 @@ Void inherits Ghostty's crash reporter. Reports are saved to `$XDG_STATE_HOME/vo
 > [!WARNING]
 > Crash reports contain full stack memory per thread at the time of the crash and can include sensitive data.
 
-## Contributing
-
-- **Contributing to Void** — [CONTRIBUTING.md](CONTRIBUTING.md)
-- **Developing Void** — [HACKING.md](HACKING.md)
-- **Fork rationale & upstream policy** — [VOID_FORK.md](VOID_FORK.md)
-
-## Credits
-
-Void is a hard fork of **[Ghostty](https://github.com/ghostty-org/ghostty)** by [Mitchell Hashimoto](https://mitchellh.com) and the Ghostty team. All Ghostty contributors are credited in upstream history, which is preserved in this repo. Divergent features (grid mode, AI-native I/O, perf harness) are Void-only.
-
-## Links
-
-**[🗺️ Atlas](https://dancinlab.github.io/TECS-L/atlas/)** · **[📄 Papers](https://dancinlab.github.io/papers/)** · **[Ghostty docs](https://ghostty.org/docs)** · **[Contributing](CONTRIBUTING.md)** · **[Developing](HACKING.md)** · **[Fork rationale](VOID_FORK.md)**
-
 ## Status
 
-- Fork date: 2026-04-21 (from upstream commit `c3c8572f7`)
-- Default branch: `void/main` (not `main`)
+- P1 (grid mode + new-tab keybinding) **complete** (2026-05-18) — surface rendering, N×M auto-layout, slot-spawn, broadcast, per-cell cwd
+- Fork date: 2026-04-21 (from upstream commit `c3c8572f7`); default branch `void/main` (not `main`)
 - L3 rename complete — 4698 files renamed Ghostty → Void at commit `964c9e32e`
-- Phase 1 (Grid mode + new-tab keybinding) in flight — `toggle_grid_mode` + `cmd+g` wired at commit `326e5f15`; surface rendering / auto-layout / slot-spawn pending
+- Next: P4 perf baseline (capture Ghostty-baseline benches), then Show HN / r/commandline launch
 - CI: `.github/workflows/build-fork.yml` on GitHub-hosted `macos-15` runners (ad-hoc codesign)
 
 ## Repo layout
@@ -287,9 +236,51 @@ void/
 └── .github/workflows/              CI (build-fork.yml on macos-15 runners)
 ```
 
+## Contributing
+
+- **Contributing to Void** — [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Developing Void** — [HACKING.md](HACKING.md)
+- **Fork rationale & upstream policy** — [VOID_FORK.md](VOID_FORK.md)
+
+## Credits
+
+Void is a hard fork of **[Ghostty](https://github.com/ghostty-org/ghostty)** by [Mitchell Hashimoto](https://mitchellh.com) and the Ghostty team. All Ghostty contributors are credited in upstream history, which is preserved in this repo. Divergent features (grid mode, AI-native I/O, perf harness) are Void-only.
+
 ## License
 
 [MIT](LICENSE) — same license as upstream Ghostty. All Ghostty contributors are credited in upstream history (preserved in this repo); divergent features (grid mode, AI-native I/O, perf harness) are Void-only.
+
+## Links
+
+**[Atlas](https://dancinlab.github.io/TECS-L/atlas/)** · **[Papers](https://dancinlab.github.io/papers/)** · **[Ghostty docs](https://ghostty.org/docs)** · **[Contributing](CONTRIBUTING.md)** · **[Developing](HACKING.md)** · **[Fork rationale](VOID_FORK.md)**
+
+<!-- SHARED:PROJECTS:START -->
+<!-- AUTO:COMMON_LINKS:START -->
+**[🎥 YouTube](https://www.youtube.com/@dancinlife)** · **[💬 Discord](https://discord.gg/mYzqYr67R)** · **[📬 Email](mailto:nerve011235@gmail.com)** · **[☕ Ko-fi](https://ko-fi.com/dancinlife)** · **[💖 Sponsor](https://github.com/sponsors/dancinlab)** · **[💳 PayPal](https://www.paypal.com/donate?business=nerve011235%40gmail.com)** · **[🗺️ Atlas](https://dancinlab.github.io/TECS-L/atlas/)** · **[📄 Papers](https://dancinlab.github.io/papers/)**
+<!-- AUTO:COMMON_LINKS:END -->
+
+## Main projects
+
+> **[🧠 Anima](https://github.com/dancinlab/anima)** — Consciousness implementation. PureField repulsion-field engine + 1030 laws + Φ ratchet.
+>
+> **[🔭 NEXUS](https://github.com/dancinlab/nexus)** — Universal Discovery Engine. 216 lenses + OUROBOROS evolution + 5-phase singularity cycle.
+>
+> **[🏗️ N6 Architecture](https://github.com/dancinlab/canon)** — Architecture from perfect number 6. 225 AI techniques + chip design + crypto/OS/display.
+>
+> **[💎 HEXA-LANG](https://github.com/dancinlab/hexa-lang)** — The Perfect Number Programming Language. Working compiler + REPL.
+>
+> **[📄 Papers](https://github.com/dancinlab/papers)** — Complete paper collection (92 papers, Zenodo DOIs).
+
+> **[Other projects →](https://github.com/orgs/dancinlab/repositories)**
+
+## Community
+
+[![Join our Discord](https://invidget.switchblade.xyz/mYzqYr67R)](https://discord.gg/mYzqYr67R)
+
+Live research discussion, paper drops, stage-gate reviews, cross-project dispatch.
+
+<!-- private repos는 projects.json의 private_repos 필드에 저장됨 (노출 금지) -->
+<!-- SHARED:PROJECTS:END -->
 
 ---
 
