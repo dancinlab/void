@@ -4,7 +4,7 @@
 
 <h1 align="center">⬡ void</h1>
 
-<p align="center"><strong>Void</strong> — grid-first terminal · Ghostty hard fork · N×M tiling as a core surface · structured agent I/O · perf-budget governance</p>
+<p align="center"><strong>Void</strong> — grid-first terminal · Ghostty hard fork · N×M tiling as a core surface · <strong>beta: grid mode only</strong></p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
@@ -19,7 +19,9 @@
 
 ---
 
-Void is a hard fork of [Ghostty](https://github.com/ghostty-org/ghostty) where an N×M pane grid is a first-class rendering surface — not a window-manager bolt-on, not a tmux-style multiplexer process. When cell count `N` changes the layout auto-rebalances (`cols = ⌈√N⌉, rows = ⌈N/cols⌉, cols ≥ rows`), each cell carries its own cwd/env, and input can broadcast to all cells. It inherits Ghostty's engine (SIMD parser, Metal/OpenGL, per-terminal threads) and adds two more directions on top: a structured agent I/O channel alongside PTY, and a per-PR perf budget. Zig shared core, native Swift on macOS, GTK on Linux.
+Void is a hard fork of [Ghostty](https://github.com/ghostty-org/ghostty) where an N×M pane grid is a first-class rendering surface — not a window-manager bolt-on, not a tmux-style multiplexer process. When cell count `N` changes the layout auto-rebalances (`cols = ⌈√N⌉, rows = ⌈N/cols⌉, cols ≥ rows`), each cell carries its own cwd/env, and input can broadcast to all cells. It inherits Ghostty's engine (SIMD parser, Metal/OpenGL, per-terminal threads) unchanged. Zig shared core, native Swift on macOS, GTK on Linux.
+
+> **Beta status — grid mode is the only implemented direction.** Two further directions are *planned, not yet built*: a structured agent I/O channel alongside PTY (roadmap P3) and a per-PR perf budget vs the Ghostty baseline (roadmap P4). They are described below as roadmap, not as shipped features.
 
 > [!NOTE]
 > Part of the dancinlab n = 6 family — hexagonal icon, sibling to [NEXUS](https://github.com/dancinlab/nexus), [Anima](https://github.com/dancinlab/anima), [N6](https://github.com/dancinlab/canon), and [HEXA-LANG](https://github.com/dancinlab/hexa-lang). Void is a UX divergence from Ghostty, not a drop-in replacement; upstream syncs are selective cherry-picks only and full Ghostty history/credit is preserved.
@@ -73,7 +75,7 @@ The N×M grid is a new renderer path, not a patch on the single-surface renderer
 
 Void did not rebuild a terminal. It hard-forks a fast one and changes three things. The SIMD parser, Metal (macOS) / OpenGL (Linux) renderers, and per-terminal render/read/write threads come straight from Ghostty. 4698 files were renamed Ghostty → Void at commit `964c9e32e`; upstream history and contributor credit are preserved (cherry-pick only, no clean merges).
 
-### 3. AI-native I/O and a perf budget (secondary)
+### 3. AI-native I/O and a perf budget (roadmap — not yet implemented)
 
 ```
    shell process     ┌──── PTY ────────▶  traditional byte stream
@@ -85,17 +87,17 @@ Void did not rebuild a terminal. It hard-forks a fast one and changes three thin
    agent process      (no wrapper process required)
 ```
 
-A structured agent channel **alongside** PTY — tool-call events and token-stream boundaries as a data model, not heuristic-parsed from stdout. This is a downstream direction (P3), deliberately not the headline: Void is grid-first, not an "AI overlay" terminal. And every PR reports a delta against the Ghostty baseline — a **≥ 2 % regression blocks merge**, so a fork that adds features to a speed-chosen codebase cannot die by a thousand small regressions.
+**Neither of these is built yet — the beta is grid-only.** The plan: a structured agent channel **alongside** PTY (tool-call events and token-stream boundaries as a data model, not heuristic-parsed from stdout) — roadmap P3, deliberately not the headline since Void is grid-first, not an "AI overlay" terminal. And a perf budget where every PR reports a delta against the Ghostty baseline with a **≥ 2 % regression blocking merge** — roadmap P4, the harness is not wired yet. Both are described here as intent, not as shipped behaviour.
 
 ## Highlights
 
 | | |
 |---|---|
-| ▦ | **Grid mode** — N×M pane grid as a core surface, auto-layout (`cols = ⌈√N⌉, rows = ⌈N/cols⌉`), per-cell cwd, broadcast |
-| ⬡ | **Ghostty-grade performance** — SIMD parser, per-terminal render/read/write threads, Metal on macOS, OpenGL on Linux |
-| ⚡ | **Perf budget** — every PR reports Δ against the Ghostty baseline; ≥ 2 % regression blocks merge |
-| ◆ | **AI-native I/O** (P3) — agent protocol alongside PTY; structured tool-call / token-stream channels, no wrapper |
-| ◈ | **Native UI** — SwiftUI on macOS (AppIntents, Shortcuts), GTK on Linux (systemd, cgroup isolation) |
+| ▦ | **Grid mode** *(implemented)* — N×M pane grid as a core surface, auto-layout (`cols = ⌈√N⌉, rows = ⌈N/cols⌉`), per-cell cwd, broadcast |
+| ⬡ | **Ghostty-grade performance** *(inherited)* — SIMD parser, per-terminal render/read/write threads, Metal on macOS, OpenGL on Linux |
+| ◈ | **Native UI** *(inherited)* — SwiftUI on macOS (AppIntents, Shortcuts), GTK on Linux (systemd, cgroup isolation) |
+| ⚡ | **Perf budget** *(roadmap P4 — not built)* — plan: every PR reports Δ against the Ghostty baseline; ≥ 2 % regression blocks merge |
+| ◆ | **AI-native I/O** *(roadmap P3 — not built)* — plan: agent protocol alongside PTY; structured tool-call / token-stream channels, no wrapper |
 | ⬢ | **dancinlab branding** — hexagonal icon, n = 6 family (NEXUS · Anima · N6 · HEXA · Void) |
 
 ## Architecture
@@ -110,7 +112,7 @@ A structured agent channel **alongside** PTY — tool-call events and token-stre
        ┌──────────────▼───────────────────────────┐
        │          libvoid (Zig) — core            │
        │   parser · terminal state · renderer     │
-       │   grid engine · agent I/O channel        │
+       │   grid engine   (agent I/O: roadmap)     │
        └──────────────┬───────────────────────────┘
                       │
        ┌──────────────▼───────────────────────────┐
@@ -196,7 +198,7 @@ P1 (grid mode) is complete: surface rendering, N×M auto-layout (`cols = ⌈√N
 
 - **Not a drop-in Ghostty replacement** — Void will diverge in UX.
 - **Not a shell** — Void drives shells, it does not replace them.
-- **Not an "AI terminal"** — grid mode is the headline; agent I/O is a downstream direction, not an overlay.
+- **Not an "AI terminal"** — grid mode is the headline and the only thing built; agent I/O is an unimplemented roadmap direction, never an overlay.
 
 ## Crash reports
 
@@ -207,7 +209,9 @@ Void inherits Ghostty's crash reporter. Reports are saved to `$XDG_STATE_HOME/vo
 
 ## Status
 
-- P1 (grid mode + new-tab keybinding) **complete** (2026-05-18) — surface rendering, N×M auto-layout, slot-spawn, broadcast, per-cell cwd
+- **Beta — grid mode is the only implemented direction.** P1 (grid mode + new-tab keybinding) **complete** (2026-05-18): surface rendering, N×M auto-layout, slot-spawn, broadcast, per-cell cwd
+- Inherited from Ghostty (not Void-built): SIMD parser, Metal/OpenGL renderers, per-terminal threads, native Swift/GTK shells, crash reporter
+- **Not yet implemented:** AI-native I/O (roadmap P3) · perf-budget harness (roadmap P4) — described in this README as intent, not shipped behaviour
 - Fork date: 2026-04-21 (from upstream commit `c3c8572f7`); default branch `void/main` (not `main`)
 - L3 rename complete — 4698 files renamed Ghostty → Void at commit `964c9e32e`
 - Next: P4 perf baseline (capture Ghostty-baseline benches), then Show HN / r/commandline launch
@@ -223,7 +227,7 @@ void/
 ├── HACKING.md / CONTRIBUTING.md    dev + contribution guides
 ├── LICENSE                         MIT
 ├── build.zig / build.zig.zon       Zig build entry + manifest
-├── src/                            libvoid (Zig core) — parser · terminal state · renderer · grid · agent I/O
+├── src/                            libvoid (Zig core) — parser · terminal state · renderer · grid  (agent I/O: roadmap)
 ├── macos/                          Swift app (SwiftUI · AppIntents · Metal · CoreText)
 ├── linux/ + gtk/                   GTK app (systemd · OpenGL · FreeType)
 ├── pkg/                            vendored package wrappers
@@ -231,7 +235,7 @@ void/
 ├── images/                         icon + brand assets (hexagon n=6 family)
 ├── docs/                           reference docs + logo.svg
 ├── conformance/                    terminal protocol conformance tests
-├── bench/                          perf budget harness (Δ vs Ghostty baseline)
+├── bench/                          perf budget harness — roadmap P4 (Δ vs Ghostty baseline)
 ├── nix/ + flake.nix                Nix build entry
 └── .github/workflows/              CI (build-fork.yml on macos-15 runners)
 ```
@@ -244,11 +248,11 @@ void/
 
 ## Credits
 
-Void is a hard fork of **[Ghostty](https://github.com/ghostty-org/ghostty)** by [Mitchell Hashimoto](https://mitchellh.com) and the Ghostty team. All Ghostty contributors are credited in upstream history, which is preserved in this repo. Divergent features (grid mode, AI-native I/O, perf harness) are Void-only.
+Void is a hard fork of **[Ghostty](https://github.com/ghostty-org/ghostty)** by [Mitchell Hashimoto](https://mitchellh.com) and the Ghostty team. All Ghostty contributors are credited in upstream history, which is preserved in this repo. Divergent work — grid mode (implemented), plus the planned AI-native I/O and perf-harness directions — is Void-only.
 
 ## License
 
-[MIT](LICENSE) — same license as upstream Ghostty. All Ghostty contributors are credited in upstream history (preserved in this repo); divergent features (grid mode, AI-native I/O, perf harness) are Void-only.
+[MIT](LICENSE) — same license as upstream Ghostty. All Ghostty contributors are credited in upstream history (preserved in this repo); divergent work (grid mode implemented; AI-native I/O and perf-harness planned) is Void-only.
 
 ---
 
