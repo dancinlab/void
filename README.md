@@ -44,8 +44,6 @@ Void is a hard fork of [Ghostty](https://github.com/ghostty-org/ghostty) where a
    cols = ⌈√N⌉   rows = ⌈N/cols⌉   cols ≥ rows   ·   per-cell cwd   ·   no manual resize handles   ·   no tmux
 ```
 
-<p align="center"><img src="images/grid-demo.webp" width="860" alt="Void grid mode — multiple panes in an N×M grid, each cell its own cwd"></p>
-
 ```sh
 void                   # launch terminal
 cmd+g                  # toggle grid mode <-> tab mode
