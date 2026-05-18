@@ -144,6 +144,35 @@
   rationale = "real limits live in the external domain (Apple Metal docs · GTK ABI · Linux syscall costs); lattice mapping them is dishonest"
   authority = "see [@x_lattice_policy] §1.2"
 
+@F f2 := "HHKB-specific keyboard accommodations" :: anti-pattern [active deny d=2026-05-18]
+  rule <<~EOF
+    Do NOT add Happy Hacking Keyboard (HHKB) -firmware-specific keybindings,
+    encodings, or ZLE widget remaps to void or void's shell-integration scripts.
+    Specifically forbidden: ^W → backward-kill-word-and-space, ^[^? / ^[^H
+    composite bindings whose justification is "HHKB users remap alt+backspace".
+  EOF
+  rationale <<~EOF
+    HHKB accommodations historically dragged in: (1) terminal-side state-machine
+    complexity (modifyOtherKeys cascade, Kitty kbd push/pop), (2) state-leak
+    bugs surviving process exit (`;2;13~` body leaks on Shift+Enter in the
+    user's shell — debug session 2026-05-18), (3) ZLE widget extensions whose
+    behaviour quietly diverges from readline standard. zsh / readline defaults
+    are the well-understood substrate; users wanting bespoke key behaviour
+    can add it to their personal .zshrc — void should not ship it.
+  EOF
+  exception <<~EOF
+    General-purpose accommodations that benefit ALL keyboard users (not
+    just HHKB) are fine — e.g. accepting ^[^? as a synonym for backspace is
+    fine if it's the standard alt+backspace encoding; what's forbidden is
+    *behaviour* changes (eat-trailing-space, ^W remap) layered on top to
+    paper over HHKB firmware remaps.
+  EOF
+  authority <<~EOF
+    src/shell-integration/zsh/void-integration:435-444 (removed 2026-05-18 —
+    history comment retained; commit on chore/remove-hhkb-alt-kill-word-block)
+    ~/core/wilson/docs/sessions/2026-05-18-korean-input-modifyotherkeys-fix.md
+  EOF
+
 # ─── external citations ───────────────────────────────────────────────
 
 @X x_lattice_policy := "echoes/LATTICE_POLICY.md" :: doc [active]
