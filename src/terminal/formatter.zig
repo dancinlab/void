@@ -377,11 +377,14 @@ pub const TerminalFormatter = struct {
             }
 
             // Emit keyboard modes such as ModifyOtherKeys
+            // HHKB-class modifyOtherKeys support discarded 2026-05-18 per
+            // AGENTS.tape @F f2 — state-restore of the mode would re-create
+            // the stuck-mode leak across tab/split restore even though the
+            // input parser (stream_terminal.zig) now hard-pins the flag to
+            // false. Keeping the `extra.keyboard` plumbing for future
+            // non-modifyOtherKeys keyboard mode bits; the emission is gone.
             if (self.extra.keyboard) {
-                // Only emit if modify_other_keys_2 is true
-                if (self.terminal.flags.modify_other_keys_2) {
-                    try writer.print("\x1b[>4;2m", .{});
-                }
+                // (no modifyOtherKeys emit — flag is hard-pinned false upstream)
             }
 
             // Emit present working directory using OSC 7
@@ -5071,7 +5074,13 @@ test "Terminal vt with tabstops" {
     try testing.expect(!t2.tabstops.get(8)); // Not a tab
 }
 
-test "Terminal vt with keyboard modes" {
+test "Terminal vt with keyboard modes — modifyOtherKeys hard-pinned off" {
+    // HHKB-class modifyOtherKeys support discarded 2026-05-18 (AGENTS.tape @F f2).
+    // The previous version of this test verified that `\x1b[>4;2m` was honored
+    // *and* round-tripped through the state formatter. The new contract:
+    //   - parser accepts the request silently (stream_terminal.zig)
+    //   - flag stays false unconditionally
+    //   - formatter no longer emits the keyboard-mode bytes
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -5087,9 +5096,11 @@ test "Terminal vt with keyboard modes" {
     var s = t.vtStream();
     defer s.deinit();
 
-    // Set modify other keys mode 2
+    // Attempt to set modify other keys mode 2 — must be silently ignored.
     s.nextSlice("\x1b[>4;2m");
     s.nextSlice("hello");
+
+    try testing.expect(!t.flags.modify_other_keys_2);
 
     var formatter: TerminalFormatter = .init(&t, .vt);
     formatter.extra.keyboard = true;
@@ -5097,7 +5108,10 @@ test "Terminal vt with keyboard modes" {
     try formatter.format(&builder.writer);
     const output = builder.writer.buffered();
 
-    // Create a second terminal and apply the output
+    // Output must not contain the modifyOtherKeys enable bytes.
+    try testing.expect(std.mem.indexOf(u8, output, "\x1b[>4;2m") == null);
+
+    // Round-trip into a fresh terminal — flag still false.
     var t2 = try Terminal.init(alloc, .{
         .cols = 80,
         .rows = 24,
@@ -5109,9 +5123,8 @@ test "Terminal vt with keyboard modes" {
 
     s2.nextSlice(output);
 
-    // Verify keyboard mode matches
     try testing.expectEqual(t.flags.modify_other_keys_2, t2.flags.modify_other_keys_2);
-    try testing.expect(t2.flags.modify_other_keys_2);
+    try testing.expect(!t2.flags.modify_other_keys_2);
 }
 
 test "Terminal vt with pwd" {

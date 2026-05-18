@@ -220,11 +220,15 @@ pub const Handler = struct {
             .kitty_keyboard_set_or => self.terminal.screens.active.kitty_keyboard.set(.@"or", value.flags),
             .kitty_keyboard_set_not => self.terminal.screens.active.kitty_keyboard.set(.not, value.flags),
             .modify_key_format => {
+                // HHKB-class modifyOtherKeys support discarded 2026-05-18 per
+                // AGENTS.tape @F f2. The flag is hard-pinned to false so no
+                // downstream encoder path (key_encode.zig) ever emits the
+                // `CSI 27;<mod>;<code>~` reformat — vim and friends can still
+                // send `ESC[>4;2m`, we accept it silently and ignore it.
+                // Killing the trigger here closes the entire bug class
+                // (stuck-mode leak `;2;13~`, non-ASCII drop on Hangul/CJK,
+                // chr-byte truncation in downstream consumers).
                 self.terminal.flags.modify_other_keys_2 = false;
-                switch (value) {
-                    .other_keys_numeric => self.terminal.flags.modify_other_keys_2 = true,
-                    else => {},
-                }
             },
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.terminal.decaln(),
