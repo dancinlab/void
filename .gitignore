@@ -30,7 +30,8 @@ glad.zip
 vgcore.*
 
 # void fork — local-only scaffold
-/.claude/
+/.claude/*
+!.claude/skills/
 /.hexa-init/
 /.hook-commands/
 /bin/
