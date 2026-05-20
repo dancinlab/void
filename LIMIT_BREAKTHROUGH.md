@@ -66,7 +66,6 @@ on Δ-vs-Ghostty per PR.
 2. **L3 — Lazy glyph atlas + per-pane dirty rects.** As grid mode is the headline feature, the binding constraint at large N is DRAM bandwidth, not GPU. A shared atlas across panes with per-pane dirty-rect tracking cuts memory pressure proportionally. Trigger: sustained 60 fps at 16×16 on M-series.
 3. **L6 — Structured agent channel ≠ PTY.** Routing tool-call / token-stream traffic through pipes or sockets (not PTY) drops the kernel-PTY-translation overhead, letting agent RTT approach pipe-IO floor (~10 μs) instead of pty floor (~50 μs). Trigger: ≤ 200 μs p99 for tool-call RTT.
 
-## §5 Honest caveats (raw#10 C3)
 
 - Display-refresh and human-perception limits (L1, L2) are *hard walls* — no engineering inside void breaks them. Void can only own its share of the budget; the rest is the panel and human nervous system.
 - Rice's theorem (L8) makes "AI-agent always terminates inside budget" undecidable; bounded patience is the honest approximation.
