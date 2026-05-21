@@ -564,6 +564,12 @@ extension VD {
         /// `grid-dim-inactive`.
         static let gridDimInactiveOverrideKey = "VoidGridDimInactiveOverride"
 
+        /// UserDefaults key for the last-picked grid/tab layout (cmd+G).
+        /// Values: "grid" or "tab". When set to "grid", `cmd+T` from a
+        /// single-tab window adds a grid cell instead of opening a new tab,
+        /// so a fresh launch picks up where the user left off.
+        static let gridModePreferenceKey = "VoidGridModePreference"
+
         var unfocusedSplitFill: Color {
             guard let config = self.config else { return .white }
 

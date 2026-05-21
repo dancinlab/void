@@ -212,13 +212,17 @@ class TerminalWindow: NSWindow {
 
         guard (tabGroup?.windows.count ?? 0) <= 1,
               let controller = windowController as? BaseTerminalController,
-              controller.surfaceTree.isSplit,
               let focused = controller.focusedSurface ?? controller.surfaceTree.first
         else {
             return false
         }
 
+        let inGrid = controller.surfaceTree.isSplit
+        let savedGrid = UserDefaults.void.string(forKey: VD.Config.gridModePreferenceKey) == "grid"
+
         if let index = Self.gridGotoIndex(for: event) {
+            // cmd+1..9 only meaningful when there are actual grid cells.
+            guard inGrid else { return false }
             NotificationCenter.default.post(
                 name: VD.Notification.voidFocusGridCell,
                 object: focused,
@@ -227,6 +231,10 @@ class TerminalWindow: NSWindow {
             return true
         }
         if isAdd {
+            // Route cmd+T into the grid when the tree already is a grid OR
+            // the user's last cmd+G choice was grid mode — that way a fresh
+            // launch picks up grid semantics for new surfaces too.
+            guard inGrid || savedGrid else { return false }
             NotificationCenter.default.post(
                 name: VD.Notification.voidAddGridCell,
                 object: focused

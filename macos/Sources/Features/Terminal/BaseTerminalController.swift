@@ -717,6 +717,7 @@ class BaseTerminalController: NSWindowController,
             // No tab group: only Grid→Tab explode is meaningful.
             if surfaceTree.isSplit {
                 explodeIntoTabs(in: selfTC, focusTarget: target)
+                UserDefaults.void.set("tab", forKey: VD.Config.gridModePreferenceKey)
             }
             return
         }
@@ -726,8 +727,10 @@ class BaseTerminalController: NSWindowController,
 
         if hasMultipleTabs {
             flattenTabsToGrid(into: selfTC, tabs: siblingControllers, focusTarget: target)
+            UserDefaults.void.set("grid", forKey: VD.Config.gridModePreferenceKey)
         } else if surfaceTree.isSplit {
             explodeIntoTabs(in: selfTC, focusTarget: target)
+            UserDefaults.void.set("tab", forKey: VD.Config.gridModePreferenceKey)
         }
         // else: single tab, single surface — no-op
     }
