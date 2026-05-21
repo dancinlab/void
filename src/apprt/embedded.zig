@@ -461,6 +461,11 @@ pub const Surface = struct {
 
         /// Context for the new surface
         context: apprt.surface.NewSurfaceContext = .window,
+
+        /// P7 Phase B2: stable UUID for `by-uuid/<uuid>.ring` PTY-byte
+        /// persistence. Round-tripped via TerminalRestorable SplitTree
+        /// Codable (`OSSurfaceView.id`). null = ephemeral, no replay.
+        surface_uuid: ?[*:0]const u8 = null,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -574,6 +579,12 @@ pub const Surface = struct {
             config.@"wait-after-command" = true;
         }
 
+        // P7 Phase B2: extract stable UUID for persist-ring identity.
+        const surface_uuid: ?[:0]const u8 = if (opts.surface_uuid) |c_uuid|
+            std.mem.sliceTo(c_uuid, 0)
+        else
+            null;
+
         // Initialize our surface right away. We're given a view that is
         // ready to use.
         try self.core_surface.init(
@@ -582,6 +593,7 @@ pub const Surface = struct {
             app.core_app,
             app,
             self,
+            surface_uuid,
         );
         errdefer self.core_surface.deinit();
 

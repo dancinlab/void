@@ -312,48 +312,40 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         opts.full_config,
     );
 
-    // P7 Phase B1-impl: open the per-Termio mmap'd ring buffer
-    // when `persist-bytes-mmap` is configured. v1 uses path
-    // `~/.void/sessions/by-pid/<void-pid>/<termio-addr-hex>.ring`
-    // (no window/tab/pane structure yet — Phase B1-impl part 2).
+    // P7 Phase B2: open the per-pane mmap'd ring at the stable
+    // UUID-keyed path `~/.void/sessions/by-uuid/<uuid>.ring`. Requires
+    // both `persist-bytes-mmap = true` AND a non-null surface_uuid
+    // (round-tripped from Swift via TerminalRestorable Codable). If
+    // the ring file already exists, its tail is replayed into the
+    // terminal stream before the IO read thread starts — restoring
+    // scrollback + colors + cursor state on relaunch.
+    //
     // Errors are non-fatal and logged: persistence is opt-in QoS,
     // not a correctness invariant.
     var persist_ring_opt: ?PersistRing = null;
-    if (opts.config.persist_bytes_mmap) blk: {
+    var replay_buf: ?[]u8 = null;
+    var replay_slice: []const u8 = &.{};
+    defer if (replay_buf) |b| alloc.free(b);
+    if (opts.config.persist_bytes_mmap and opts.surface_uuid != null) blk: {
+        const uuid = opts.surface_uuid.?;
         const home = std.posix.getenv("HOME") orelse {
             log.warn("P7 persist-bytes-mmap: HOME unset, skipping ring open", .{});
             break :blk;
         };
-        const dir_path = std.fmt.allocPrint(
-            alloc,
-            "{s}/.void/sessions/by-pid/{d}",
-            .{ home, std.c.getpid() },
-        ) catch |err| {
-            log.warn("P7 persist-bytes-mmap: dir_path alloc err={}", .{err});
-            break :blk;
-        };
-        defer alloc.free(dir_path);
-        std.fs.makeDirAbsolute(dir_path) catch |err| switch (err) {
-            error.PathAlreadyExists => {},
-            else => {
-                log.warn("P7 persist-bytes-mmap: mkdir {s} err={}", .{ dir_path, err });
-                break :blk;
-            },
-        };
-        // Walk the parent chain too (~/.void, ~/.void/sessions,
-        // ~/.void/sessions/by-pid) — makeDirAbsolute is single-level.
-        const parents = [_][]const u8{ ".void", ".void/sessions", ".void/sessions/by-pid" };
+
+        // Walk the parent chain (~/.void, ~/.void/sessions,
+        // ~/.void/sessions/by-uuid) — makeDirAbsolute is single-level.
+        const parents = [_][]const u8{ ".void", ".void/sessions", ".void/sessions/by-uuid" };
         for (parents) |sub| {
             const p = std.fmt.allocPrint(alloc, "{s}/{s}", .{ home, sub }) catch continue;
             defer alloc.free(p);
             std.fs.makeDirAbsolute(p) catch {};
         }
-        std.fs.makeDirAbsolute(dir_path) catch {};
 
         const ring_path = std.fmt.allocPrintSentinel(
             alloc,
-            "{s}/{x}.ring",
-            .{ dir_path, @intFromPtr(self) },
+            "{s}/.void/sessions/by-uuid/{s}.ring",
+            .{ home, uuid },
             0,
         ) catch |err| {
             log.warn("P7 persist-bytes-mmap: ring_path alloc err={}", .{err});
@@ -361,10 +353,31 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         };
         defer alloc.free(ring_path);
 
-        persist_ring_opt = PersistRing.open(ring_path, PersistRing.DEFAULT_CAP) catch |err| {
+        // Detect existing ring before open() (which creates if absent).
+        // We only replay if the file pre-existed AND has a valid header
+        // — PersistRing.open re-initializes the header on a fresh file,
+        // so post-open write_offset==0 reliably means "nothing to replay".
+        var ring = PersistRing.open(ring_path, PersistRing.DEFAULT_CAP) catch |err| {
             log.warn("P7 persist-bytes-mmap: ring open {s} err={}", .{ ring_path, err });
             break :blk;
         };
+
+        // Best-effort replay. If allocation fails or the buffer is
+        // unusable, drop the replay but keep the ring open so writes
+        // continue.
+        const buf = alloc.alloc(u8, PersistRing.DEFAULT_CAP) catch null;
+        if (buf) |b| {
+            const got = ring.replay(b);
+            if (got.len > 0) {
+                replay_buf = b;
+                replay_slice = got;
+                log.info("P7 phase-b2: replaying {d} bytes from {s}", .{ got.len, ring_path });
+            } else {
+                alloc.free(b);
+            }
+        }
+
+        persist_ring_opt = ring;
         log.info("P7 persist-bytes-mmap: opened ring at {s}", .{ring_path});
     }
 
@@ -383,6 +396,17 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .thread_enter_state = thread_enter_state,
         .persist_ring = persist_ring_opt,
     };
+
+    // P7 Phase B2: feed the replayed byte stream into the terminal
+    // parser BEFORE returning. We call processOutputLocked directly
+    // (not processOutput) so the bytes do NOT get re-appended to the
+    // ring — they are already there. Safe to call without io_thr
+    // running yet; this is the only writer until thread spawn.
+    if (replay_slice.len > 0) {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        self.processOutputLocked(replay_slice);
+    }
 }
 
 pub fn deinit(self: *Termio) void {

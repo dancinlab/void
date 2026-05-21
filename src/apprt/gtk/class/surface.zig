@@ -3393,6 +3393,9 @@ pub const Surface = extern struct {
             app.core(),
             app.rt(),
             &priv.rt_surface,
+            // P7 Phase B2: no NSWindowRestoration on GTK; pass null until
+            // GTK 4.24 native-session API lands.
+            null,
         ) catch |err| {
             log.warn("failed to initialize surface err={}", .{err});
             return error.SurfaceError;

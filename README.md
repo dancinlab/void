@@ -96,6 +96,7 @@ Void did not rebuild a terminal. It hard-forks a fast one and changes three thin
 | ◈ | **Native UI** *(inherited)* — SwiftUI on macOS (AppIntents, Shortcuts), GTK on Linux (systemd, cgroup isolation) |
 | ⚡ | **Perf budget** *(roadmap P4 — not built)* — plan: every PR reports Δ against the Ghostty baseline; ≥ 2 % regression blocks merge |
 | ◆ | **AI-native I/O** *(roadmap P3 — not built)* — plan: agent protocol alongside PTY; structured tool-call / token-stream channels, no wrapper |
+| ↻ | **Session restore** *(implemented)* — per-pane mmap'd ring of raw PTY bytes; auto-replay on void/macOS crash restores scrollback + colors + cursor (no upstream Ghostty equivalent) |
 | ⬢ | **dancinlab branding** — hexagonal icon, n = 6 family (NEXUS · Anima · N6 · HEXA · Void) |
 
 ## Architecture
@@ -205,10 +206,86 @@ Void inherits Ghostty's crash reporter. Reports are saved to `$XDG_STATE_HOME/vo
 > [!WARNING]
 > Crash reports contain full stack memory per thread at the time of the crash and can include sensitive data.
 
+## Session restore — survive abnormal termination
+
+When void or macOS dies abnormally, void re-opens with the previous **terminal contents** (scrollback, colors, cursor) restored — not just the window layout. The mechanism is fork-only (no upstream Ghostty equivalent); see [`docs/design/sighup-resistant-session.md`](docs/design/sighup-resistant-session.md) for the full design.
+
+### Two failure modes, one experience
+
+| Scenario | Event | What survives |
+|---|---|---|
+| **A**: void only dies | segfault, OOM, jetsam `SIGKILL` | grid + per-pane terminal content |
+| **B**: macOS dies | kernel panic, hard shutdown, power loss | same (bounded ≤ 1s loss) |
+
+### How it works
+
+```
+       ┌──────────────────────────────────────────┐
+       │  macOS NSWindowRestoration (existing)    │  ← grid topology + per-surface UUID
+       │  TerminalRestorable.swift                │    survive force-quit / crash
+       └──────────────┬───────────────────────────┘
+                      │  uuid round-trips via Codable
+       ┌──────────────▼───────────────────────────┐
+       │  PersistRing (mmap, 4 MB / pane)         │  ← raw PTY byte stream → disk
+       │  ~/.void/sessions/by-uuid/<uuid>.ring    │    memcpy + msync(MS_ASYNC) every 1s
+       └──────────────┬───────────────────────────┘
+                      │  on relaunch
+       ┌──────────────▼───────────────────────────┐
+       │  Termio.init replay → processOutput      │  ← bytes (ANSI + colors + cursor)
+       │  BEFORE io read thread starts            │    fed back through SIMD parser
+       └──────────────────────────────────────────┘
+```
+
+- **Write side** — `Termio.processOutput` appends every PTY byte to an mmap'd ring (`memcpy`, ~0µs, lock-free per pane). `msync(MS_ASYNC)` fires every 1s → kernel page cache + dirty-page flush bound Scenario B loss to ≤ 1 second. Scenario A loses nothing because mmap `MAP_SHARED` page cache survives process death.
+- **Read side** — at surface init, if a ring exists at the UUID-keyed path, `PersistRing.replay()` extracts up to 4 MB of most-recent bytes, and `Termio.processOutputLocked` feeds them through the parser **before** the io read thread spawns. The new shell still starts fresh underneath; the visual scrollback is reconstructed via ANSI replay.
+
+### Enable
+
+```ini
+# void config
+window-save-state    = always     # macOS NSWindowRestoration (already documented)
+persist-bytes-mmap   = true       # opt-in: enable per-pane ring buffer
+```
+
+### What's restored / what isn't
+
+| ✅ Restored | ❌ Not restored |
+|---|---|
+| scrollback text | running processes (PTY child is fresh) |
+| colors + text attributes (via ANSI escapes in byte stream) | live cursor position from a long-running TUI |
+| grid topology + per-pane cwd (via existing `TerminalRestorable`) | environment variables that diverged at runtime |
+| focused pane, tab color, title overrides | sub-process state (vim buffers, REPL history, etc.) |
+
+Apple Terminal.app's "Tab Contents v2" mechanism is plain-text-only (no colors); void's ring is raw bytes including ANSI sequences, so attributes round-trip.
+
+### Manual recovery
+
+If auto-replay doesn't trigger (e.g. UUID lost, ring schema changed), the byte stream is still on disk:
+
+```sh
+tool/void-session-replay.sh --list           # enumerate ring files
+tool/void-session-replay.sh --latest         # dump most recent ring to stdout
+tool/void-session-replay.sh --all            # dump every ring
+tool/void-session-replay.sh <path-to-ring>   # dump a specific ring
+```
+
+Pipe to `less -R`, `cat`, or save to a file.
+
+### Storage layout
+
+```
+~/.void/sessions/by-uuid/
+    <uuid>.ring   # 4 MB mmap'd ring buffer per pane
+    ...
+```
+
+Ring files are not garbage-collected automatically — `rm -rf ~/.void/sessions/by-uuid` is safe between sessions when you want to start fresh.
+
 ## Status
 
 - **Beta — grid mode is the only implemented direction.** P1 (grid mode + new-tab keybinding) **complete** (2026-05-18): surface rendering, N×M auto-layout, slot-spawn, broadcast, per-cell cwd
 - Inherited from Ghostty (not Void-built): SIMD parser, Metal/OpenGL renderers, per-terminal threads, native Swift/GTK shells, crash reporter
+- Void-only support infra (shipped, not a "direction"): session-restore via per-pane mmap byte ring — see [Session restore](#session-restore--survive-abnormal-termination)
 - **Not yet implemented:** AI-native I/O (roadmap P3) · perf-budget harness (roadmap P4) — described in this README as intent, not shipped behaviour
 - Fork date: 2026-04-21 (from upstream commit `c3c8572f7`); default branch `void/main` (not `main`)
 - L3 rename complete — 4698 files renamed Ghostty → Void at commit `964c9e32e`

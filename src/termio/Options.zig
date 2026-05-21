@@ -39,3 +39,9 @@ renderer_mailbox: *renderer.Thread.Mailbox,
 
 /// The mailbox for sending the surface messages.
 surface_mailbox: apprt.surface.Mailbox,
+
+/// P7 Phase B2: stable UUID for `~/.void/sessions/by-uuid/<uuid>.ring`
+/// PTY-byte persistence + auto-replay on restart. Round-tripped via
+/// `TerminalRestorable` SplitTree Codable (`OSSurfaceView.id`). null
+/// means ephemeral surface (no persist ring opened, no replay).
+surface_uuid: ?[:0]const u8 = null,
