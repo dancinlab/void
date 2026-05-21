@@ -202,6 +202,12 @@ class AppDelegate: NSObject,
             // Manual autofill via the `Edit => AutoFill` menu item still work as expected.
             "NSAutoFillHeuristicControllerEnabled": false,
         ])
+
+        // P7 Phase B2 follow-up: snapshot the prior session's UUID set from
+        // ~/.void/sessions/last.json BEFORE NSWindowRestoration runs, so the
+        // first surfaceTreeDidChange (which overwrites the file) doesn't
+        // destroy what we need for triage on this launch.
+        SessionManifest.captureFromDisk()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -345,6 +351,23 @@ class AppDelegate: NSObject,
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.unhide(nil)
                 NSApp.arrangeInFront(nil)
+            }
+        }
+
+        // P7 Phase B2 follow-up: triage the prior-session manifest against
+        // what AppKit actually restored. Done after a short delay so any
+        // first-window creation in applicationDidBecomeActive and any
+        // restoration completion handlers have settled. Initial cut is
+        // observation only — no GC, no UI prompt yet.
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) {
+            let restoredUUIDs = Set(TerminalController.all.flatMap {
+                $0.surfaceTree.map { $0.id.uuidString }
+            })
+            let result = SessionManifest.triage(restoredUUIDs: restoredUUIDs)
+            Self.logger.info("session-manifest triage: recovered=\(result.recovered.count) topology-lost=\(result.topologyLost.count) stale-orphans=\(result.staleOrphans.count)")
+            if !result.topologyLost.isEmpty {
+                let uuids = result.topologyLost.sorted().joined(separator: ",")
+                Self.logger.warning("session-manifest: ring files exist for UUIDs not restored by AppKit — content stranded. UUIDs: \(uuids)")
             }
         }
     }
