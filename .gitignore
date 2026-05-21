@@ -50,3 +50,8 @@ macos/Assets.xcassets/AppIconImage.imageset/.original-bak/
 .workspace
 .workspace.*
 .workspace.lock
+
+# build / coverage / install runtime (regenerable)
+build/
+default.profraw
+state/markers/
