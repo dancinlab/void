@@ -1187,6 +1187,26 @@ extension SplitTree.Node {
     }
 
     init(from decoder: Decoder) throws {
+        // Guard against pathological nesting in persisted NSWindowRestoration
+        // state. We hit a runaway Split ↔ Node ping-pong on corrupted records
+        // where PropertyListDecoder did not propagate codingPath in the way
+        // we'd expect — so use a thread-local counter for an explicit depth
+        // budget. A practical grid is < 16 levels deep; 64 is many orders
+        // of magnitude past anything a real user produces.
+        let depthKey = "void.splittree.decodeDepth"
+        let dict = Thread.current.threadDictionary
+        let current = (dict[depthKey] as? Int) ?? 0
+        if current > 64 {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "SplitTree.Node decode exceeded max depth (64). Likely a corrupted NSWindowRestoration record."
+                )
+            )
+        }
+        dict[depthKey] = current + 1
+        defer { dict[depthKey] = current }
+
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         if container.contains(.view) {

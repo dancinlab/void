@@ -166,6 +166,84 @@ Ordered by leverage:
 - Phase B3 (not started): hot-reattach to a daemon-held session — referenced
   in `Termio.zig:421-425` deinit comment
 
+## Cross-host build environment (mini, 2026-05-21)
+
+Reproducing the hang on a second host (`mini`, Mac mini) surfaced the full
+list of bootstrap steps needed beyond a fresh checkout. Recording here so
+the next person doesn't have to rediscover them.
+
+### Sequence that worked
+
+1. **OS upgrade to match SDK**. mini was on macOS 26.4 but Xcode 26.5 (from
+   `xcodes install 26.5`) ships SDK 26.5. zig 0.15.2's host target detection
+   sets `aarch64-macos.26.4...26.4-none` from the OS, then chokes on tbd
+   symbol resolution against the 26.5 SDK. Upgrade via
+   `softwareupdate -ia -R --agree-to-license --user <user> --stdinpass` —
+   Apple Silicon's Volume Owner check needs the local password via stdin
+   even when sudo is passwordless.
+2. **Xcode via `xcodes install 26.5`**. App Store flow is GUI-bound and
+   Screen Sharing tripped a permissions wall on the headless mini; xcodes
+   over `ssh -t` works as long as the Apple ID + 2FA can be answered live.
+3. **Homebrew, not ziglang.org tarball, for zig**. Same nominal 0.15.2 but
+   the Homebrew bottle (`zig@0.15`) and the official ziglang.org tarball
+   produce different binaries — and the ziglang.org one's bundled MachO
+   linker fails to resolve libSystem symbols on this mini (works on the
+   local box, root cause unidentified). Homebrew bottle links cleanly.
+   Symlink it into the repo's expected vendor path:
+   `ln -sf /opt/homebrew/Cellar/zig@0.15/0.15.2/bin/zig vendor/zig-0.15.2/bin/zig`.
+4. **`brew install gettext`**. Locale builds invoke `msgfmt`; mini's CLT
+   doesn't ship it. brew's gettext is keg-only by default but the build
+   only needs `msgfmt` reachable via PATH from the brew shellenv.
+5. **`sudo xcodebuild -downloadComponent MetalToolchain`**. macOS 26's
+   Xcode ships without the metal compiler — first invocation prompts for
+   it. Asset lands in `/var/run/com.apple.security.cryptexd/mnt/`.
+6. **`TOOLCHAINS=com.apple.MetalToolchain` env var at build time**. With
+   the Metal toolchain installed but not registered as XcodeDefault's
+   metal, `xcrun -sdk macosx metal` still falls through to the
+   "missing toolchain" wrapper. Explicit `TOOLCHAINS=` (or
+   `xcrun -toolchain com.apple.MetalToolchain ...`) routes to the cryptex
+   path. Without this, the xcframework build fails near the end of an
+   otherwise-successful run (long error chain — easy to miss).
+
+### Final build command on mini
+
+```bash
+eval "$(/opt/homebrew/bin/brew shellenv)"
+export TOOLCHAINS=com.apple.MetalToolchain
+cd ~/core/void
+vendor/zig-0.15.2/bin/zig build -Demit-macos-app -Doptimize=ReleaseFast
+```
+
+Produces `macos/build/ReleaseLocal/Void.app` (60 MB, binary 44 MB).
+Symbol check: `nm Void.app/Contents/MacOS/void | grep -c SessionManifest`
+returned 99 — patch is in.
+
+### Things that did NOT work and why (so we don't re-try)
+
+- Plain `xcodebuild -downloadComponent MetalToolchain` followed by
+  re-build: toolchain downloads to cryptex but xcrun's `metal` wrapper
+  doesn't pick it up without `TOOLCHAINS=...`.
+- Setting `SDKROOT` and/or `MACOSX_DEPLOYMENT_TARGET` to bridge the OS
+  ↔ SDK version gap: zig's `build_zcu.o` is compiled with the host's
+  native target before the project options apply, so it ignored both.
+- Passing `-Dtarget=aarch64-macos.26.5` to `zig build`: same reason —
+  the project compiles fine with this, but the build script (build.zig
+  itself) still uses native and fails to link.
+- `tar -xzf zig.tar.xz` of the brew-Cellar zig from local copied to
+  mini: brew's zig links against `/opt/homebrew/opt/llvm@20/lib/...`
+  which isn't on mini.
+
+### Follow-up for `pool init`
+
+The `no-sleep` feature (commit `6a447b4`, [README](README.md)) is in.
+Worth adding follow-ups when convenient:
+- **`brew-bootstrap`** — install Homebrew if missing. Triggered by the
+  tailscale feature already needing brew on macOS, but a dedicated step
+  would make the dependency explicit.
+- **`xcode-cli`** — `sudo xcodebuild -downloadComponent MetalToolchain`
+  + ensure `xcode-select` points at full Xcode. Don't try to install
+  Xcode itself (that needs Apple ID interactive auth).
+
 ## Decision log
 
 - **2026-05-21** — Chose flat `surfaces: [uuid]` over `windows: [{...}]` for v1.
