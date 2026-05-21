@@ -1,0 +1,12 @@
+@V := "tape" :: spec [active]
+  version = "1.2"
+
+@I := "void" :: identity [active]
+  kind   = "Grid-first terminal (Ghostty hard fork · N×M tiling as core rendering surface · 🕳️)"
+  brief  = "Beta: grid mode only. P1 grid-mode, dancinlab hexagon icon."
+  parent = "dancinlab"
+  ssot   = "github.com/dancinlab/void (`hx install void`)"
+
+@D := "void" :: governance [active]
+  do   = "..."
+  dont = "..."
