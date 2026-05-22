@@ -9,4 +9,4 @@
 
 @D grid_auto_layout := "N×M grid topology auto-rebalance" :: governance [required active]
   do   = "grid auto-layout preserves cols = ⌈√N⌉, rows = ⌈N/cols⌉, cols ≥ rows; per-cell cwd isolation"
-  dont = "violate grid topology under dynamic cell-count changes · add manual resize handles / column-row splits (grid is auto-only)"
+  dont = "break grid topology on cell-count change · add manual resize handles / splits (auto-only)"
