@@ -1,5 +1,18 @@
 # Changelog
 
+## PLAN absorption + UPPERCASE — 2026-05-22
+
+`PLAN.md` was a single-domain design doc (session-restore gap closure for P7
+Phase B2) misnamed as a generic plan. Absorbed into a proper UPPERCASE domain
+pair:
+
+- `PLAN.md` → `SESSION-RESTORE.md` (live spec — gap analysis, patch v1 design,
+  what's left, open questions).
+- `PLAN.log.md` → `SESSION-RESTORE.log.md` (history — verification snapshot,
+  cross-host build env, decision log).
+
+Internal cross-references updated. No standalone `PLAN.md` remains.
+
 ## docs split — 2026-05-22
 
 Per-domain spec/history file split applied to root-level `*.md` files (sidecar

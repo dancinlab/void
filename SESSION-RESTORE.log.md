@@ -1,6 +1,6 @@
 # PLAN.log — session-restore manifest history
 
-Companion log to `PLAN.md`. Dated events, verification snapshots, and decision
+Companion log to `SESSION-RESTORE.md`. Dated events, verification snapshots, and decision
 records for the P7 Phase B2 gap-closure work.
 
 ## Verification (2026-05-21, on commit at time of patch landing)

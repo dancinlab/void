@@ -81,7 +81,7 @@ case is "any UUID present in prev but absent in restored").
   call from main thread, fine after the 500ms delay (restoration completion
   handlers fire inline during launch).
 
-See `PLAN.log.md` for the 2026-05-21 verification snapshot that confirmed
+See `SESSION-RESTORE.log.md` for the 2026-05-21 verification snapshot that confirmed
 this triage exposes the prior silent-loss failure mode.
 
 ## What's left
@@ -138,4 +138,4 @@ Ordered by leverage:
   in `Termio.zig:421-425` deinit comment
 
 Cross-host bootstrap notes (mini, build-env reproduction) and the v1 decision
-log live in `PLAN.log.md`.
+log live in `SESSION-RESTORE.log.md`.
