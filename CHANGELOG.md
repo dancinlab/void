@@ -1,5 +1,22 @@
 # Changelog
 
+## docs split — 2026-05-22
+
+Per-domain spec/history file split applied to root-level `*.md` files (sidecar
+commons @D g29):
+
+- `PLAN.md` (mixed) — kept current spec (gap analysis, patch v1 design, what's
+  left, open questions, related work). Extracted history-flavored sections to
+  new `PLAN.log.md`: 2026-05-21 verification snapshot, cross-host build
+  environment notes (mini), and the dated decision log.
+- `LIMIT_BREAKTHROUGH.md` — pure current-state audit snapshot (§1 domain ID,
+  §2 limits table, §3 per-limit assessment, §4 top opportunities, §6 refs).
+  Left alone.
+- `TAPE-AUDIT.md` — current snapshot (verdict block). Left alone.
+- All other root `*.md` files (`AI_POLICY`, `CHANGELOG`, `CLAUDE`,
+  `CONTRIBUTING`, `HACKING`, `LATTICE_POLICY`, `PACKAGING`, `README`,
+  `VOID_FORK`) — left alone per the rule's keep-list.
+
 ## void hard-fork — 2026-04-25
 
 void is a **hard-fork** of [Ghostty](https://github.com/ghostty-org/ghostty)
