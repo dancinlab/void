@@ -456,6 +456,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $SPARKLE_KEY_PUB" "macos/build/Release/Ghostty.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :SUEnableAutomaticChecks" "macos/build/Release/Ghostty.app/Contents/Info.plist"
 
+      # self-signed now; set MACOS_CERTIFICATE + notary secrets to restore Developer ID + notarized tip builds.
       - name: Codesign app bundle
         env:
           MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
@@ -463,50 +464,74 @@ jobs:
           MACOS_CERTIFICATE_NAME: ${{ secrets.PROD_MACOS_CERTIFICATE_NAME }}
           MACOS_CI_KEYCHAIN_PWD: ${{ secrets.PROD_MACOS_CI_KEYCHAIN_PWD }}
         run: |
-          # Turn our base64-encoded certificate back to a regular .p12 file
-          echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
+          if [ -n "$MACOS_CERTIFICATE" ]; then
+            # ---- Developer ID path (dormant until secrets are set) ----
+            # Turn our base64-encoded certificate back to a regular .p12 file
+            echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
 
-          # We need to create a new keychain, otherwise using the certificate will prompt
-          # with a UI dialog asking for the certificate password, which we can't
-          # use in a headless CI environment
-          security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
-          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            # We need to create a new keychain, otherwise using the certificate will prompt
+            # with a UI dialog asking for the certificate password, which we can't
+            # use in a headless CI environment
+            security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
 
-          # Codesign Sparkle. Some notes here:
-          #   - The XPC services aren't used since we don't sandbox Ghostty,
-          #     but since they're part of the build, they still need to be
-          #     codesigned.
-          #   - The binaries in the "Versions" folders need to NOT be symlinks.
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
+            # Codesign Sparkle. Some notes here:
+            #   - The XPC services aren't used since we don't sandbox Ghostty,
+            #     but since they're part of the build, they still need to be
+            #     codesigned.
+            #   - The binaries in the "Versions" folders need to NOT be symlinks.
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
 
-          # Codesign the app bundle
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app
+            # Codesign the app bundle
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app
+          else
+            echo "::warning::self-signed (no Developer ID cert set) — Gatekeeper will warn; users right-click→Open"
+            # Ad-hoc sign everything inside-out so the bundle is internally consistent.
+            /usr/bin/codesign --force --deep --sign - "macos/build/Release/Ghostty.app"
+          fi
 
       - name: Create DMG
         env:
+          MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_NAME: ${{ secrets.PROD_MACOS_CERTIFICATE_NAME }}
         run: |
           npm install --global create-dmg
-          create-dmg \
-            --identity="$MACOS_CERTIFICATE_NAME" \
-            ./macos/build/Release/Ghostty.app \
-            ./
+          if [ -n "$MACOS_CERTIFICATE" ]; then
+            # Developer ID path: sign the DMG with the distribution identity.
+            create-dmg \
+              --identity="$MACOS_CERTIFICATE_NAME" \
+              ./macos/build/Release/Ghostty.app \
+              ./
+          else
+            # Self-signed path: produce an (unsigned) DMG; the .app inside is ad-hoc signed.
+            create-dmg \
+              ./macos/build/Release/Ghostty.app \
+              ./ || true
+          fi
           mv ./Ghostty*.dmg ./Ghostty.dmg
 
+      # Notarization REQUIRES a Developer ID — it cannot run self-signed, so this
+      # whole step is skipped when PROD_MACOS_CERTIFICATE is unset.
       - name: "Notarize DMG"
         env:
+          MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
           APPLE_NOTARIZATION_ISSUER: ${{ secrets.APPLE_NOTARIZATION_ISSUER }}
           APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
           APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
         run: |
+          if [ -z "$MACOS_CERTIFICATE" ]; then
+            echo "::warning::self-signed — skipping notarization"
+            exit 0
+          fi
+
           # Store the notarization credentials so that we can prevent a UI password dialog
           # from blocking the CI
           echo "Create keychain profile"
@@ -712,6 +737,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $SPARKLE_KEY_PUB" "macos/build/Release/Ghostty.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :SUEnableAutomaticChecks" "macos/build/Release/Ghostty.app/Contents/Info.plist"
 
+      # self-signed now; set MACOS_CERTIFICATE + notary secrets to restore Developer ID + notarized tip builds.
       - name: Codesign app bundle
         env:
           MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
@@ -719,39 +745,54 @@ jobs:
           MACOS_CERTIFICATE_NAME: ${{ secrets.PROD_MACOS_CERTIFICATE_NAME }}
           MACOS_CI_KEYCHAIN_PWD: ${{ secrets.PROD_MACOS_CI_KEYCHAIN_PWD }}
         run: |
-          # Turn our base64-encoded certificate back to a regular .p12 file
-          echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
+          if [ -n "$MACOS_CERTIFICATE" ]; then
+            # ---- Developer ID path (dormant until secrets are set) ----
+            # Turn our base64-encoded certificate back to a regular .p12 file
+            echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
 
-          # We need to create a new keychain, otherwise using the certificate will prompt
-          # with a UI dialog asking for the certificate password, which we can't
-          # use in a headless CI environment
-          security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
-          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            # We need to create a new keychain, otherwise using the certificate will prompt
+            # with a UI dialog asking for the certificate password, which we can't
+            # use in a headless CI environment
+            security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
 
-          # Codesign Sparkle. Some notes here:
-          #   - The XPC services aren't used since we don't sandbox Ghostty,
-          #     but since they're part of the build, they still need to be
-          #     codesigned.
-          #   - The binaries in the "Versions" folders need to NOT be symlinks.
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
+            # Codesign Sparkle. Some notes here:
+            #   - The XPC services aren't used since we don't sandbox Ghostty,
+            #     but since they're part of the build, they still need to be
+            #     codesigned.
+            #   - The binaries in the "Versions" folders need to NOT be symlinks.
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
 
-          # Codesign the app bundle
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app
+            # Codesign the app bundle
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app
+          else
+            echo "::warning::self-signed (no Developer ID cert set) — Gatekeeper will warn; users right-click→Open"
+            # Ad-hoc sign everything inside-out so the bundle is internally consistent.
+            /usr/bin/codesign --force --deep --sign - "macos/build/Release/Ghostty.app"
+          fi
 
+      # Notarization REQUIRES a Developer ID — it cannot run self-signed, so this
+      # whole step is skipped when PROD_MACOS_CERTIFICATE is unset.
       - name: "Notarize app bundle"
         env:
+          MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
           APPLE_NOTARIZATION_ISSUER: ${{ secrets.APPLE_NOTARIZATION_ISSUER }}
           APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
           APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
         run: |
+          if [ -z "$MACOS_CERTIFICATE" ]; then
+            echo "::warning::self-signed — skipping notarization"
+            exit 0
+          fi
+
           # Store the notarization credentials so that we can prevent a UI password dialog
           # from blocking the CI
           echo "Create keychain profile"
@@ -909,6 +950,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $SPARKLE_KEY_PUB" "macos/build/Release/Ghostty.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :SUEnableAutomaticChecks" "macos/build/Release/Ghostty.app/Contents/Info.plist"
 
+      # self-signed now; set MACOS_CERTIFICATE + notary secrets to restore Developer ID + notarized tip builds.
       - name: Codesign app bundle
         env:
           MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
@@ -916,39 +958,54 @@ jobs:
           MACOS_CERTIFICATE_NAME: ${{ secrets.PROD_MACOS_CERTIFICATE_NAME }}
           MACOS_CI_KEYCHAIN_PWD: ${{ secrets.PROD_MACOS_CI_KEYCHAIN_PWD }}
         run: |
-          # Turn our base64-encoded certificate back to a regular .p12 file
-          echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
+          if [ -n "$MACOS_CERTIFICATE" ]; then
+            # ---- Developer ID path (dormant until secrets are set) ----
+            # Turn our base64-encoded certificate back to a regular .p12 file
+            echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
 
-          # We need to create a new keychain, otherwise using the certificate will prompt
-          # with a UI dialog asking for the certificate password, which we can't
-          # use in a headless CI environment
-          security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
-          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            # We need to create a new keychain, otherwise using the certificate will prompt
+            # with a UI dialog asking for the certificate password, which we can't
+            # use in a headless CI environment
+            security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" build.keychain
+            security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" build.keychain
 
-          # Codesign Sparkle. Some notes here:
-          #   - The XPC services aren't used since we don't sandbox Ghostty,
-          #     but since they're part of the build, they still need to be
-          #     codesigned.
-          #   - The binaries in the "Versions" folders need to NOT be symlinks.
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
+            # Codesign Sparkle. Some notes here:
+            #   - The XPC services aren't used since we don't sandbox Ghostty,
+            #     but since they're part of the build, they still need to be
+            #     codesigned.
+            #   - The binaries in the "Versions" folders need to NOT be symlinks.
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/Frameworks/Sparkle.framework"
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime "macos/build/Release/Ghostty.app/Contents/PlugIns/DockTilePlugin.plugin"
 
-          # Codesign the app bundle
-          /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app
+            # Codesign the app bundle
+            /usr/bin/codesign --verbose -f -s "$MACOS_CERTIFICATE_NAME" -o runtime --entitlements "macos/Ghostty.entitlements" macos/build/Release/Ghostty.app
+          else
+            echo "::warning::self-signed (no Developer ID cert set) — Gatekeeper will warn; users right-click→Open"
+            # Ad-hoc sign everything inside-out so the bundle is internally consistent.
+            /usr/bin/codesign --force --deep --sign - "macos/build/Release/Ghostty.app"
+          fi
 
+      # Notarization REQUIRES a Developer ID — it cannot run self-signed, so this
+      # whole step is skipped when PROD_MACOS_CERTIFICATE is unset.
       - name: "Notarize app bundle"
         env:
+          MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
           APPLE_NOTARIZATION_ISSUER: ${{ secrets.APPLE_NOTARIZATION_ISSUER }}
           APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
           APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
         run: |
+          if [ -z "$MACOS_CERTIFICATE" ]; then
+            echo "::warning::self-signed — skipping notarization"
+            exit 0
+          fi
+
           # Store the notarization credentials so that we can prevent a UI password dialog
           # from blocking the CI
           echo "Create keychain profile"
