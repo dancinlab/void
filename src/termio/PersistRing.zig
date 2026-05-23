@@ -288,3 +288,47 @@ test "wrap-around preserves only most recent cap bytes" {
     const got = ring.replay(&buf);
     try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOP", got);
 }
+
+test "lastMsyncNs stamps wall-clock ns and stays monotonic" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const path_z = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(path_z);
+
+    const ring_path = try std.fmt.allocPrintSentinel(
+        std.testing.allocator,
+        "{s}/msync.ring",
+        .{path_z},
+        0,
+    );
+    defer std.testing.allocator.free(ring_path);
+
+    var ring = try PersistRing.open(ring_path, 1024);
+    defer ring.close();
+
+    // Fresh ring: never synced.
+    try std.testing.expectEqual(@as(u64, 0), ring.lastMsyncNs());
+
+    // First sync: stamp must be >= t0.
+    const t0_i = std.time.nanoTimestamp();
+    const t0: u64 = if (t0_i < 0) 0 else @intCast(t0_i);
+    ring.append("hello ");
+    try ring.msyncAsync();
+
+    const stamp1 = ring.lastMsyncNs();
+    try std.testing.expect(stamp1 != 0);
+    try std.testing.expect(stamp1 >= t0);
+
+    // Second sync after a short sleep: stamp must move forward and be >= t1.
+    std.Thread.sleep(1 * std.time.ns_per_ms);
+    const t1_i = std.time.nanoTimestamp();
+    const t1: u64 = if (t1_i < 0) 0 else @intCast(t1_i);
+    ring.append("world");
+    try ring.msyncAsync();
+
+    const stamp2 = ring.lastMsyncNs();
+    try std.testing.expect(stamp2 >= stamp1);
+    try std.testing.expect(stamp2 >= t1);
+}
