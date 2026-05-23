@@ -17,6 +17,19 @@
 | 1 | macOS post-crash reopen 다이얼로그 abnormal-termination state | macOS SDK 26.5 launchd flag | mini는 SIGKILL을 graceful 처리, mac만 abnormal flag 세팅됨 |
 | 2 | applicationWillFinishLaunching / DidFinishLaunching · SessionManifest triage 상호작용 | macOS app delegate + SessionManifest 경로 | kernel panic 후 launchd 플래그와의 conditional 분기 의심 |
 | 3 | Phase B2 auto-replay가 restore-on-launch 분기에서 blocking I/O | 세션 복원 진입점 | mini의 cold-start 경로와 다른 reopen 진입점만 hang |
+| 4 | NSWindowRestoration async completion ↔ applicationShouldHandleReopen 경합 | AppDelegate.swift:551 + TerminalWindowRestoration | reopen 다이얼로그 시스템 경로는 restoration completion 대기 없이 동기 호출; newWindow(void) 중복 생성 가능성 |
+| 5 | Termio.init PTY 생성 시 concurrent SurfaceView tree mutation | TerminalRestorable.swift:116-118 + Termio libvoid 진입점 | 복원 중 새 window 생성 시 같은 void_app의 2개 경로가 surface tree 동시 변경 → libvoid deadlock |
+
+## 후보 fix (4번 가설 기준)
+```swift
+// restoration completion 대기 후 newWindow
+guard TerminalController.all.isEmpty else { return true }
+DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) {
+    _ = TerminalController.newWindow(void)
+}
+return false
+```
+검증 — kernel panic 실 재현으로 확인 필요 (mini.local 재현 불가)
 
 ## 알려진 안전 데이터
 | 항목 | 상태 |
@@ -35,3 +48,6 @@
 - macOS panic-mimic 도구로 abnormal-termination 플래그 mini에서 강제 세팅 시도 (launchctl / NSApplication 플래그)
 - `applicationWillFinishLaunching` ↔ SessionManifest 분기 정적 분석 (mini에서 코드만으로 hang 후보 좁히기)
 - mac 재접근 허용 시 사용할 진단 스크립트 사전 준비 (sample + spindump 캡처 절차 문서화)
+
+## 후속 메모
+round 4-4 agent investigation (2026-05-24) — 가설 후보 #4·#5 추가
