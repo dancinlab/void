@@ -84,6 +84,25 @@ case is "any UUID present in prev but absent in restored").
 See `SESSION-RESTORE.log.md` for the 2026-05-21 verification snapshot that confirmed
 this triage exposes the prior silent-loss failure mode.
 
+## 2026-05-23 verification (mini.local) — Phase B2 confirmed working
+
+`Termio.zig` 리플레이 경로에 체크포인트 A→F 계측 (파일 쓰기 `/tmp/void-replay-debug.log` + `/tmp/void-grid-dump.txt`) — 별도 브랜치에서 되돌리는 중.
+
+| 항목 | 결과 |
+|------|------|
+| 빌드 | zig 0.15.2, `bash -lc`로 로그인 셸 PATH 확보 (SSH non-login PATH에 zig 없음) |
+| SIGKILL→relaunch ring 보존율 | 100% (`write_offset` 일치) |
+| `surface_uuid` | 재기동 간 **재사용됨** (메커니즘 불명 — saved-state 디렉터리 부재) |
+| `ring.replay()` 반환 | 1282 → 2555 bytes (정상) |
+| `processOutputLocked` | 터미널 피드 정상 |
+| `Terminal.plainString` 덤프 | 34 DUMMY 라인 + END marker + prompt **825 chars 그리드 렌더 확인** |
+
+**결론: Phase B2 자동 리플레이는 end-to-end로 동작한다.** 이전 가정 "복원 안 됨 (시각적 복원 없음)"은 **오진**이었음 — SSH에 TCC display access 부재로 `screencapture` 불가했고, `config command =`가 매 기동마다 재실행되어 화면이 혼란스러웠던 것. 직접 grid dump 계측으로 종결.
+
+### 새 미해결 질문 — `surface_uuid` 재사용 메커니즘
+
+`Termio.init`이 SIGKILL→relaunch 사이에 **동일한** uuid를 받음 (mini, Saved Application State 디렉터리 부재 상태). `OSSurfaceView.swift:62`의 `self.id = id ?? UUID()`는 caller가 id를 주입한다는 의미인데, **prior UUID를 가져오는 caller 체인이 추적되지 않음**. macOS 26.5 NSPersistent 메커니즘 또는 `SessionManifest` 읽기 결과가 surface 생성에 영향을 주는 가능성. 자동 리플레이 정합성이 이 경로에 의존하므로 추적 필요.
+
 ## What's left
 
 Ordered by leverage:

@@ -127,3 +127,8 @@ Worth adding follow-ups when convenient:
   window isn't attached to NSApp.windows yet — sync write would miss it. The
   one-tick deferral still wins the race against AppKit's flush by orders of
   magnitude.
+
+## Verification log
+
+- [x] 2026-05-23 mini.local 계측으로 B2 end-to-end 검증 (ring→replay→`plainString` 그리드 덤프 34 DUMMY 라인 + END marker + prompt 825 chars 확인). 이전 "복원 실패" 진단은 SSH TCC 부재로 인한 오진이었음. `Termio.zig` A→F 체크포인트는 별도 브랜치에서 revert 진행 중.
+- [ ] 2026-05-23 `surface_uuid` 재사용 경로 추적 — Saved Application State 디렉터리 부재 상태에서 동일 uuid가 `Termio.init`에 전달되는 caller 체인 (`OSSurfaceView.swift:62` 위쪽) 미확인. macOS 26.5 NSPersistent 또는 `SessionManifest` 경유 가능성.
