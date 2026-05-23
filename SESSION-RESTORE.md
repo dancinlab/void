@@ -107,24 +107,22 @@ this triage exposes the prior silent-loss failure mode.
 
 Ordered by leverage:
 
-1. **Surface the failure in-app** (was Gap #5)
-   - First-window toolbar badge: "2 prior sessions could not be auto-restored"
-   - Click → table of orphan UUIDs with cwd-from-ring-tail preview + "Open in new tab" / "Discard"
-   - Probably lives next to the `void-session-replay.sh` flow
+1. ~~**Surface the failure in-app** (was Gap #5)~~ — **DONE (commit `ab82627ce`)**
+   - NSAlert with Copy UUIDs / Open Ring Folder / Dismiss 액션 — 첫 윈도우 attach 후 1회 발화
+   - 후속(toolbar badge / 인라인 table)은 별도 follow-up으로 남김
 
-2. **Ring header epoch** (was Gap #2)
-   - Add `last_msync_ns` to `PersistRing` header so triage can sort orphans by recency
-   - Lets the in-app UI distinguish "from 5 minutes ago" vs "from a week ago"
+2. ~~**Ring header epoch** (was Gap #2)~~ — **DONE (commit `589cce568`)**
+   - `last_msync_ns` atomic u64를 기존 `_reserved` 슬롯에 배치 (헤더 크기 유지)
+   - 접근자 추가 — 트리아쥬 정렬 / in-app UI 최근성 표시에 사용 가능
 
 3. **Per-window grouping in manifest** (extension of #4)
    - Promote schema to `windows: [{tab_id, uuids: [...]}]`
    - Lets relaunch reconstruct topology when AppKit's state was lost entirely
    - Useful for `window-save-state = never` (Gap #6)
 
-4. **Auto-GC for unambiguous orphans** (was Gap #3)
-   - After N launches where a UUID stays in `disk - prev`, delete its ring
-   - Conservative threshold (3+ launches? configurable?)
-   - **Risky** — don't touch until #1 is in place so users have a recovery path
+4. ~~**Auto-GC for unambiguous orphans** (was Gap #3)~~ — **DONE (commit `ab82627ce`)**
+   - 카운터 파일 + threshold-gated delete로 보수적 GC (topology-lost는 절대 건드리지 않음)
+   - stale-orphan만 N회 연속 관측 후 삭제 — #1의 recovery affordance 선행 조건 충족
 
 5. **Validate ring on open** (was Gap #2 part 2)
    - Compare ring's last-msync time vs manifest epoch — flag if drift > 5s

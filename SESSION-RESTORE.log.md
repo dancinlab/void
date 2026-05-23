@@ -132,3 +132,6 @@ Worth adding follow-ups when convenient:
 
 - [x] 2026-05-23 mini.local 계측으로 B2 end-to-end 검증 (ring→replay→`plainString` 그리드 덤프 34 DUMMY 라인 + END marker + prompt 825 chars 확인). 이전 "복원 실패" 진단은 SSH TCC 부재로 인한 오진이었음. `Termio.zig` A→F 체크포인트는 별도 브랜치에서 revert 진행 중.
 - [ ] 2026-05-23 `surface_uuid` 재사용 경로 추적 — Saved Application State 디렉터리 부재 상태에서 동일 uuid가 `Termio.init`에 전달되는 caller 체인 (`OSSurfaceView.swift:62` 위쪽) 미확인. macOS 26.5 NSPersistent 또는 `SessionManifest` 경유 가능성.
+- [x] 2026-05-24 What's left #1 (silent-loss in-app UI) — NSAlert (Copy UUIDs / Open Ring Folder / Dismiss) 첫 윈도우 attach 후 1회 발화. commit `ab82627ce`.
+- [x] 2026-05-24 What's left #2 (ring header epoch) — `PersistRing` 헤더의 `_reserved` 슬롯을 atomic `last_msync_ns` u64로 승격, 접근자 추가. 헤더 크기 유지. commit `589cce568`.
+- [x] 2026-05-24 What's left #4 (보수적 orphan auto-GC) — stale-orphan만 카운터 파일 누적 후 threshold-gated delete. topology-lost는 절대 삭제하지 않음 (#1 recovery affordance 선행 조건 충족). commit `ab82627ce`.
