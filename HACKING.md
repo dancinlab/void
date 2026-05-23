@@ -67,6 +67,62 @@ sudo xcode-select --switch /Applications/Xcode.app
 > You do not need to be running on macOS 26 to build Void, you can
 > still use Xcode 26 on macOS 15 stable.
 
+## Zig Toolchain and macOS Linker (Debug Build Gotchas)
+
+`build.zig.zon` pins `minimum_zig_version = 0.15.2`. The toolchain you pick
+and the shell you launch it from both matter on macOS — a standalone Zig
+tarball can compile but fail at link time even with a valid SDK selected.
+
+### Zig version matrix
+
+| Source                                       | Version | Status      | Notes                                                                |
+| -------------------------------------------- | ------- | ----------- | -------------------------------------------------------------------- |
+| `brew install zig@0.15`                      | 0.15.2  | works       | Recommended. Brew toolchain wires libSystem.tbd correctly.           |
+| `brew install zig`                           | 0.16.0  | BLOCKED     | `requireZig()` rejects; std lib API breaks (`readFileAlloc`, `Environ.Map`, ...) — week-scale migration. |
+| `zig-aarch64-macos-0.15.2.tar.xz` standalone | 0.15.2  | LINK FAILS  | `undefined symbol: __availability_version_check / _abort / _bzero`. `SDKROOT=$(xcrun --show-sdk-path)` does NOT fix it. |
+
+### Shell matters (non-login SSH trap)
+
+| Invocation                          | PATH includes `/opt/homebrew/bin` | Build result |
+| ----------------------------------- | --------------------------------- | ------------ |
+| Local interactive terminal          | yes                               | works        |
+| `ssh host 'bash -lc "zig build"'`   | yes (login shell)                 | works        |
+| `ssh host 'zig build'` (non-login)  | no                                | LINK FAILS   |
+
+Always wrap remote builds in `bash -lc "..."` (or use `pool on <host> ...`,
+which uses a login shell by default). The brew-linked `zig` and its
+auxiliary clang/ld must be on PATH for libSystem to resolve.
+
+### macOS 26.5 SDK gotcha
+
+Standalone Zig 0.15.2 + manually-pointed SDK is NOT equivalent to brew Zig
++ brew toolchain. Even with `xcrun --show-sdk-path` returning a valid
+`MacOSX.sdk`, the standalone linker fails to pick up the right
+`libSystem.tbd` stubs (`__availability_version_check`, `_abort`, `_bzero`).
+Fix: install via `brew install zig@0.15` and build from a login shell. Do
+not try to patch SDKROOT — it does not help.
+
+### Post-build adhoc re-sign (debug / instrumented binaries)
+
+A freshly built debug binary launched via `open zig-out/Void.app` may fail
+with:
+
+```
+LSOpenURLsWithCompletionHandler() failed ... RBSRequestErrorDomain Code=5
+NSPOSIXErrorDomain Code=163 "Launchd job spawn failed"
+```
+
+Cause: the bundle inherits an adhoc signature with `flags=0x10002
+(adhoc,runtime)` — hardened runtime conflicts with the unsigned debug
+binary. Re-sign without the runtime flag:
+
+```shell
+codesign --force --deep --sign - zig-out/Void.app
+```
+
+After this `codesign -d --verbose zig-out/Void.app` should report
+`flags=0x2 (adhoc)` and `open` will succeed.
+
 ## AI and Agents
 
 If you're using AI assistance with Void, Void provides an
