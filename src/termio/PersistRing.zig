@@ -18,16 +18,18 @@
 //! ## File layout
 //!
 //! ```
-//! +------+--------+--------+----------+----------------+
-//! | hdr  | wrt    | gen    | reserved | payload (CAP)  |
-//! | u32  | u64    | u64    | 12 bytes | ring of bytes  |
-//! +------+--------+--------+----------+----------------+
-//!   0    4        12       20         32 ... 32+CAP
+//! +------+------+--------+--------+----------+----------------+
+//! | hdr  | pad  | wrt    | gen    | msync_ns | payload (CAP)  |
+//! | u32  | u32  | u64    | u64    | u64      | ring of bytes  |
+//! +------+------+--------+--------+----------+----------------+
+//!   0    4      8        16       24         32 ... 32+CAP
 //! ```
 //!
 //! - `hdr`        magic 0x52455650 ("PVER") to detect ring vs garbage
 //! - `wrt`        atomic monotonic write offset (bytes since ring open)
 //! - `gen`        ring generation counter (incremented on every wraparound)
+//! - `msync_ns`   wall-clock ns of last successful msync (0 = never); used
+//!                by orphan-ring triage to rank stale rings by recency.
 //! - `payload`    fixed-size byte ring; physical pos = wrt mod CAP
 //!
 //! Replay reads from `(wrt mod CAP)` going backward `min(wrt, CAP)` bytes
@@ -64,7 +66,13 @@ const Header = extern struct {
     _pad0: u32 = 0,
     write_offset: u64 align(8),
     generation: u64 align(8),
-    _reserved: [8]u8 = .{0} ** 8,
+    /// Wall-clock ns of last successful `msyncAsync`. 0 = never synced
+    /// (also the natural state for rings on disk from before this field
+    /// existed — sorts as "oldest possible" for triage, which is fine).
+    /// Single 8-byte aligned store from `msyncAsync`; readers may see
+    /// either the old or new value, never a torn half — atomic enough
+    /// for triage ranking on mmap.
+    last_msync_ns: u64 align(8) = 0,
 };
 
 comptime {
@@ -177,6 +185,20 @@ pub fn msyncAsync(self: *PersistRing) !void {
         log.warn("msync failed errno={d}", .{std.c._errno().*});
         return error.MsyncFailed;
     }
+
+    // Stamp last_msync_ns after a successful msync. Single 8-byte
+    // aligned store — readers (triage) get either the old or new value,
+    // never torn. nanoTimestamp() is i128 wall-clock; clamp negatives
+    // (pre-1970, impossible in practice) to 0 before truncating to u64.
+    const now = std.time.nanoTimestamp();
+    const now_u64: u64 = if (now < 0) 0 else @intCast(now);
+    @atomicStore(u64, &self.header().last_msync_ns, now_u64, .release);
+}
+
+/// Wall-clock ns of the last successful `msyncAsync`, or 0 if never
+/// synced. Used by orphan-ring triage to rank stale rings by recency.
+pub fn lastMsyncNs(self: *PersistRing) u64 {
+    return @atomicLoad(u64, &self.header().last_msync_ns, .acquire);
 }
 
 /// Replay the most recent ≤ cap bytes of PTY output into `out`.
