@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased] — 2026-05-24
+
+세션 복원(P7 Phase B2) 후속 배치. 기본 설정 사용자는 동작 변경 없음 — 단,
+이전에 stranded ring 파일이 남아 있던 경우에만 새 알림이 노출됩니다.
+비파괴(non-breaking) 개선 묶음.
+
+### Added
+
+- **Silent-loss session 알림** (`macos`): AppKit이 직전 세션의 surface tree를
+  복원하지 못했지만 ring 파일은 디스크에 남아있을 때, 500ms triage 콜백 시점에
+  NSAlert 모달로 표면화. 버튼: **Copy UUIDs** (pasteboard) · **Open Ring
+  Folder** (Finder) · **Dismiss**. 정상 복원 경로에서는 무노출 — stranded
+  ring이 실제로 존재할 때만 뜸.
+- **`~/.void/sessions/by-uuid/` orphan ring 보수적 auto-GC**: disk에 ring
+  파일이 있는데 어느 prior session manifest에서도 참조하지 않은(진짜 버려진)
+  UUID만 대상. `~/.void/sessions/gc-counter.json`에 누적되어 임계값(기본 3회
+  연속 launch) 도달 시 삭제. `topologyLost` ring은 절대 건드리지 않음 ·
+  launch당 최대 50개 삭제 cap. 설정: `session-orphan-gc-threshold` (기본 `3`,
+  `0`으로 비활성).
+- **`tool/void-session-recover.sh`**: stranded ring 파일의 tail에서 마지막
+  cwd를 추출해, UUID만으로 "어떤 작업이었는지" preview. POSIX-portable, ANSI
+  / control sequence strip 후 last existing directory 우선. silent-loss
+  alert의 **Copy UUIDs**와 짝지어 사용 의도.
+- **PersistRing 헤더에 `last_msync_ns: u64`**: 이전 `_reserved [8]u8` 영역을
+  monotonic ns timestamp로 전환. msync 직후 release-store, `lastMsyncNs()`
+  accessor로 acquire-load. **헤더 크기 32 bytes 유지 — 기존 ring file과 호환**.
+  향후 ring freshness 판정(오래된 stranded vs 직전 세션)의 기반.
+
+### Internal
+
+- `HACKING.md`: zig 0.15.2 + macOS 26.5 Tahoe SDK 빌드 환경 gotcha 4
+  sub-section 추가 (brew zig 0.16.0 ↔ `build.zig.zon` 0.15.2 핀 충돌,
+  standalone 0.15.2 tarball ↔ Tahoe SDK linker ABI 불일치, 작동 조합,
+  login-shell PATH 필요성).
+- `docs/issues/2026-05-23-mac-reopen-hang.md`: "예기치 않게 종료된 앱을 다시
+  열까요?" 다이얼로그 클릭 후 hang 이슈 진행 추적 (mini.local 재현 실패,
+  의심 후보 3-row table).
+- `SESSION-RESTORE.md` / `SESSION-RESTORE.log.md`: mini.local end-to-end
+  Phase B2 auto-replay 검증 기록(checkpoint A→F · ring.replay →
+  processOutputLocked → PTY 바이트 재현). NSWindowRestoration이 saved-state
+  디렉토리 부재에도 동일 surface UUID를 재할당하는 메커니즘은 open Q로 남김
+  (NSPersistent / cfprefsd / mach 후보).
+
 ## PLAN absorption + UPPERCASE — 2026-05-22
 
 `PLAN.md` was a single-domain design doc (session-restore gap closure for P7
