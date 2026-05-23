@@ -76,6 +76,14 @@ last_cursor_reset: ?std.time.Instant = null,
 /// part 2 with the Swift SessionPersistManager wiring).
 persist_ring: ?PersistRing = null,
 
+/// P7 Phase B2 "Option X": set to true in `init` when the persist
+/// ring contained replayable bytes that were successfully fed into
+/// the terminal parser. Consumed by `Exec.threadEnter` to skip
+/// `Subprocess.start` — the prior shell is gone and we deliberately
+/// do not resurrect it (restoration ≠ resumption). The resulting
+/// surface is "frozen scrollback, no live shell".
+replay_occurred: bool = false,
+
 /// State we have for thread enter. This may be null if we don't need
 /// to keep track of any state or if its already been freed.
 thread_enter_state: ?*ThreadEnterState = null,
@@ -406,6 +414,13 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
         self.processOutputLocked(replay_slice);
+
+        // Option X: signal to Exec.threadEnter that replay actually
+        // happened so the subprocess spawn is suppressed. We only set
+        // this when bytes were both present AND consumed — a fresh
+        // ring or zero-byte replay leaves this false and the normal
+        // spawn path runs.
+        self.replay_occurred = true;
     }
 }
 

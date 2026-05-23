@@ -96,21 +96,34 @@ pub fn threadEnter(
     io: *termio.Termio,
     td: *termio.Termio.ThreadData,
 ) !void {
-    // Start our subprocess
-    const pty_fds = self.subprocess.start(alloc) catch |err| {
-        // If we specifically got this error then we are in the forked
-        // process and our child failed to execute. If we DIDN'T
-        // get this specific error then we're in the parent and
-        // we need to bubble it up.
-        if (err != error.ExecFailedInChild) return err;
+    // P7 Phase B2 "Option X": if Termio already replayed prior-session
+    // bytes from the persist ring, the original shell is gone and we
+    // deliberately do NOT respawn `config.command` — re-running it
+    // would duplicate startup output and break the restoration
+    // semantic. We still open a pty (for valid fds + structurally
+    // unchanged scaffolding below) but skip the fork/exec.
+    const replay_occurred = io.replay_occurred;
 
-        // We're in the child. Nothing more we can do but abnormal exit.
-        // The Command will output some additional information.
-        posix.exit(1);
-    };
+    // Start our subprocess (or just the pty, on the replay path).
+    const pty_fds = if (replay_occurred)
+        try self.subprocess.startNoFork()
+    else
+        self.subprocess.start(alloc) catch |err| {
+            // If we specifically got this error then we are in the forked
+            // process and our child failed to execute. If we DIDN'T
+            // get this specific error then we're in the parent and
+            // we need to bubble it up.
+            if (err != error.ExecFailedInChild) return err;
+
+            // We're in the child. Nothing more we can do but abnormal exit.
+            // The Command will output some additional information.
+            posix.exit(1);
+        };
     errdefer self.subprocess.stop();
 
-    // Watcher to detect subprocess exit
+    // Watcher to detect subprocess exit. On the replay path
+    // `self.subprocess.process` is null by design — leave `process`
+    // null and the xev watcher arm below becomes a no-op.
     var process: ?xev.Process = if (self.subprocess.process) |v| switch (v) {
         .fork_exec => |cmd| try xev.Process.init(
             cmd.pid orelse return error.ProcessNoPid,
@@ -121,7 +134,7 @@ pub fn threadEnter(
         // as a special case in os/flatpak.zig) since the
         // command is on the host.
         .flatpak => null,
-    } else return error.ProcessNotStarted;
+    } else if (replay_occurred) null else return error.ProcessNotStarted;
     errdefer if (process) |*p| p.deinit();
 
     // Track our process start time for abnormal exits
@@ -159,6 +172,12 @@ pub fn threadEnter(
     // Setup our threadata backend state to be our own
     td.backend = .{ .exec = .{
         .start = process_start,
+        // P7 Phase B2 "Option X": on the replay path there is no live
+        // child, so mark the slot exited up-front. `queueWrite`
+        // short-circuits on `exec.exited`, so user keystrokes harmlessly
+        // discard instead of going into a pty with no reader on the
+        // far side.
+        .exited = replay_occurred,
         .write_stream = stream,
         .process = process,
         .read_thread = read_thread,
@@ -697,6 +716,15 @@ const Subprocess = struct {
         flatpak: FlatpakHostCommand,
     };
 
+    /// Named return type shared by `start` and `startNoFork`. Zig
+    /// treats anonymous structs declared at distinct sites as
+    /// distinct nominal types, so threadEnter's `if/else` would
+    /// see them as incompatible without a shared named type.
+    pub const PtyFds = struct {
+        read: Pty.Fd,
+        write: Pty.Fd,
+    };
+
     const ArgsFormatter = struct {
         args: []const [:0]const u8,
 
@@ -977,12 +1005,53 @@ const Subprocess = struct {
         self.* = undefined;
     }
 
+    /// P7 Phase B2 "Option X": open the pty WITHOUT forking the
+    /// configured command. Used when Termio successfully replayed
+    /// prior-session bytes from the persist ring — the original
+    /// shell is gone and re-running `config.command` would pollute
+    /// the restored screen with duplicate output (e.g. startup
+    /// scripts re-firing). The pty stays open so the rest of the
+    /// IO scaffolding (read thread, write stream, termios timer)
+    /// is structurally unchanged; reads block forever (no writer
+    /// on the slave) and threadExit's quit-pipe tears them down
+    /// normally. `process` remains null — callers must tolerate
+    /// that (Exec.threadEnter does, via its `if (process) |*p|`
+    /// guard around the xev watcher arm).
+    pub fn startNoFork(self: *Subprocess) !PtyFds {
+        assert(self.pty == null and self.process == null);
+
+        const pty = try Pty.open(.{
+            .ws_row = @intCast(self.grid_size.rows),
+            .ws_col = @intCast(self.grid_size.columns),
+            .ws_xpixel = @intCast(self.screen_size.width),
+            .ws_ypixel = @intCast(self.screen_size.height),
+        });
+        self.pty = pty;
+
+        // We deliberately keep the slave fd open: with no child
+        // attached, reads on the master block until our quit pipe
+        // wakes the reader at threadExit. Closing the slave would
+        // EOF the master immediately and surface as an abnormal
+        // exit, which is not what we want.
+
+        log.info("P7 phase-b2: replay path — pty opened, fork suppressed", .{});
+
+        return switch (builtin.os.tag) {
+            .windows => .{
+                .read = pty.out_pipe,
+                .write = pty.in_pipe,
+            },
+
+            else => .{
+                .read = pty.master,
+                .write = pty.master,
+            },
+        };
+    }
+
     /// Start the subprocess. If the subprocess is already started this
     /// will crash.
-    pub fn start(self: *Subprocess, alloc: Allocator) !struct {
-        read: Pty.Fd,
-        write: Pty.Fd,
-    } {
+    pub fn start(self: *Subprocess, alloc: Allocator) !PtyFds {
         assert(self.pty == null and self.process == null);
 
         // This function is funny because on POSIX systems it can
