@@ -69,17 +69,40 @@ sudo xcode-select --switch /Applications/Xcode.app
 
 ## Zig Toolchain and macOS Linker (Debug Build Gotchas)
 
-`build.zig.zon` pins `minimum_zig_version = 0.15.2`. The toolchain you pick
-and the shell you launch it from both matter on macOS — a standalone Zig
-tarball can compile but fail at link time even with a valid SDK selected.
+`build.zig.zon` 가 `minimum_zig_version = 0.15.2` 를 핀하고 있다. macOS 에서는
+**어떤 zig 바이너리를 쓰느냐** 와 **어떤 셸에서 부르느냐** 둘 다 빌드 성공
+여부를 좌우한다. 특히 standalone tarball 은 컴파일은 되지만 링크 단계에서
+libc 심볼을 못 찾아 실패한다.
+
+### REQUIRED — `brew install zig@0.15` 만 사용
+
+macOS 26.5 (Tahoe) SDK 환경에서는 반드시 Homebrew 빌드를 써야 한다.
+ziglang.org 의 standalone tarball (`zig-aarch64-macos-0.15.2.tar.xz`) 은
+**쓰지 말 것**.
+
+```shell
+brew install zig@0.15
+which zig    # → /opt/homebrew/opt/zig@0.15/bin/zig
+zig version  # → 0.15.2
+```
+
+기술적 이유 — standalone tarball 의 zig 0.15.2 는 LLVM 20 / lld20 를 동적
+링크하지 않고 빌드되어 있다. 그래서 macOS 26.5 Tahoe SDK 헤더 / `libSystem.tbd`
+와 함께 쓰면 `_abort`, `_exit`, `_getenv`, `_fcopyfile` 등 libc 심볼 29 개를
+링커가 해결하지 못한다. Brew 빌드는 `/opt/homebrew/opt/lld@20/lib/liblldMachO.dylib`
+를 런타임에 동적 링크하기 때문에 동일한 SDK 에서 정상 동작한다.
+
+`lib/` 레이아웃을 `lib/zig/` 로 래핑하면 된다는 가설은 **반증되었다** (동일한
+29 개 미해결 심볼 에러 재현). 원인은 디렉터리 레이아웃이 아니라 LLVM/lld 부재다.
+`SDKROOT=$(xcrun --show-sdk-path)` 도 효과 없다.
 
 ### Zig version matrix
 
 | Source                                       | Version | Status      | Notes                                                                |
 | -------------------------------------------- | ------- | ----------- | -------------------------------------------------------------------- |
-| `brew install zig@0.15`                      | 0.15.2  | works       | Recommended. Brew toolchain wires libSystem.tbd correctly.           |
+| `brew install zig@0.15`                      | 0.15.2  | REQUIRED    | macOS 26.5 Tahoe 에서 유일하게 동작. LLVM20/lld20 동적 링크 포함.    |
 | `brew install zig`                           | 0.16.0  | BLOCKED     | `requireZig()` rejects; std lib API breaks (`readFileAlloc`, `Environ.Map`, ...) — week-scale migration. |
-| `zig-aarch64-macos-0.15.2.tar.xz` standalone | 0.15.2  | LINK FAILS  | `undefined symbol: __availability_version_check / _abort / _bzero`. `SDKROOT=$(xcrun --show-sdk-path)` does NOT fix it. |
+| `zig-aarch64-macos-0.15.2.tar.xz` standalone | 0.15.2  | DO NOT USE  | LLVM/lld 동적 링크 부재 → macOS 26.5 SDK 에서 libc 심볼 29 개 미해결. |
 
 ### Shell matters (non-login SSH trap)
 
@@ -92,15 +115,6 @@ tarball can compile but fail at link time even with a valid SDK selected.
 Always wrap remote builds in `bash -lc "..."` (or use `pool on <host> ...`,
 which uses a login shell by default). The brew-linked `zig` and its
 auxiliary clang/ld must be on PATH for libSystem to resolve.
-
-### macOS 26.5 SDK gotcha
-
-Standalone Zig 0.15.2 + manually-pointed SDK is NOT equivalent to brew Zig
-+ brew toolchain. Even with `xcrun --show-sdk-path` returning a valid
-`MacOSX.sdk`, the standalone linker fails to pick up the right
-`libSystem.tbd` stubs (`__availability_version_check`, `_abort`, `_bzero`).
-Fix: install via `brew install zig@0.15` and build from a login shell. Do
-not try to patch SDKROOT — it does not help.
 
 ### Post-build adhoc re-sign (debug / instrumented binaries)
 
