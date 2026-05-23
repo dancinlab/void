@@ -2234,6 +2234,29 @@ keybind: Keybinds = .{},
 /// This is currently only supported on macOS. This has no effect on Linux.
 @"window-save-state": WindowSaveState = .default,
 
+/// Number of consecutive launches a ring file may remain a "stale orphan"
+/// (present on disk but absent from every prior session manifest) before
+/// Void auto-deletes it from `~/.void/sessions/by-uuid/<uuid>.ring`.
+///
+/// A UUID is counted as orphan-on-this-launch only if it appears in the
+/// `disk - prev` set of `SessionManifest.triage` — i.e. its ring exists but
+/// no prior session's manifest ever referenced it. Rings in the
+/// `topologyLost` set (referenced by the prior manifest but not restored by
+/// AppKit) are NEVER auto-GC'd — they are the silent-loss case and require
+/// the in-app recovery affordance instead.
+///
+/// Counter state lives in `~/.void/sessions/gc-counter.json`. Each launch
+/// the counter is incremented for current orphans, reset to 0 for UUIDs no
+/// longer in the orphan set, and pruned for UUIDs no longer on disk. When
+/// any counter reaches the threshold the corresponding ring file is
+/// deleted and the counter entry removed.
+///
+/// A value of `0` disables auto-GC entirely (rings are never deleted by
+/// Void; rely on manual `rm` or `void-session-replay.sh` flow). The
+/// default value is `3` — three consecutive launches with no prior-session
+/// reference. Currently only supported on macOS.
+@"session-orphan-gc-threshold": u8 = 3,
+
 /// Resize the window in discrete increments of the focused surface's cell size.
 /// If this is disabled, surfaces are resized in pixel increments. Currently
 /// only supported on macOS.

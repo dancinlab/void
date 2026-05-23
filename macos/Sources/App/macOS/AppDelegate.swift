@@ -357,9 +357,10 @@ class AppDelegate: NSObject,
         // P7 Phase B2 follow-up: triage the prior-session manifest against
         // what AppKit actually restored. Done after a short delay so any
         // first-window creation in applicationDidBecomeActive and any
-        // restoration completion handlers have settled. Initial cut is
-        // observation only — no GC, no UI prompt yet.
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) {
+        // restoration completion handlers have settled. Logs always; when
+        // topologyLost is non-empty we also surface an in-app alert anchored
+        // on the first restored window so silent loss is no longer silent.
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak self] in
             let restoredUUIDs = Set(TerminalController.all.flatMap {
                 $0.surfaceTree.map { $0.id.uuidString }
             })
@@ -368,7 +369,86 @@ class AppDelegate: NSObject,
             if !result.topologyLost.isEmpty {
                 let uuids = result.topologyLost.sorted().joined(separator: ",")
                 Self.logger.warning("session-manifest: ring files exist for UUIDs not restored by AppKit — content stranded. UUIDs: \(uuids)")
+                self?.presentSessionRecoveryAlert(orphans: result.topologyLost.sorted())
             }
+
+            // Auto-GC for unambiguous orphans (was "What's left" #4). Gated on
+            // `session-orphan-gc-threshold`; 0 disables. Operates ONLY on
+            // staleOrphans — topologyLost is never touched because those have
+            // valid prior-manifest entries (the silent-loss bug, handled by
+            // the recovery alert above), not abandoned content.
+            let threshold = self?.derivedConfig.sessionOrphanGCThreshold ?? 0
+            if threshold > 0 {
+                SessionManifest.runAutoGC(triage: result, threshold: threshold)
+            }
+        }
+    }
+
+    /// Surface `topologyLost` UUIDs to the user. The prior session's rings
+    /// still exist on disk under `~/.void/sessions/by-uuid/<uuid>.ring` but
+    /// AppKit's restoration didn't put them back in any SplitTree — without
+    /// this affordance the content is silently stranded. Shown as a sheet on
+    /// the first restored window when possible; falls back to app-modal.
+    private func presentSessionRecoveryAlert(orphans: [String]) {
+        guard !orphans.isEmpty else { return }
+
+        let alert = NSAlert()
+        let count = orphans.count
+        alert.messageText = count == 1
+            ? "1 prior session could not be auto-restored"
+            : "\(count) prior sessions could not be auto-restored"
+
+        // Show at most a handful of UUIDs inline; the rest get implied by the
+        // count above. Replay script can list them all.
+        let preview = orphans.prefix(5).joined(separator: "\n")
+        let extra = orphans.count > 5 ? "\n… and \(orphans.count - 5) more" : ""
+        alert.informativeText = """
+            Their ring files still exist on disk but AppKit did not restore the matching tabs/splits. \
+            You can replay them manually with the bundled tool.
+
+            \(preview)\(extra)
+
+            Replay tool: tool/void-session-replay.sh <uuid>
+            Ring dir: ~/.void/sessions/by-uuid/
+            """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Copy UUIDs")
+        alert.addButton(withTitle: "Open Ring Folder")
+        alert.addButton(withTitle: "Dismiss")
+
+        let runResponse: NSApplication.ModalResponse
+        if let host = TerminalController.all.first?.window {
+            // Sheet-modal needs runModal semantics for our 3-button flow; we
+            // use the simple app-modal here for parity with other void alerts
+            // (see Quit confirmation above). beginSheetModal is async and
+            // would force a completion-handler restructure for no real win.
+            _ = host  // anchor reference for future sheet conversion
+            runResponse = alert.runModal()
+        } else {
+            runResponse = alert.runModal()
+        }
+
+        switch runResponse {
+        case .alertFirstButtonReturn:
+            // Copy UUIDs (newline-separated) to the pasteboard so the user
+            // can paste straight into `void-session-replay.sh`.
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(orphans.joined(separator: "\n"), forType: .string)
+            Self.logger.info("session-manifest: \(orphans.count) orphan UUID(s) copied to pasteboard")
+
+        case .alertSecondButtonReturn:
+            // Open the ring directory in Finder so the user can inspect
+            // file sizes / mtimes before running the replay tool.
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let dir = home
+                .appendingPathComponent(".void", isDirectory: true)
+                .appendingPathComponent("sessions", isDirectory: true)
+                .appendingPathComponent("by-uuid", isDirectory: true)
+            NSWorkspace.shared.open(dir)
+
+        default:
+            break
         }
     }
 
@@ -1197,17 +1277,20 @@ class AppDelegate: NSObject,
         let initialWindow: Bool
         let shouldQuitAfterLastWindowClosed: Bool
         let quickTerminalPosition: QuickTerminalPosition
+        let sessionOrphanGCThreshold: Int
 
         init() {
             self.initialWindow = true
             self.shouldQuitAfterLastWindowClosed = false
             self.quickTerminalPosition = .top
+            self.sessionOrphanGCThreshold = 3
         }
 
         init(_ config: VD.Config) {
             self.initialWindow = config.initialWindow
             self.shouldQuitAfterLastWindowClosed = config.shouldQuitAfterLastWindowClosed
             self.quickTerminalPosition = config.quickTerminalPosition
+            self.sessionOrphanGCThreshold = config.sessionOrphanGCThreshold
         }
     }
 

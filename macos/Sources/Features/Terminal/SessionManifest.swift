@@ -169,6 +169,147 @@ enum SessionManifest {
         }
     }
 
+    // MARK: - Auto-GC of stale orphan rings
+
+    /// On-disk counter mapping `uuid → consecutive_orphan_launches`. Lives at
+    /// `~/.void/sessions/gc-counter.json` so a `rm -rf ~/.void/sessions`
+    /// resets both rings AND counter state in one shot.
+    private static var gcCounterURL: URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home
+            .appendingPathComponent(".void", isDirectory: true)
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("gc-counter.json", isDirectory: false)
+    }
+
+    /// Sanity cap — never delete more than this many rings in a single launch
+    /// even if the counter says we should. Protects against a corrupt-but-
+    /// parseable counter file from wiping the whole `by-uuid/` tree.
+    private static let gcMaxDeletionsPerLaunch = 50
+
+    /// Conservative auto-GC of `staleOrphans`. NEVER touches `topologyLost`.
+    /// Counter math: increment for every UUID in `triage.staleOrphans`, reset
+    /// (drop) entries for UUIDs not currently orphan, and prune entries for
+    /// UUIDs no longer on disk. When `count >= threshold` the ring file is
+    /// deleted and the counter entry removed.
+    ///
+    /// `threshold == 0` is a no-op (opt-out). If the counter file is corrupt
+    /// it is deleted and ALL counters reset — better to leak disk for one
+    /// launch than to wrongly delete a user's session content.
+    static func runAutoGC(triage: Triage, threshold: Int) {
+        guard threshold > 0 else { return }
+
+        let orphans = triage.staleOrphans
+        let onDisk = readRingUUIDsFromDisk()
+
+        // Load (or reset on corruption) the counter map.
+        var counters = readGCCounters()
+
+        // Drop entries for UUIDs no longer on disk (someone or something else
+        // removed them already — manual rm, replay tool, prior GC pass).
+        counters = counters.filter { onDisk.contains($0.key) }
+
+        // Reset (drop) entries for UUIDs that are no longer orphans this
+        // launch — they got referenced by a manifest, so the streak is broken.
+        // Then increment for current orphans. Order matters: filter first so
+        // a UUID that re-orphans cleanly starts back at 1.
+        counters = counters.filter { orphans.contains($0.key) }
+        for uuid in orphans {
+            counters[uuid, default: 0] += 1
+        }
+
+        // Collect deletion candidates, capped for safety.
+        var toDelete: [String] = []
+        for (uuid, n) in counters where n >= threshold {
+            toDelete.append(uuid)
+        }
+        toDelete.sort()  // deterministic logging order
+
+        var capped = false
+        if toDelete.count > Self.gcMaxDeletionsPerLaunch {
+            capped = true
+            toDelete = Array(toDelete.prefix(Self.gcMaxDeletionsPerLaunch))
+        }
+
+        // Execute deletions. Drop counter entries only after the rm succeeds
+        // so a transient FS error doesn't lose the streak.
+        var deleted: [String] = []
+        for uuid in toDelete {
+            let ringURL = ringDirectoryURL
+                .appendingPathComponent("\(uuid).ring", isDirectory: false)
+            do {
+                try FileManager.default.removeItem(at: ringURL)
+                counters.removeValue(forKey: uuid)
+                deleted.append(uuid)
+            } catch {
+                logger.warning("auto-GC: rm \(ringURL.path) err=\(error)")
+            }
+        }
+
+        if !deleted.isEmpty {
+            let joined = deleted.joined(separator: ",")
+            logger.info("auto-GC: deleted \(deleted.count) stale orphan ring(s) at threshold=\(threshold): \(joined)")
+        }
+        if capped {
+            logger.warning("auto-GC: deletion-per-launch cap (\(Self.gcMaxDeletionsPerLaunch)) hit — stopped early; remaining candidates will be picked up next launch")
+        }
+
+        writeGCCounters(counters)
+    }
+
+    private static func readGCCounters() -> [String: Int] {
+        let url = gcCounterURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode([String: Int].self, from: data)
+        } catch {
+            logger.warning("auto-GC: gc-counter.json corrupt, resetting (err=\(error))")
+            try? FileManager.default.removeItem(at: url)
+            return [:]
+        }
+    }
+
+    private static func writeGCCounters(_ counters: [String: Int]) {
+        let url = gcCounterURL
+        let dir = url.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(
+                at: dir,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            logger.warning("auto-GC: mkdir \(dir.path) err=\(error)")
+            return
+        }
+
+        if counters.isEmpty {
+            // Nothing to track — remove the file so a future corrupt-empty
+            // read can't masquerade as state.
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data: Data
+        do {
+            data = try encoder.encode(counters)
+        } catch {
+            logger.warning("auto-GC: encode err=\(error)")
+            return
+        }
+
+        let tmp = url.appendingPathExtension("tmp")
+        do {
+            try data.write(to: tmp, options: [.atomic])
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
+        } catch {
+            logger.warning("auto-GC: write \(url.path) err=\(error)")
+            try? FileManager.default.removeItem(at: tmp)
+        }
+    }
+
     private static func readRingUUIDsFromDisk() -> Set<String> {
         let dir = ringDirectoryURL
         let contents: [URL]
