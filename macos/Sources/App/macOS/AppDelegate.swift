@@ -554,6 +554,13 @@ class AppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Stop reclaiming rings on surface teardown: a graceful quit/restart
+        // (incl. macOS shutdown/restart/logout, which routes here via
+        // applicationShouldTerminate → .terminateNow) must keep every live ring
+        // on disk for cold-restore. Closes during a running session already
+        // reclaimed immediately; this only guards the final teardown.
+        SessionManifest.isTerminating = true
+
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
         // more selective and only remove surface-targeted notifications.

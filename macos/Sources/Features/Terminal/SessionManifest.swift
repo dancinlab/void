@@ -81,11 +81,43 @@ enum SessionManifest {
                 }
                 return controller.surfaceTree.map { $0.id.uuidString }
             }
+            let current = Set(uuids)
+
+            // Reclaim rings for surfaces that left EVERY window this session —
+            // i.e. real user-initiated closes (Cmd-W, close tab/window). They
+            // were live a moment ago and are now gone from all windows, so their
+            // 4MB ring is dead weight that would otherwise sit on disk until the
+            // conservative launch-time auto-GC eventually reaps it.
+            //
+            // Safety:
+            //   - `liveLastSet` starts empty, so prior-session rings that were
+            //     never live this session (incl. topologyLost) are NEVER deleted
+            //     here — they remain for the recovery alert / GC.
+            //   - Guarded by `isTerminating`: a graceful quit/restart keeps every
+            //     live ring on disk for cold-restore.
+            //   - A surface migrating between windows stays in `current` (we scan
+            //     all windows), so migration is not mistaken for a close.
+            let closed = ringsToReclaim(
+                previousLive: liveLastSet,
+                currentLive: current,
+                isTerminating: isTerminating)
+            if !closed.isEmpty { deleteRings(closed) }
+            liveLastSet = current
+
             write(uuids: uuids)
         }
     }
 
     private static var refreshScheduled = false
+
+    /// Live UUID set as of the previous refresh. Diffed against the next refresh
+    /// to detect surfaces closed during a running session. Empty until the first
+    /// refresh so launch/restore never triggers a delete.
+    private static var liveLastSet: Set<String> = []
+
+    /// True once the app has begun terminating. While set, surface teardown does
+    /// NOT reclaim rings — a graceful quit/restart preserves them for cold-restore.
+    static var isTerminating = false
 
     /// Result of the launch-time triage. All three sets are disjoint.
     struct Triage {
@@ -307,6 +339,42 @@ enum SessionManifest {
         } catch {
             logger.warning("auto-GC: write \(url.path) err=\(error)")
             try? FileManager.default.removeItem(at: tmp)
+        }
+    }
+
+    /// Pure decision: which rings to reclaim given the previous-refresh live set,
+    /// the current live set, and whether the app is terminating. Surfaces present
+    /// last refresh but gone now are real closes. While terminating, reclaim
+    /// nothing (preserve for cold-restore). Extracted for unit testing.
+    static func ringsToReclaim(
+        previousLive: Set<String>,
+        currentLive: Set<String>,
+        isTerminating: Bool
+    ) -> Set<String> {
+        guard !isTerminating else { return [] }
+        return previousLive.subtracting(currentLive)
+    }
+
+    /// Best-effort deletion of the ring files for `uuids` (surfaces closed this
+    /// session). Logs failures; a missing file is not an error. Only ever called
+    /// from `refreshFromCurrentControllers` with session-live UUIDs, so it can
+    /// never touch prior-session content that has not been seen this run.
+    private static func deleteRings(_ uuids: Set<String>) {
+        guard !uuids.isEmpty else { return }
+        var removed = 0
+        for uuid in uuids {
+            let url = ringDirectoryURL.appendingPathComponent("\(uuid).ring", isDirectory: false)
+            do {
+                try FileManager.default.removeItem(at: url)
+                removed += 1
+            } catch CocoaError.fileNoSuchFile {
+                // Already gone (manual rm, prior GC) — nothing to do.
+            } catch {
+                logger.warning("session-manifest: reclaim-on-close rm \(url.path) err=\(error)")
+            }
+        }
+        if removed > 0 {
+            logger.info("session-manifest: reclaimed \(removed) ring(s) on surface close")
         }
     }
 
