@@ -368,8 +368,22 @@ class AppDelegate: NSObject,
             Self.logger.info("session-manifest triage: recovered=\(result.recovered.count) topology-lost=\(result.topologyLost.count) stale-orphans=\(result.staleOrphans.count)")
             if !result.topologyLost.isEmpty {
                 let uuids = result.topologyLost.sorted().joined(separator: ",")
-                Self.logger.warning("session-manifest: ring files exist for UUIDs not restored by AppKit — content stranded. UUIDs: \(uuids)")
-                self?.presentSessionRecoveryAlert(orphans: result.topologyLost.sorted())
+                if TerminalWindowRestoration.didRestoreAnyWindow {
+                    // Genuine silent loss: AppKit DID restore window(s) this
+                    // launch, yet these prior surfaces never made it back into
+                    // any SplitTree (flush-lag between the synchronous ring and
+                    // AppKit's async SplitTree write). Content stranded — alert.
+                    Self.logger.warning("session-manifest: ring files exist for UUIDs not restored by AppKit — content stranded. UUIDs: \(uuids)")
+                    self?.presentSessionRecoveryAlert(orphans: result.topologyLost.sorted())
+                } else {
+                    // No AppKit restoration ran this launch (macOS chose not to
+                    // restore — e.g. "reopen windows" off on a clean restart, or
+                    // window-save-state suppression). Prior surfaces not coming
+                    // back is the EXPECTED graceful outcome, NOT silent loss — so
+                    // we log only and never raise the warning alert. The rings
+                    // remain on disk, recoverable via tool/void-session-replay.sh.
+                    Self.logger.info("session-manifest: \(result.topologyLost.count) prior surface(s) absent but no AppKit restoration ran this launch — graceful no-restore, suppressing recovery alert. UUIDs: \(uuids)")
+                }
             }
 
             // Auto-GC for unambiguous orphans (was "What's left" #4). Gated on
