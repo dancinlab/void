@@ -1,9 +1,9 @@
 import Foundation
-@testable import Void
+@testable import VoidApp
 @testable import VoidKit
 
 /// Create a temporary config file and delete it when this is deallocated
-class TemporaryConfig: Void.Config {
+class TemporaryConfig: VD.Config {
     enum Error: Swift.Error {
         case failedToLoad
     }
@@ -29,14 +29,14 @@ class TemporaryConfig: Void.Config {
         clone(config: cfg)
     }
 
-    var optionalAutoUpdateChannel: Void.AutoUpdateChannel? {
+    var optionalAutoUpdateChannel: VD.AutoUpdateChannel? {
         guard let config = self.config else { return nil }
         var v: UnsafePointer<Int8>?
         let key = "auto-update-channel"
         guard void_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
         guard let ptr = v else { return nil }
         let str = String(cString: ptr)
-        return Void.AutoUpdateChannel(rawValue: str)
+        return VD.AutoUpdateChannel(rawValue: str)
     }
 
     deinit {

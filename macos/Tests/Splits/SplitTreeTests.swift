@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-@testable import Void
+@testable import VoidApp
 
 class MockView: NSView, Codable, Identifiable {
     let id: UUID

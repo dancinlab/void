@@ -2,7 +2,7 @@ import Testing
 import Foundation
 import SwiftUI
 import Sparkle
-@testable import Void
+@testable import VoidApp
 
 struct UpdateViewModelTests {
     // MARK: - Text Formatting Tests

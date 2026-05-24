@@ -7,7 +7,7 @@
 
 import SwiftUI
 import Testing
-@testable import Void
+@testable import VoidApp
 
 class MockTerminalViewContainer: TerminalViewContainer {
     var _windowCornerRadius: CGFloat?
@@ -20,19 +20,19 @@ class MockTerminalViewContainer: TerminalViewContainer {
     }
 }
 
-class MockConfig: Void.Config {
-    internal init(backgroundBlur: Void.Config.BackgroundBlur, backgroundColor: Color, backgroundOpacity: Double) {
+class MockConfig: VD.Config {
+    internal init(backgroundBlur: VD.Config.BackgroundBlur, backgroundColor: Color, backgroundOpacity: Double) {
         self._backgroundBlur = backgroundBlur
         self._backgroundColor = backgroundColor
         self._backgroundOpacity = backgroundOpacity
         super.init(config: nil)
     }
 
-    var _backgroundBlur: Void.Config.BackgroundBlur
+    var _backgroundBlur: VD.Config.BackgroundBlur
     var _backgroundColor: Color
     var _backgroundOpacity: Double
 
-    override var backgroundBlur: Void.Config.BackgroundBlur {
+    override var backgroundBlur: VD.Config.BackgroundBlur {
         _backgroundBlur
     }
 

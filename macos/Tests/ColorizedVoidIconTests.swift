@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 import Testing
-@testable import Void
+@testable import VoidApp
 
 struct ColorizedVoidIconTests {
     private func makeIcon(
@@ -10,7 +10,7 @@ struct ColorizedVoidIconTests {
             NSColor(hex: "#AABBCC")!,
         ],
         ghostColor: NSColor = NSColor(hex: "#445566")!,
-        frame: Void.MacOSIconFrame = .aluminum
+        frame: VD.MacOSIconFrame = .aluminum
     ) -> ColorizedVoidIcon {
         .init(screenColors: screenColors, ghostColor: ghostColor, frame: frame)
     }

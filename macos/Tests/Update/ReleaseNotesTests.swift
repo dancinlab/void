@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import Void
+@testable import VoidApp
 
 struct ReleaseNotesTests {
     /// Test tagged release (semantic version)
