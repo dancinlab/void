@@ -2,6 +2,13 @@
 
 Append-only history sister of `VOID.md`. Each entry starts with `## <ISO timestamp> — <header>` (newest on top); body = `- [x]` (done) / `- [ ]` (pending) checkbox tasks.
 
+## 2026-05-24 — v1.3.2 릴리스 (로컬 빌드)
+
+- [x] mini에서 Release Void.app 빌드 → ad-hoc(self-signed) 서명 → DMG(32M) + universal zip(29M), 버전 1.3.2 (build 16132) 스탬프
+- [x] GitHub Release `v1.3.2` 생성 (target `void/main` @ cc2108508, 두 아티팩트 첨부)
+- [x] 릴리스 CI 우회 — release-tag.yml은 미개조 Ghostty(`-target Ghostty` · ghostty-org cachix/R2/appcast/sentry) + fork 러너 0개 → 태그가 트리거한 stuck 런 취소
+- [ ] (후속) fork 전용 릴리스 워크플로 — GitHub-hosted 러너 + Ghostty→Void 개명 + GitHub Releases 호스팅 (cachix/R2/appcast/sentry/minisign 제거)
+
 ## 2026-05-24 — VoidTests 타깃 빌드 복구 (#19)
 
 - [x] 원인: 리브랜딩(Void→VoidApp 모듈명 · Void→VD 네임스페이스) 후 VoidTests 미컴파일 — `@testable import Void`/`Void.X` stale + `@main` 헤드리스 테스트가 auto-sync Tests/ 번들에 혼입
