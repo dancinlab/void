@@ -8,6 +8,14 @@
 
 ### Added
 
+- **inbox/ → `INBOX` 도메인 이관** — cross-project handoff 를
+  `inbox/<kind>/<slug>.md` 폴더에서 repo 루트의 `INBOX` 도메인 1쌍(`INBOX.md`
+  스냅샷 + `INBOX.log.md` append-only 로그)으로 전환 (pool · sidecar 의
+  inbox→INBOX 폐기와 정합 · `cd <repo> && /domain set INBOX` 로 관리). 기존 1건
+  이관 — VoidTests 타깃 빌드 실패(Xcode 26.5)는 explicit-modules가 아닌
+  리브랜딩 잔재였고, import/네임스페이스 정합 + 헤드리스 테스트 분리로 #19
+  해소(mini 7/7 + 10/10 passed) → `INBOX.log.md` 에 `- [x]`. `inbox/` 폴더
+  삭제.
 - **Silent-loss session 알림** (`macos`): AppKit이 직전 세션의 surface tree를
   복원하지 못했지만 ring 파일은 디스크에 남아있을 때, 500ms triage 콜백 시점에
   NSAlert 모달로 표면화. 버튼: **Copy UUIDs** (pasteboard) · **Open Ring
