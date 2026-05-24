@@ -8,9 +8,11 @@ on:
         description: "Upload final artifacts to R2"
         default: false
 
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+  # NOTE (fork): the `push: tags` trigger is removed on this fork. This is the
+  # upstream Ghostty Developer-ID pipeline (Namespace runners + ghostty-org
+  # cachix/R2/appcast/sentry); it can't run here. Tag pushes are handled by
+  # release-fork.yml (GitHub-hosted, self-signed → GitHub Release). Kept as
+  # workflow_dispatch-only for the day this fork wires up Developer-ID infra.
 
 name: Release Tag
 

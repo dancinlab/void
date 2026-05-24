@@ -1,0 +1,131 @@
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for a manual test build (vX.Y.Z). No GitHub Release is published on dispatch."
+        required: false
+        default: "0.0.0-dev"
+
+name: Release (fork)
+
+# Fork-appropriate release: build Void.app on a GitHub-hosted macOS runner,
+# self-sign (ad-hoc), package DMG + zip, and attach to the GitHub Release for
+# the tag. No ghostty-org infra (cachix / R2 / appcast / sentry / minisign /
+# Namespace runners) — see release-tag.yml for the upstream Developer-ID path.
+#
+# On a tag push -> builds + publishes the GitHub Release.
+# On workflow_dispatch -> builds + uploads a CI artifact only (validation), no Release.
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build-macos:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history so the build number (commit count) is correct.
+          fetch-depth: 0
+
+      - name: Determine version + build info
+        id: info
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${VERSION#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION build=$(git rev-list --count HEAD) commit=$(git rev-parse --short HEAD)"
+
+      - name: Select Xcode 26.3
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      # VoidKit.xcframework is generated (not committed); zig installs it to
+      # macos/VoidKit.xcframework (see src/build/VoidXCFramework.zig), which the
+      # Xcode project links. Must run before xcodebuild.
+      - name: Build VoidKit (zig)
+        run: |
+          zig build \
+            -Doptimize=ReleaseFast \
+            -Demit-macos-app=false \
+            -Dversion-string=${{ steps.info.outputs.version }}
+
+      - name: Build Void.app (xcodebuild, Release)
+        run: |
+          xcodebuild \
+            -project macos/Void.xcodeproj \
+            -scheme Void \
+            -configuration Release \
+            -derivedDataPath build-dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Stamp version, ad-hoc sign, package
+        env:
+          VERSION: ${{ steps.info.outputs.version }}
+          BUILD: ${{ steps.info.outputs.build }}
+          COMMIT: ${{ steps.info.outputs.commit }}
+        run: |
+          APP="build-dd/Build/Products/Release/Void.app"
+          PLIST="$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :VoidCommit string $COMMIT" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :VoidCommit $COMMIT" "$PLIST"
+
+          # No Developer ID on the fork -> ad-hoc (self-signed). Gatekeeper will
+          # warn; users right-click -> Open. Notarization is impossible without
+          # a Developer ID, so it is intentionally omitted.
+          /usr/bin/codesign --force --deep --sign - "$APP"
+          /usr/bin/codesign --verify --verbose=1 "$APP"
+
+          /usr/bin/hdiutil create -quiet -volname "Void $VERSION" \
+            -srcfolder "$APP" -ov -format UDZO "Void-$VERSION.dmg"
+          ( cd "$(dirname "$APP")" \
+            && /usr/bin/zip -q -9 -r --symlinks \
+                 "$GITHUB_WORKSPACE/Void-macos-universal-$VERSION.zip" "$(basename "$APP")" )
+          ls -lh Void-*.dmg Void-macos-universal-*.zip
+
+      - name: Upload CI artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: void-macos-${{ steps.info.outputs.version }}
+          path: |-
+            Void-${{ steps.info.outputs.version }}.dmg
+            Void-macos-universal-${{ steps.info.outputs.version }}.zip
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: void ${{ github.ref_name }}
+          body: |
+            그리드-우선 터미널 (Ghostty 하드포크 · 베타: 그리드 모드).
+
+            ## ⚠️ 설치 노트
+            **self-signed (ad-hoc) 빌드** — Developer ID 미적용이라 Gatekeeper가 막을 수 있어요. 그럴 땐 앱에서 **우클릭 → 열기**.
+
+            빌드: `${{ steps.info.outputs.version }} (${{ steps.info.outputs.build }})` · `${{ steps.info.outputs.commit }}` · GitHub-hosted macos-26 · Xcode 26.3
+          files: |
+            Void-${{ steps.info.outputs.version }}.dmg
+            Void-macos-universal-${{ steps.info.outputs.version }}.zip
