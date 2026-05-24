@@ -7,7 +7,7 @@
 
 import Testing
 import AppKit
-@testable import Void
+@testable import VoidApp
 
 struct NSPasteboardTypeExtensionTests {
     /// Test text/plain MIME type converts to .string

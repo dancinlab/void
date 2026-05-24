@@ -1,5 +1,5 @@
 import Testing
-@testable import Void
+@testable import VoidApp
 
 struct ShellTests {
     @Test(arguments: [
@@ -27,7 +27,7 @@ struct ShellTests {
         ("/tmp/my file (1).txt", "/tmp/my\\ file\\ \\(1\\).txt"),
     ])
     func escape(input: String, expected: String) {
-        #expect(Void.Shell.escape(input) == expected)
+        #expect(VD.Shell.escape(input) == expected)
     }
 
     @Test(arguments: [
@@ -42,6 +42,6 @@ struct ShellTests {
         ("file$'name'", "'file$'\"'\"'name'\"'\"''"),
     ])
     func quote(input: String, expected: String) {
-        #expect(Void.Shell.quote(input) == expected)
+        #expect(VD.Shell.quote(input) == expected)
     }
 }

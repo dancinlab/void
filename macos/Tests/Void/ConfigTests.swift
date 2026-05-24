@@ -1,5 +1,5 @@
 import Testing
-@testable import Void
+@testable import VoidApp
 import SwiftUI
 
 @Suite
@@ -96,12 +96,12 @@ struct ConfigTests {
     }
 
     @Test(arguments: [
-        ("native", Void.Config.MacOSTitlebarStyle.native),
-        ("transparent", Void.Config.MacOSTitlebarStyle.transparent),
-        ("tabs", Void.Config.MacOSTitlebarStyle.tabs),
-        ("hidden", Void.Config.MacOSTitlebarStyle.hidden),
+        ("native", VD.Config.MacOSTitlebarStyle.native),
+        ("transparent", VD.Config.MacOSTitlebarStyle.transparent),
+        ("tabs", VD.Config.MacOSTitlebarStyle.tabs),
+        ("hidden", VD.Config.MacOSTitlebarStyle.hidden),
     ])
-    func macosTitlebarStyleValues(raw: String, expected: Void.Config.MacOSTitlebarStyle) throws {
+    func macosTitlebarStyleValues(raw: String, expected: VD.Config.MacOSTitlebarStyle) throws {
         let config = try TemporaryConfig("macos-titlebar-style = \(raw)")
         #expect(config.macosTitlebarStyle == expected)
     }
@@ -112,11 +112,11 @@ struct ConfigTests {
     }
 
     @Test(arguments: [
-        ("always", Void.Config.ResizeOverlay.always),
-        ("never", Void.Config.ResizeOverlay.never),
-        ("after-first", Void.Config.ResizeOverlay.after_first),
+        ("always", VD.Config.ResizeOverlay.always),
+        ("never", VD.Config.ResizeOverlay.never),
+        ("after-first", VD.Config.ResizeOverlay.after_first),
     ])
-    func resizeOverlayValues(raw: String, expected: Void.Config.ResizeOverlay) throws {
+    func resizeOverlayValues(raw: String, expected: VD.Config.ResizeOverlay) throws {
         let config = try TemporaryConfig("resize-overlay = \(raw)")
         #expect(config.resizeOverlay == expected)
     }

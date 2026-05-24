@@ -2,7 +2,7 @@ import Testing
 import AppKit
 import CoreTransferable
 import UniformTypeIdentifiers
-@testable import Void
+@testable import VoidApp
 
 struct TransferablePasteboardTests {
     // MARK: - Test Helpers

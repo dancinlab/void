@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import Sparkle
-@testable import Void
+@testable import VoidApp
 
 struct UpdateStateTests {
     // MARK: - Equatable Tests

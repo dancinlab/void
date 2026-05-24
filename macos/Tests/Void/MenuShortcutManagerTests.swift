@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 import Testing
-@testable import Void
+@testable import VoidApp
 
 struct MenuShortcutManagerTests {
     @Test(.bug("https://github.com/ghostty-org/ghostty/issues/779", id: 779))
@@ -10,7 +10,7 @@ struct MenuShortcutManagerTests {
 
         let item = NSMenuItem(title: "Split Right", action: #selector(BaseTerminalController.splitRight(_:)), keyEquivalent: "d")
         item.keyEquivalentModifierMask = .command
-        let manager = await Void.MenuShortcutManager()
+        let manager = await VD.MenuShortcutManager()
         await manager.reset()
         await manager.syncMenuShortcut(config, action: "new_split:right", menuItem: item)
 
@@ -35,7 +35,7 @@ struct MenuShortcutManagerTests {
 
         let goToLeftItem = NSMenuItem(title: "Select Split Left", action: "splitMoveFocusLeft:", keyEquivalent: "")
 
-        let manager = await Void.MenuShortcutManager()
+        let manager = await VD.MenuShortcutManager()
         await manager.reset()
 
         await manager.syncMenuShortcut(config, action: nil, menuItem: hideItem)

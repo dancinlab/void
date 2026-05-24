@@ -1,10 +1,10 @@
 import AppKit
 import Testing
-@testable import Void
+@testable import VoidApp
 
 @Suite
 struct NormalizedMenuShortcutKeyTests {
-    typealias Key = Void.MenuShortcutManager.MenuShortcutKey
+    typealias Key = VD.MenuShortcutManager.MenuShortcutKey
 
     // MARK: - Init from keyEquivalent + modifiers
 

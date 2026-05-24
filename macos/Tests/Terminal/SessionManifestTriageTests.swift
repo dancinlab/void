@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Void
+@testable import VoidApp
 
 /// Tests for `SessionManifest.triage(restoredUUIDs:)` partition logic.
 ///

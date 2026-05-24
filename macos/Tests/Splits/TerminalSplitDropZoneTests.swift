@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import Void
+@testable import VoidApp
 
 struct TerminalSplitDropZoneTests {
     private let standardSize = CGSize(width: 100, height: 100)

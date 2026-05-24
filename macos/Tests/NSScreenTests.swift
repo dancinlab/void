@@ -7,7 +7,7 @@
 
 import Testing
 import AppKit
-@testable import Void
+@testable import VoidApp
 
 struct NSScreenExtensionTests {
     /// Test positive coordinate conversion from top-left to bottom-left

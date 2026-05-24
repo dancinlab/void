@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Void
+@testable import VoidApp
 
 /// Tests for `SessionManifest.ringsToReclaim(previousLive:currentLive:isTerminating:)`,
 /// the pure decision behind reclaiming a closed surface's persist ring during a
