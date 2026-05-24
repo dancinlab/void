@@ -124,9 +124,9 @@ Zig-based shared core with platform-native shells. Core is C-ABI-compatible so i
 
 ## Install
 
-```sh
+```bash
 # 1. Install hexa-lang (gives you `hexa` + `hx` package manager)
-curl -fsSL https://raw.githubusercontent.com/dancinlab/hexa-lang/main/install.sh | bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/dancinlab/hexa-lang/main/install.sh)"
 
 # 2. Install void
 hx install void
