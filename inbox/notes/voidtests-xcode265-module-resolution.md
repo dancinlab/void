@@ -1,5 +1,9 @@
 # VoidTests 타깃 빌드 실패 — Xcode 26.5 · explicit modules
 
+> ✅ **RESOLVED (#19, 2026-05-24)** — 원인은 explicit-modules가 아니라 리브랜딩 잔재였음:
+> `@testable import Void`→`VoidApp`(모듈명) · `Void.X`→`VD.X`(네임스페이스) · `@main` 헤드리스
+> 테스트를 auto-sync `Tests/` 밖으로 분리. mini 검증 7/7 + 10/10 passed.
+
 | 항목 | 값 |
 |---|---|
 | 종류 | note (후속 이슈) |

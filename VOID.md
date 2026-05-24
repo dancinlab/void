@@ -8,4 +8,4 @@ mmap 퍼시스트 링 기반으로, 정상 재시작 시 오경보 없이 동작
 ## milestones
 
 - [x] session-restore: 정상 재시작 topology-lost 오경보 제거 + closed-surface ring 누수 차단 (#16·#17·#18)
-- [ ] VoidTests 타깃 Xcode 26.5 빌드 복구 (작성한 unit test 7개 실행)
+- [x] VoidTests 타깃 Xcode 26.5 빌드 복구 (작성한 unit test 7개 실행) (#19)

@@ -2,6 +2,12 @@
 
 Append-only history sister of `VOID.md`. Each entry starts with `## <ISO timestamp> — <header>` (newest on top); body = `- [x]` (done) / `- [ ]` (pending) checkbox tasks.
 
+## 2026-05-24 — VoidTests 타깃 빌드 복구 (#19)
+
+- [x] 원인: 리브랜딩(Void→VoidApp 모듈명 · Void→VD 네임스페이스) 후 VoidTests 미컴파일 — `@testable import Void`/`Void.X` stale + `@main` 헤드리스 테스트가 auto-sync Tests/ 번들에 혼입
+- [x] #19: import 17파일 → VoidApp · 네임스페이스 22곳 → VD · standalone 헤드리스 테스트를 Tests/ 밖으로 분리
+- [x] mini 검증: SessionManifestReclaimTests 7/7 · SessionManifestTriageTests 10/10 passed · `** TEST SUCCEEDED **`
+
 ## 2026-05-24 — session-restore: topology-lost 오경보 + orphan ring 누수 해결
 
 - [x] 진단: macOS 재시작 후 뜬 topologyLost 알림 = 크래시 아님. "macOS가 복원 미실행" 신호일 뿐 (mini에서 reboot 없이 결정적 재현)
