@@ -471,9 +471,6 @@ pub fn init(
     app: *App,
     rt_app: *apprt.runtime.App,
     rt_surface: *apprt.runtime.Surface,
-    // P7 Phase B2: stable per-pane UUID for persist-ring path + replay.
-    // null = ephemeral surface (no persistence).
-    surface_uuid: ?[:0]const u8,
 ) !void {
     // Apply our conditional state. If we fail to apply the conditional state
     // then we log and attempt to move forward with the old config.
@@ -685,7 +682,6 @@ pub fn init(
             .renderer_wakeup = render_thread.wakeup,
             .renderer_mailbox = render_thread.mailbox,
             .surface_mailbox = .{ .surface = self, .app = app_mailbox },
-            .surface_uuid = surface_uuid,
         });
     }
     // Outside the block, IO has now taken ownership of our temporary state

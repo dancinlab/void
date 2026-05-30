@@ -601,10 +601,7 @@ const Subprocess = struct {
         flatpak: FlatpakHostCommand,
     };
 
-    /// Named return type shared by `start` and `startNoFork`. Zig
-    /// treats anonymous structs declared at distinct sites as
-    /// distinct nominal types, so threadEnter's `if/else` would
-    /// see them as incompatible without a shared named type.
+    /// Named return type for `start`.
     pub const PtyFds = struct {
         read: Pty.Fd,
         write: Pty.Fd,
@@ -888,50 +885,6 @@ const Subprocess = struct {
         if (self.env) |*env| env.deinit();
         self.arena.deinit();
         self.* = undefined;
-    }
-
-    /// P7 Phase B2 "Option X": open the pty WITHOUT forking the
-    /// configured command. Used when Termio successfully replayed
-    /// prior-session bytes from the persist ring — the original
-    /// shell is gone and re-running `config.command` would pollute
-    /// the restored screen with duplicate output (e.g. startup
-    /// scripts re-firing). The pty stays open so the rest of the
-    /// IO scaffolding (read thread, write stream, termios timer)
-    /// is structurally unchanged; reads block forever (no writer
-    /// on the slave) and threadExit's quit-pipe tears them down
-    /// normally. `process` remains null — callers must tolerate
-    /// that (Exec.threadEnter does, via its `if (process) |*p|`
-    /// guard around the xev watcher arm).
-    pub fn startNoFork(self: *Subprocess) !PtyFds {
-        assert(self.pty == null and self.process == null);
-
-        const pty = try Pty.open(.{
-            .ws_row = @intCast(self.grid_size.rows),
-            .ws_col = @intCast(self.grid_size.columns),
-            .ws_xpixel = @intCast(self.screen_size.width),
-            .ws_ypixel = @intCast(self.screen_size.height),
-        });
-        self.pty = pty;
-
-        // We deliberately keep the slave fd open: with no child
-        // attached, reads on the master block until our quit pipe
-        // wakes the reader at threadExit. Closing the slave would
-        // EOF the master immediately and surface as an abnormal
-        // exit, which is not what we want.
-
-        log.info("P7 phase-b2: replay path — pty opened, fork suppressed", .{});
-
-        return switch (builtin.os.tag) {
-            .windows => .{
-                .read = pty.out_pipe,
-                .write = pty.in_pipe,
-            },
-
-            else => .{
-                .read = pty.master,
-                .write = pty.master,
-            },
-        };
     }
 
     /// Start the subprocess. If the subprocess is already started this
