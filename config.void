@@ -50,24 +50,6 @@
 macos-option-as-alt = true
 
 # ─────────────────────────────────────────────────────────────────
-# Backspace / Delete 수식자 동작 (macOS only — Swift 측 인터셉트)
-# ─────────────────────────────────────────────────────────────────
-# Ctrl+Backspace / Ctrl+Delete:
-#   readline 환경에 따라 입력줄 전체가 지워지는 것처럼 느껴짐
-#   ("글자 전체 삭제"). false (기본) 일 때 Swift 측에서 Control 을
-#   떼고 shell 에 전달 → plain Backspace/Delete 와 동일하게 한 글자만.
-#   true 면 원래대로 통과.
-#
-# ctrl-erase-line = false
-#
-# Alt+Backspace / Alt+Delete (= Option+Backspace / Option+Delete):
-#   true (기본) 면 readline 의 backward-kill-word / kill-word 그대로
-#   통과 → 단어 단위 삭제. false 면 Option 을 떼고 plain Backspace/
-#   Delete 로 다운그레이드.
-#
-# alt-erase-word = true
-
-# ─────────────────────────────────────────────────────────────────
 # 기본 리맵 (이미 Config.zig 에 박힌 상태 — 0301c19e9 커밋)
 # ─────────────────────────────────────────────────────────────────
 # cmd+g 는 grid mode 예약 (void upstream = navigate_search next).
