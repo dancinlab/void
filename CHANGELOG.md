@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.4.3] — 2026-05-31
+
+### Fixed
+
+- **`hx install void` now installs the `xterm-void` terminfo into `~/.terminfo`
+  automatically.** Previously the terminfo entry only lived inside the app
+  bundle (`Void.app/Contents/Resources/terminfo/`), reachable solely via the
+  `TERMINFO` env that Void.app exports to its own child shells. Any shell
+  outside that env — a plain login shell, tmux, or an incoming SSH session that
+  inherited `TERM=xterm-void` — hit `'xterm-void': unknown terminal type` on
+  `clear`, `vim`, `less`, and every other terminfo-driven program. The install
+  hook (`install.hexa`) now runs `tic -x -o ~/.terminfo` on the bundled
+  terminfo source after installing the app, so `xterm-void` resolves
+  system-wide. Best-effort: skipped silently if `tic` (ncurses) is unavailable.
+  Mirrors the `ssh-terminfo` shell-integration feature's own `~/.terminfo`
+  target. Reversible via `rm -rf ~/.terminfo`.
+
 ## [1.4.2] — 2026-05-31
 
 ### Tests
