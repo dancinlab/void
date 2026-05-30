@@ -147,6 +147,26 @@ fn main() {
     println("⬡ void: shim at " + shim)
     println("⬡ void: install complete — `void` from any shell launches " + dest)
 
+    // Install the xterm-void terminfo into the user's terminfo db (~/.terminfo)
+    // so `clear`, `vim`, `less`, tmux, and incoming SSH sessions recognize
+    // TERM=xterm-void even outside Void.app's own TERMINFO env. Without this,
+    // a plain login shell or an SSH session that inherits TERM=xterm-void hits
+    // "'xterm-void': unknown terminal type" on every terminfo-driven program.
+    // Best-effort — needs `tic` (ships with ncurses on macOS). Mirrors the
+    // ssh-terminfo shell-integration feature's own ~/.terminfo target.
+    let terminfo_src = dest + "/Contents/Resources/terminfo/void.terminfo"
+    let terminfo_dir = env("HOME") + "/.terminfo"
+    if have("tic") && path_exists(terminfo_src) {
+        let ti = exec_with_status("tic -x -o '" + terminfo_dir + "' '" + terminfo_src + "' 2>&1")
+        if ti[1] == 0 {
+            println("⬡ void: terminfo installed → " + terminfo_dir + " (xterm-void)")
+        } else {
+            println("⬡ void: terminfo install skipped — tic failed; `clear` may warn under TERM=xterm-void")
+        }
+    } else {
+        println("⬡ void: tic not found — skipped ~/.terminfo; xterm-void unknown outside Void.app")
+    }
+
     // Quit any running Void so the next launch picks up the freshly-installed
     // (and re-signed) bundle. Without this, an old adhoc-signed instance keeps
     // running and the new cert chain isn't picked up until next reboot.
