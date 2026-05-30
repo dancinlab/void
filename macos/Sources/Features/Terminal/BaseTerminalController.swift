@@ -331,12 +331,6 @@ class BaseTerminalController: NSWindowController,
             focusedSurface = nil
         }
 
-        // P7 Phase B2 follow-up: write the live UUID set across all terminal
-        // windows synchronously. AppKit's NSWindowRestoration encode is async
-        // and batched; this is our own anchor so a crash before AppKit flushes
-        // doesn't strand ring files as orphans. See SessionManifest.swift.
-        SessionManifest.refreshFromCurrentControllers()
-
         // Surfaces freshly migrated INTO our tree from a sibling tab window
         // (e.g. flattenTabsToGrid) need their renderer pipeline re-pushed:
         // their CVDisplayLink was bound to the old window's screen and

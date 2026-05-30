@@ -697,11 +697,6 @@ extension VD {
             // Set context
             config.context = context
 
-            // P7 Phase B2: pass the SurfaceView's stable UUID through to
-            // libvoid so Termio can route persist-ring read/write to
-            // `~/.void/sessions/by-uuid/<uuid>.ring`. The UUID survives
-            // NSWindowRestoration via OSSurfaceView.id Codable encoding.
-            let uuidString = view.id.uuidString
 
             // Use withCString to ensure strings remain valid for the duration of the closure
             return try workingDirectory.withCString { cWorkingDir in
@@ -713,31 +708,27 @@ extension VD {
                     return try initialInput.withCString { cInput in
                         config.initial_input = cInput
 
-                        return try uuidString.withCString { cUuid in
-                            config.surface_uuid = cUuid
+                        // Convert dictionary to arrays for easier processing
+                        let keys = Array(environmentVariables.keys)
+                        let values = Array(environmentVariables.values)
 
-                            // Convert dictionary to arrays for easier processing
-                            let keys = Array(environmentVariables.keys)
-                            let values = Array(environmentVariables.values)
+                        // Create C strings for all keys and values
+                        return try keys.withCStrings { keyCStrings in
+                            return try values.withCStrings { valueCStrings in
+                                // Create array of void_env_var_s
+                                var envVars = [void_env_var_s]()
+                                envVars.reserveCapacity(environmentVariables.count)
+                                for i in 0..<environmentVariables.count {
+                                    envVars.append(void_env_var_s(
+                                        key: keyCStrings[i],
+                                        value: valueCStrings[i]
+                                    ))
+                                }
 
-                            // Create C strings for all keys and values
-                            return try keys.withCStrings { keyCStrings in
-                                return try values.withCStrings { valueCStrings in
-                                    // Create array of void_env_var_s
-                                    var envVars = [void_env_var_s]()
-                                    envVars.reserveCapacity(environmentVariables.count)
-                                    for i in 0..<environmentVariables.count {
-                                        envVars.append(void_env_var_s(
-                                            key: keyCStrings[i],
-                                            value: valueCStrings[i]
-                                        ))
-                                    }
-
-                                    return try envVars.withUnsafeMutableBufferPointer { buffer in
-                                        config.env_vars = buffer.baseAddress
-                                        config.env_var_count = environmentVariables.count
-                                        return try body(&config)
-                                    }
+                                return try envVars.withUnsafeMutableBufferPointer { buffer in
+                                    config.env_vars = buffer.baseAddress
+                                    config.env_var_count = environmentVariables.count
+                                    return try body(&config)
                                 }
                             }
                         }

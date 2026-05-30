@@ -1,6 +1,32 @@
 # Changelog
 
-## [Unreleased] — 2026-05-24
+## [Unreleased] — 2026-05-31
+
+fork 가 직접 구현한 비정상 종료 세션 복구(P7 / session-restore) 레이어를 전부
+폐기. 업스트림 Ghostty 표준 AppKit 윈도우 복원은 그대로 유지되므로, 기본 설정
+사용자 입장에서 윈도우/탭 복원 동작은 변하지 않습니다.
+
+### Removed
+
+- **P7 비정상 종료 세션 복구 레이어 전체 폐기.** 미출시(Unreleased) 상태에서
+  도입됐던 기능 일체 제거:
+  - **신규 파일 삭제** — `macos/Sources/Defense/` 서브시스템 전체(CrashCapture ·
+    SessionSnapshot · DefenseCoordinator · PressureMonitor · README; 소비자가
+    세션 복구 전용) · `SessionManifest.swift` · `src/termio/PersistRing.zig` ·
+    P7 테스트(SessionManifestTriage/Reclaim) · recovery CLI 툴
+    (`tool/void-session-recover.sh` · `void-session-replay.sh` ·
+    `test-void-session-recover.sh`) · 설계/로그 문서(`SESSION-RESTORE.md` ·
+    `SESSION-RESTORE.log.md` · `docs/design/sighup-resistant-session.md`).
+  - **와이어링 절제** — Termio/Exec 의 persist-ring(append · msync 타이머 ·
+    replay subprocess-skip `startNoFork`) · `surface_uuid` 패스스루(Surface.zig ·
+    embedded.zig · `include/void.h` · SurfaceView 브리지) · AppDelegate
+    triage/silent-loss 알림/orphan auto-GC · BaseTerminalController manifest
+    refresh · TerminalRestorable `didRestoreAnyWindow` 플래그.
+  - **설정 키 삭제** — `session-orphan-gc-threshold` · `persist-bytes-mmap`.
+- **보존** — 업스트림 AppKit 윈도우 복원(`TerminalRestorable` NSWindowRestoration
+  · `QuickTerminalRestorableState` · `window-save-state` 설정 키)은 그대로 유지.
+
+## [P7 도입 배치] — 2026-05-24 (위 Removed 로 폐기됨)
 
 세션 복원(P7 Phase B2) 후속 배치. 기본 설정 사용자는 동작 변경 없음 — 단,
 이전에 stranded ring 파일이 남아 있던 경우에만 새 알림이 노출됩니다.
