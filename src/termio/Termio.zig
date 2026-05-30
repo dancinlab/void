@@ -641,14 +641,6 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
 /// call with pty data but it is also called by the read thread when using
 /// an exec subprocess.
 pub fn processOutput(self: *Termio, buf: []const u8) void {
-    // P7 Phase B1-impl: persist the byte stream to the mmap'd ring
-    // BEFORE acquiring the renderer lock, so persistence cost does
-    // not contend with rendering. `append` is a memcpy + atomic add,
-    // ~0 µs. Lock-free safe because each Termio has its own ring.
-    if (self.persist_ring) |*ring| {
-        ring.append(buf);
-    }
-
     // We are modifying terminal state from here on out and we need
     // the lock to grab our read data.
     self.renderer_state.mutex.lock();

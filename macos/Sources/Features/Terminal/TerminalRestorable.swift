@@ -76,14 +76,6 @@ enum TerminalRestoreError: Error {
 /// The NSWindowRestoration implementation that is called when a terminal window needs to be restored.
 /// The encoding of a terminal window is handled elsewhere (usually NSWindowDelegate).
 class TerminalWindowRestoration: NSObject, NSWindowRestoration {
-    /// True once AppKit has successfully restored at least one terminal window
-    /// this launch. Read by `SessionManifest` triage to distinguish a genuine
-    /// flush-lag silent loss (restoration ran, yet a surface went missing) from
-    /// a graceful no-restore (macOS never restored — e.g. "reopen windows" off
-    /// on restart, or `window-save-state` suppression). Only the former warrants
-    /// the recovery alert. No reset needed: restoration runs once, at startup.
-    static var didRestoreAnyWindow = false
-
     static func restoreWindow(
         withIdentifier identifier: NSUserInterfaceItemIdentifier,
         state: NSCoder,
@@ -128,11 +120,6 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             completionHandler(nil, TerminalRestoreError.windowDidNotLoad)
             return
         }
-
-        // AppKit state restoration actually produced a restored window — record
-        // it so the session-manifest triage treats any still-missing prior
-        // surface as a genuine silent loss (alert), not a graceful no-restore.
-        Self.didRestoreAnyWindow = true
 
         // Restore our tab color
         (window as? TerminalWindow)?.tabColor = state.tabColor

@@ -2234,29 +2234,6 @@ keybind: Keybinds = .{},
 /// This is currently only supported on macOS. This has no effect on Linux.
 @"window-save-state": WindowSaveState = .default,
 
-/// Number of consecutive launches a ring file may remain a "stale orphan"
-/// (present on disk but absent from every prior session manifest) before
-/// Void auto-deletes it from `~/.void/sessions/by-uuid/<uuid>.ring`.
-///
-/// A UUID is counted as orphan-on-this-launch only if it appears in the
-/// `disk - prev` set of `SessionManifest.triage` — i.e. its ring exists but
-/// no prior session's manifest ever referenced it. Rings in the
-/// `topologyLost` set (referenced by the prior manifest but not restored by
-/// AppKit) are NEVER auto-GC'd — they are the silent-loss case and require
-/// the in-app recovery affordance instead.
-///
-/// Counter state lives in `~/.void/sessions/gc-counter.json`. Each launch
-/// the counter is incremented for current orphans, reset to 0 for UUIDs no
-/// longer in the orphan set, and pruned for UUIDs no longer on disk. When
-/// any counter reaches the threshold the corresponding ring file is
-/// deleted and the counter entry removed.
-///
-/// A value of `0` disables auto-GC entirely (rings are never deleted by
-/// Void; rely on manual `rm` or `void-session-replay.sh` flow). The
-/// default value is `3` — three consecutive launches with no prior-session
-/// reference. Currently only supported on macOS.
-@"session-orphan-gc-threshold": u8 = 3,
-
 /// Resize the window in discrete increments of the focused surface's cell size.
 /// If this is disabled, surfaces are resized in pixel increments. Currently
 /// only supported on macOS.
@@ -2883,21 +2860,6 @@ keybind: Keybinds = .{},
 /// PTY byte stream persistence via mmap'd ring buffer per pane.
 /// (P7 Phase B1.) Default: `true`.
 ///
-/// When `true`, every `read()` from the PTY master appends to a
-/// ring at `~/.void/sessions/<wid>/tabs/<tid>/panes/<pid>/bytes.ring`
-/// (default 4 MB cap, ~100k rows of 80×100). The ring is `mmap`'d
-/// MAP_SHARED so write cost is `memcpy` — kernel page cache flushes
-/// to disk asynchronously. We additionally call `msync(MS_ASYNC)`
-/// every 1 second to bound macOS-crash data loss to ≤ 1 second.
-///
-/// On relaunch with a saved ring, the bytes are replayed to the
-/// terminal screen for visual continuity (the historical content is
-/// restored even if the PTY process is dead).
-///
-/// Cost: ~16 KB per typical PTY read, mmap memcpy ≈ 0 µs. msync
-/// every 1s amortizes to negligible CPU (<0.1%). Disk: 4 MB per pane
-/// × N panes — typically <100 MB for a power user session set.
-@"persist-bytes-mmap": bool = true,
 
 /// Custom entries into the command palette.
 ///
