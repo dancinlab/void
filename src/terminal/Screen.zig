@@ -8984,6 +8984,72 @@ test "Screen: selectionString soft wrap" {
     }
 }
 
+// Regression: a single long line that the terminal soft-wraps ("줄내림")
+// across multiple visual rows must copy back as ONE continuous line with
+// NO inserted newlines at the wrap points. Only a REAL hard newline (one a
+// program actually emitted) may appear in the copied text. See
+// github.com/dancinlab/void void/fix-softwrap-copy.
+test "Screen: selectionString soft wrap multi-row rejoin" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    // 15 chars into a 5-col screen → one logical line soft-wrapped onto
+    // three visual rows (rows 0,1,2). No "\n" was emitted anywhere.
+    const str = "ABCDEFGHIJKLMNO";
+    try s.testWriteString(str);
+
+    {
+        // Select the entire soft-wrapped line, row 0 col 0 → row 2 col 4.
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 2 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
+        defer alloc.free(contents);
+        // Exactly the original 15 chars, rejoined — no '\n' inserted.
+        const expected = "ABCDEFGHIJKLMNO";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+// Regression: a soft-wrapped line FOLLOWED by a real hard newline. The
+// wrap points must rejoin, but the genuine "\n" must be preserved. This is
+// the discriminator that distinguishes a soft-wrap defect (would drop or
+// duplicate newlines) from correct behavior.
+test "Screen: selectionString soft wrap then hard newline" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    // "ABCDEFGHIJ" soft-wraps onto rows 0,1 (one logical line). Then an
+    // explicit "\n" begins a new logical line "KLM" on row 2.
+    const str = "ABCDEFGHIJ\nKLM";
+    try s.testWriteString(str);
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 2 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+        });
+        defer alloc.free(contents);
+        // Soft-wrap rejoined ("ABCDEFGHIJ"), hard newline preserved.
+        const expected = "ABCDEFGHIJ\nKLM";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
 test "Screen: selectionString wide char" {
     const testing = std.testing;
     const alloc = testing.allocator;

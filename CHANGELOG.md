@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Tests
+
+- **소프트랩 복사 동작 진단 — 코드는 이미 정상, 회귀 테스트 추가.** 소프트랩
+  (terminal auto-wrap · "줄내림")된 한 줄을 복사하면 wrap 지점마다 하드 개행이
+  끼어든다는 제보를 진단함. 복사 경로(`Screen.selectionString` ·
+  `Surface.copySelectionToClipboards`)는 이미 `unwrap = true` 이고,
+  `formatter.zig` 의 wrap 재결합 로직(`if (!row.wrap or !self.opts.unwrap)
+  blank_rows += 1;`)도 정상이라 소프트랩은 이미 한 줄로 재결합되고 실제 하드
+  개행(`\n`)만 보존됨. 기존/신규 테스트 전부 통과(82/82)하며 코드 결함을
+  재현할 수 없음 → **동작 변경 없음**. 제보된 시나리오를 못박는 회귀 테스트
+  2개 추가: 멀티-로우 소프트랩 한 줄이 개행 없이 재결합되는지(`soft wrap
+  multi-row rejoin`), 소프트랩 뒤 실제 하드 개행이 보존되는지(`soft wrap then
+  hard newline`). 사용자 측 텍스트에 실제 하드 개행이 들어있었거나 다른 터미널
+  설정이 원인일 가능성이 높음(void 복사 경로 자체는 올바름). (void/fix-softwrap-copy)
+
 ## [1.4.1] — 2026-05-31
 
 ### Fixed
