@@ -478,10 +478,6 @@ typedef struct {
   const char* initial_input;
   bool wait_after_command;
   void_surface_context_e context;
-  // P7 Phase B2: stable UUID for `~/.void/sessions/by-uuid/<uuid>.ring`
-  // replay. Survives across abnormal-termination via TerminalRestorable
-  // SplitTree Codable. NULL = ephemeral surface (no persist/replay).
-  const char* surface_uuid;
 } void_surface_config_s;
 
 typedef struct {

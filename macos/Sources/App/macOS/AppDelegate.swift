@@ -439,13 +439,6 @@ class AppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Stop reclaiming rings on surface teardown: a graceful quit/restart
-        // (incl. macOS shutdown/restart/logout, which routes here via
-        // applicationShouldTerminate → .terminateNow) must keep every live ring
-        // on disk for cold-restore. Closes during a running session already
-        // reclaimed immediately; this only guards the final teardown.
-        SessionManifest.isTerminating = true
-
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
         // more selective and only remove surface-targeted notifications.
@@ -1183,20 +1176,17 @@ class AppDelegate: NSObject,
         let initialWindow: Bool
         let shouldQuitAfterLastWindowClosed: Bool
         let quickTerminalPosition: QuickTerminalPosition
-        let sessionOrphanGCThreshold: Int
 
         init() {
             self.initialWindow = true
             self.shouldQuitAfterLastWindowClosed = false
             self.quickTerminalPosition = .top
-            self.sessionOrphanGCThreshold = 3
         }
 
         init(_ config: VD.Config) {
             self.initialWindow = config.initialWindow
             self.shouldQuitAfterLastWindowClosed = config.shouldQuitAfterLastWindowClosed
             self.quickTerminalPosition = config.quickTerminalPosition
-            self.sessionOrphanGCThreshold = config.sessionOrphanGCThreshold
         }
     }
 

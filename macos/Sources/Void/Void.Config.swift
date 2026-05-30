@@ -242,21 +242,6 @@ extension VD {
             return String(cString: ptr)
         }
 
-        /// Threshold (in consecutive launches) for auto-GC of stale orphan
-        /// ring files under `~/.void/sessions/by-uuid/`. Zero disables.
-        /// See `SessionManifest.runAutoGC` for the bookkeeping. Default 3
-        /// is enforced in Zig (`@"session-orphan-gc-threshold": u8 = 3`),
-        /// but we re-apply it here so a missing libvoid_config is still
-        /// safe.
-        var sessionOrphanGCThreshold: Int {
-            let defaultValue: Int = 3
-            guard let config = self.config else { return defaultValue }
-            var v: UInt8 = 0
-            let key = "session-orphan-gc-threshold"
-            guard void_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
-            return Int(v)
-        }
-
         var windowPositionX: Int16? {
             guard let config = self.config else { return nil }
             var v: Int16 = 0
