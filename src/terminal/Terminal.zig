@@ -4924,6 +4924,30 @@ test "Terminal: soft wrap" {
     }
 }
 
+test "Terminal: runtime soft-wrap selection copy rejoin" {
+    // Regression: a long line that the RENDERER auto-wraps (no hard \n typed)
+    // must copy back as ONE line, not with inserted \n at wrap points. This
+    // drives real Terminal.print (which sets row.wrap during overflow), unlike
+    // the testWriteString-based selectionString tests — proving the copy path
+    // rejoins genuine runtime soft-wraps, regardless of screen width.
+    var t = try init(testing.allocator, .{ .cols = 5, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    // 15 chars into a 5-col screen -> auto soft-wraps across 3 visual rows.
+    try t.printString("ABCDEFGHIJKLMNO");
+
+    const screen = t.screens.active;
+    const sel = screen.selectAll().?;
+    const contents = try screen.selectionString(testing.allocator, .{
+        .sel = sel,
+        .trim = false,
+    });
+    defer testing.allocator.free(contents);
+
+    // Expected: rejoined single line, NO inserted newline at wrap points.
+    try testing.expectEqualStrings("ABCDEFGHIJKLMNO", contents);
+}
+
 test "Terminal: soft wrap with semantic prompt" {
     var t = try init(testing.allocator, .{ .cols = 3, .rows = 80 });
     defer t.deinit(testing.allocator);
