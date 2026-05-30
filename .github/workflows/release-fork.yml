@@ -11,6 +11,12 @@ on:
 
 name: Release (fork)
 
+# The GITHUB_TOKEN needs write access to create the Release + upload assets in
+# the "Publish GitHub Release" step (softprops/action-gh-release). Without it,
+# the default read-only token returns 403 on release creation.
+permissions:
+  contents: write
+
 # Fork-appropriate release: build Void.app on a GitHub-hosted macOS runner,
 # self-sign (ad-hoc), package DMG + zip, and attach to the GitHub Release for
 # the tag. No ghostty-org infra (cachix / R2 / appcast / sentry / minisign /
