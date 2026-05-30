@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **fix(input): HHKB word-erase 키바인드 폐기 — backspace 가 표준 0x7F 로 복귀.**
+  fork 가 추가했던 physical backspace/delete 인터셉트 그룹 4개(Ctrl+Delete/
+  Ctrl+Backspace → `\x01\x0b` 라인-킬 · Alt+Backspace → `\x17` 워드-킬 ·
+  Alt+Delete → ESC-d) 와 macOS Swift 측 keyDown 재작성 클로저
+  (`VoidCtrlEraseLine` · `VoidAltEraseWord` · `VoidConfigBool` 소비자 없어 함께
+  제거) 를 전부 폐기. HHKB(Delete 키가 backspace 위치) 사용자가 SSH 환경에서
+  backspace 가 공백 삽입/워드-킬로 오동작하던 문제 수정. 업스트림 Ghostty 표준
+  backspace 경로(`key_encode.zig` → 0x7F) · `macos-option-as-alt` ·
+  cmd+g grid 예약 · navigate_search 리맵은 그대로 유지. (#30)
+
 ## [1.4.0] — 2026-05-31
 
 fork 가 직접 구현한 비정상 종료 세션 복구(P7 / session-restore) 레이어를 전부
