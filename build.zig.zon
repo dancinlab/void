@@ -1,6 +1,6 @@
 .{
     .name = .void,
-    .version = "0.0.0-void.1.4.1-dev",
+    .version = "0.0.0-void.1.4.2-dev",
     .paths = .{""},
     .fingerprint = 0xd27bd9eed48eba8d,
     .minimum_zig_version = "0.15.2",

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.4.2] — 2026-05-31
 
 ### Tests
 
@@ -16,6 +16,12 @@
   multi-row rejoin`), 소프트랩 뒤 실제 하드 개행이 보존되는지(`soft wrap then
   hard newline`). 사용자 측 텍스트에 실제 하드 개행이 들어있었거나 다른 터미널
   설정이 원인일 가능성이 높음(void 복사 경로 자체는 올바름). (void/fix-softwrap-copy)
+- **런타임 자동-wrap 복사 회귀 테스트 추가.** 위 진단은 `testWriteString`(이미
+  wrap 플래그가 박힌 더미) 기준이었음. 실제 렌더러 경로(`Terminal.print` →
+  화면 폭 초과 시 `row.wrap` 세팅)로 폭 5칸에 15자를 입력해 3줄로 자동 wrap시킨
+  뒤 `selectAll` → `selectionString` 복사가 개행 없이 한 줄(`ABCDEFGHIJKLMNO`)로
+  재결합되는지 검증하는 테스트를 `Terminal.zig` 에 추가. 통과 — 화면 폭과 무관히
+  코어 복사 경로가 런타임 소프트랩을 정상 재결합함을 확정.
 
 ## [1.4.1] — 2026-05-31
 
