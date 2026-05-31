@@ -120,6 +120,86 @@ pub const regex =
     "|" ++
     bare_relative_path_branch;
 
+/// The set of literal scheme prefixes derived from `url_schemes` (the SSOT
+/// alternation used by the link regex). This is computed at comptime by
+/// splitting the alternation on `|` and expanding the single regex token we
+/// use in it (`?`, an optional preceding char, as in `https?://`) into its
+/// concrete literal variants. Adding a scheme to `url_schemes` automatically
+/// flows through here with no duplication.
+const scheme_prefixes: []const []const u8 = prefixes: {
+    @setEvalBranchQuota(10_000);
+
+    // Worst case each alternative expands to two literal variants.
+    var buf: [64][]const u8 = undefined;
+    var n: usize = 0;
+
+    var it = std.mem.splitScalar(u8, url_schemes, '|');
+    while (it.next()) |alt| {
+        // Expand a single optional-char token `x?` into both the variant
+        // that includes `x` and the one that omits it. We only support one
+        // such token per alternative, which covers every scheme we have.
+        if (std.mem.indexOfScalar(u8, alt, '?')) |q| {
+            // `q` points at `?`; the optional char is the one before it.
+            const with = alt[0 .. q] ++ alt[q + 1 ..]; // keep optional char
+            const without = alt[0 .. q - 1] ++ alt[q + 1 ..]; // drop it
+            buf[n] = with;
+            n += 1;
+            buf[n] = without;
+            n += 1;
+        } else {
+            buf[n] = alt;
+            n += 1;
+        }
+    }
+
+    const final = buf[0..n].*;
+    break :prefixes &final;
+};
+
+/// Returns true if `s` begins with one of the known URL schemes from
+/// `url_schemes` (e.g. `https://`, `mailto:`, `ssh://`). Bare file paths,
+/// relative paths, and plain words return false. This is the SSOT predicate
+/// used to decide whether a link string is a "scheme URL".
+pub fn hasKnownScheme(s: []const u8) bool {
+    inline for (scheme_prefixes) |prefix| {
+        if (std.mem.startsWith(u8, s, prefix)) return true;
+    }
+    return false;
+}
+
+test "hasKnownScheme" {
+    const testing = std.testing;
+
+    // Scheme URLs.
+    try testing.expect(hasKnownScheme("https://example.com"));
+    try testing.expect(hasKnownScheme("http://example.com"));
+    try testing.expect(hasKnownScheme("mailto:x@y.com"));
+    try testing.expect(hasKnownScheme("ftp://example.com"));
+    try testing.expect(hasKnownScheme("file:/etc/hosts"));
+    try testing.expect(hasKnownScheme("ssh://host"));
+    try testing.expect(hasKnownScheme("ssh:host"));
+    try testing.expect(hasKnownScheme("git://repo"));
+    try testing.expect(hasKnownScheme("tel:+18005551234"));
+    try testing.expect(hasKnownScheme("magnet:?xt=urn:btih:abc"));
+    try testing.expect(hasKnownScheme("ipfs://hash"));
+    try testing.expect(hasKnownScheme("ipns://hash"));
+    try testing.expect(hasKnownScheme("gemini://example.com"));
+    try testing.expect(hasKnownScheme("gopher://example.com"));
+    try testing.expect(hasKnownScheme("news:comp.lang.c"));
+
+    // Not scheme URLs (bare paths / words) — these must be forwarded to the
+    // TUI app under mouse reporting, so they must return false here.
+    try testing.expect(!hasKnownScheme("/path/to/file"));
+    try testing.expect(!hasKnownScheme("src/config/url.zig"));
+    try testing.expect(!hasKnownScheme("../example.py"));
+    try testing.expect(!hasKnownScheme("~/Documents/notes.md"));
+    try testing.expect(!hasKnownScheme("foobar"));
+    try testing.expect(!hasKnownScheme(""));
+    // A word that merely contains a scheme substring but doesn't start with
+    // one must not match.
+    try testing.expect(!hasKnownScheme("xhttps://example.com"));
+}
+
 test "url regex" {
     const testing = std.testing;
 
