@@ -317,6 +317,7 @@ const DerivedConfig = struct {
     desktop_notifications: bool,
     font: font.SharedGridSet.DerivedConfig,
     mouse_interval: u64,
+    mouse_double_click_open_url: bool,
     mouse_hide_while_typing: bool,
     mouse_reporting: bool,
     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
@@ -396,6 +397,7 @@ const DerivedConfig = struct {
             .desktop_notifications = config.@"desktop-notifications",
             .font = try font.SharedGridSet.DerivedConfig.init(alloc, config),
             .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
+            .mouse_double_click_open_url = config.@"mouse-double-click-open-url",
             .mouse_hide_while_typing = config.@"mouse-hide-while-typing",
             .mouse_reporting = config.@"mouse-reporting",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
@@ -3972,21 +3974,36 @@ pub fn mouseButtonCallback(
             // Double click, select the word under our mouse.
             // First try to detect if we're clicking on a URL to select the entire URL.
             2 => {
-                const sel_ = sel: {
-                    // Try link detection without requiring modifier keys
+                const link_sel_: ?terminal.Selection = link: {
+                    // Try link detection without requiring modifier keys.
+                    // Requires the renderer state mutex, which is held here.
                     if (self.linkAtPin(
                         pin.*,
                         null,
                     )) |result_| {
-                        if (result_) |result| {
-                            break :sel result.selection;
-                        }
+                        if (result_) |result| break :link result.selection;
                     } else |_| {
                         // Ignore any errors, likely regex errors.
                     }
-
-                    break :sel self.io.terminal.screens.active.selectWord(pin.*, self.config.selection_word_chars);
+                    break :link null;
                 };
+
+                // If we're double-clicking on a URL and the config opts in
+                // (the default), open it instead of selecting the URL text.
+                if (link_sel_ != null and self.config.mouse_double_click_open_url) {
+                    // Prevent the left-button release path from opening the
+                    // same URL a second time via its `over_link` check.
+                    self.mouse.over_link = false;
+                    _ = self.processLinks(pos) catch |err| {
+                        log.warn("error opening link on double-click err={}", .{err});
+                    };
+                    // A successfully handled link swallows the event, matching
+                    // the left-button release link-open path.
+                    return true;
+                }
+
+                const sel_ = link_sel_ orelse
+                    self.io.terminal.screens.active.selectWord(pin.*, self.config.selection_word_chars);
                 if (sel_) |sel| {
                     try self.io.terminal.screens.active.select(sel);
                     try self.queueRender();

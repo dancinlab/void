@@ -1422,6 +1422,16 @@ scrollbar: Scrollbar = .system,
 /// TODO: This can't currently be set!
 link: RepeatableLink = .{},
 
+/// Open a URL when it is double-clicked instead of only selecting the URL
+/// text. The URL is detected using the same configured link matching as
+/// hover/cmd-click (see `link` and `link-url`) and opened with the system
+/// opener (e.g. `open` or `xdg-open`).
+///
+/// When disabled, double-clicking a URL falls back to the default behavior
+/// of selecting the entire URL text. Double-clicking non-URL text always
+/// selects the word under the cursor regardless of this setting.
+@"mouse-double-click-open-url": bool = true,
+
 /// Enable URL matching. URLs are matched on hover with control (Linux) or
 /// command (macOS) pressed and open using the default system application for
 /// the linked URL.
@@ -10558,6 +10568,30 @@ test "changed" {
 
     try testing.expect(source.changed(&dest, .@"font-thicken"));
     try testing.expect(!source.changed(&dest, .@"font-size"));
+}
+
+test "mouse-double-click-open-url default and parse" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Default is on: double-clicking a URL opens it.
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try testing.expect(cfg.@"mouse-double-click-open-url");
+    }
+
+    // Can be disabled to fall back to URL text selection.
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--mouse-double-click-open-url=false",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+        try testing.expect(!cfg.@"mouse-double-click-open-url");
+    }
 }
 
 test "changeConditionalState ignores irrelevant changes" {
