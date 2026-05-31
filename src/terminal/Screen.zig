@@ -2442,6 +2442,11 @@ pub const SelectionString = struct {
     /// If true, trim whitespace around the selection.
     trim: bool = true,
 
+    /// Opt-in heuristic: rejoin full-width rows on copy even when they are not
+    /// soft-wrapped. See `formatter.Options.rejoin_full_rows`. Default false so
+    /// there is zero regression to the existing copy behavior.
+    rejoin_full_rows: bool = false,
+
     /// If non-null, a stringmap will be written here. This will use
     /// the same allocator as the call to selectionString. The string will
     /// be duplicated here and in the return value so both must be freed.
@@ -2473,6 +2478,7 @@ pub fn selectionString(
             .emit = .plain,
             .unwrap = true,
             .trim = opts.trim,
+            .rejoin_full_rows = opts.rejoin_full_rows,
         },
     );
     formatter.content = .{ .selection = opts.sel };
@@ -9046,6 +9052,106 @@ test "Screen: selectionString soft wrap then hard newline" {
         defer alloc.free(contents);
         // Soft-wrap rejoined ("ABCDEFGHIJ"), hard newline preserved.
         const expected = "ABCDEFGHIJ\nKLM";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+// rejoin_full_rows DIAGNOSIS / negative baseline (@L1). Full-screen TUI apps
+// (e.g. ratatui) do their own word-aware wrapping and draw each visual line as
+// a separately-positioned row with the wrap flag CLEARED -- these are NOT
+// terminal soft-wraps. We construct that case here by writing two rows that
+// each fill the full width but are separated by a real "\n" (so row.wrap is
+// false on both). With the rejoin option OFF (the default), the copied text
+// MUST keep the newline at the row boundary -- this proves the behavior is a
+// genuine hard newline to the terminal and that the heuristic is needed.
+test "Screen: selectionString rejoin_full_rows OFF keeps app hard-wrap newline" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    // Two full-width (5-col) rows separated by an explicit newline. Each row
+    // is its own logical line (row.wrap = false), unlike terminal soft-wrap.
+    try s.testWriteString("ABCDE\nFGHIJ");
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+            // Option OFF (default): no rejoin. This is the current behavior.
+            .rejoin_full_rows = false,
+        });
+        defer alloc.free(contents);
+        // The newline at the (non-wrapped) row boundary is preserved.
+        const expected = "ABCDE\nFGHIJ";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+// rejoin_full_rows POSITIVE (@L5a). Same two full-width app-hard-wrapped rows,
+// but with the heuristic ON: the first row fills to the right margin (its last
+// cell has text) so its newline is suppressed and it joins the next row,
+// yielding one continuous line. This is the fix for copying a URL out of a
+// TUI welcome box.
+test "Screen: selectionString rejoin_full_rows ON joins full-width rows" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("ABCDE\nFGHIJ");
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+            .rejoin_full_rows = true,
+        });
+        defer alloc.free(contents);
+        // Full-width rows rejoined into one continuous line.
+        const expected = "ABCDEFGHIJ";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+// rejoin_full_rows NEGATIVE (@L5b). Short rows that do NOT fill to the right
+// margin (they leave trailing blanks) must keep their newline EVEN with the
+// heuristic ON -- this is the word-wrapped short-prose case, which should stay
+// on separate lines. The discriminator vs. the positive test above is whether
+// the last cell of the row has text.
+test "Screen: selectionString rejoin_full_rows ON keeps short rows separate" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    // "ABC" / "DEF": each only 3 of 5 cols -> trailing blanks, last cell empty.
+    try s.testWriteString("ABC\nDEF");
+
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 2, .y = 1 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+            .rejoin_full_rows = true,
+        });
+        defer alloc.free(contents);
+        // Short rows are NOT full-width -> newline preserved.
+        const expected = "ABC\nDEF";
         try testing.expectEqualStrings(expected, contents);
     }
 }
