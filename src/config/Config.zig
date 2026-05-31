@@ -2381,6 +2381,29 @@ keybind: Keybinds = .{},
 /// Completely blank lines always have their whitespace trimmed.
 @"clipboard-trim-trailing-spaces": bool = true,
 
+/// Rejoin "full-width" rows when copying to the clipboard, even when those rows
+/// are not soft-wrapped by the terminal. Genuine terminal soft-wrap (a row that
+/// was auto-wrapped at the right margin) is always rejoined on copy regardless
+/// of this option; this option additionally targets full-screen TUI apps (for
+/// example, those built on ratatui) that perform their own word-aware wrapping
+/// and draw each visual line as a separately positioned row with the wrap flag
+/// cleared.
+///
+/// When enabled, a selected row whose last cell (at the right margin) has text
+/// is treated as a wrap continuation: its trailing newline is suppressed and it
+/// joins the next row. A row that ends before the margin (leaving trailing
+/// blanks) keeps its newline. This means a copied URL or other content that
+/// fills the width rejoins into one line, while short word-wrapped prose lines
+/// stay on separate lines.
+///
+/// Box-drawing and block-element glyphs (U+2500..U+259F) at the right margin
+/// are treated as table/frame borders and are NOT rejoined, so ASCII tables
+/// and TUI box frames keep their line breaks.
+///
+/// This is a heuristic. The default is `true`. Set to `false` to restore the
+/// previous copy behavior exactly.
+@"clipboard-rejoin-wrapped-rows": bool = true,
+
 /// Require confirmation before pasting text that appears unsafe. This helps
 /// prevent a "copy/paste attack" where a user may accidentally execute unsafe
 /// commands by pasting text with newlines.
@@ -2860,7 +2883,6 @@ keybind: Keybinds = .{},
 /// PTY byte stream persistence via mmap'd ring buffer per pane.
 /// (P7 Phase B1.) Default: `true`.
 ///
-
 /// Custom entries into the command palette.
 ///
 /// Each entry requires the title, the corresponding action, and an optional

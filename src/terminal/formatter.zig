@@ -62,6 +62,47 @@ pub fn formatStyled(fmt: Format) bool {
     };
 }
 
+/// Returns true if the last cell of a full row (the one at `cells.len - 1`,
+/// i.e. the right margin) has rendered text. A spacer_tail at the margin is
+/// resolved back to its wide head one cell to the left. Used by the
+/// `rejoin_full_rows` heuristic to decide whether a row fills to the margin
+/// and should therefore be treated as a wrap continuation. `cells` must be a
+/// full-width row slice (page.getCells(row)).
+fn lastCellHasText(cells: []const Cell) bool {
+    if (cells.len == 0) return false;
+    const last = cells[cells.len - 1];
+    return switch (last.wide) {
+        // A spacer tail at the margin means a wide char's head sits one cell
+        // to the left; inspect that head for text instead.
+        .spacer_tail => cells.len >= 2 and cells[cells.len - 2].hasText(),
+
+        // A spacer head at the margin is the left half of a wide char that
+        // soft-wraps to the next line; the existing soft-wrap path handles
+        // that, and for our purposes the margin is "filled".
+        .spacer_head => true,
+
+        .narrow, .wide => last.hasText(),
+    };
+}
+
+/// Returns true if the last cell of a full row renders a box-drawing or
+/// block-element glyph (Unicode U+2500..U+259F). TUI frameworks draw table
+/// borders and box frames with these and pad them to the right margin, so a
+/// margin-filling row whose final glyph is one of them is a frame/table line,
+/// NOT a wrapped continuation -- the `rejoin_full_rows` heuristic must NOT
+/// join across it. Mirrors `lastCellHasText` spacer resolution. `cells` must
+/// be a full-width row slice.
+fn lastCellIsBoxDrawing(cells: []const Cell) bool {
+    if (cells.len == 0) return false;
+    const last = cells[cells.len - 1];
+    const cp: u21 = switch (last.wide) {
+        .spacer_tail => if (cells.len >= 2) cells[cells.len - 2].codepoint() else return false,
+        .spacer_head => return false,
+        .narrow, .wide => last.codepoint(),
+    };
+    return cp >= 0x2500 and cp <= 0x259F;
+}
+
 pub const CodepointMap = struct {
     /// Unicode codepoint range to replace.
     /// Asserts: range[0] <= range[1]
@@ -88,6 +129,21 @@ pub const Options = struct {
     /// Whether to unwrap soft-wrapped lines. If false, this will emit the
     /// screen contents as it is rendered on the page in the given size.
     unwrap: bool = false,
+
+    /// Opt-in heuristic to rejoin "full-width" rows on emit, even when they
+    /// are not soft-wrapped (`row.wrap == false`). When true, a row whose last
+    /// non-spacer cell (at `page.size.cols - 1`, resolving a spacer_tail back
+    /// to its wide head) has text is treated as a wrap continuation: its
+    /// trailing newline is suppressed and it joins the next row.
+    ///
+    /// This targets full-screen TUI apps (e.g. ratatui-based ones) that do
+    /// their own word-aware wrapping and draw each visual line as a separately
+    /// positioned row with the wrap flag cleared. Such rows fill to the right
+    /// margin, so this heuristic rejoins them while leaving short rows (which
+    /// end before the margin with trailing blanks) on their own line.
+    ///
+    /// This is additive to `unwrap`: genuine soft-wrap rejoin is unaffected.
+    rejoin_full_rows: bool = false,
 
     /// Trim trailing whitespace on lines with other text. Trailing blank
     /// lines are always trimmed. This only affects trailing whitespace
@@ -1111,7 +1167,20 @@ pub const PageFormatter = struct {
 
             // If we're not wrapped, we always add a newline so after
             // the row is printed we can add a newline.
-            if (!row.wrap or !self.opts.unwrap) blank_rows += 1;
+            //
+            // ADDITIVE rejoin_full_rows heuristic: if this row visually fills
+            // to the right margin (its last non-spacer cell has text) and it
+            // is not the final selected row, treat it as a wrap continuation
+            // and suppress the newline -- even when row.wrap is false. This is
+            // intentionally evaluated AFTER the soft-wrap logic so it can only
+            // ever suppress an otherwise-added newline, never add one.
+            if (!row.wrap or !self.opts.unwrap) {
+                const suppress = self.opts.rejoin_full_rows and
+                    y != end_y and
+                    lastCellHasText(cells) and
+                    !lastCellIsBoxDrawing(cells);
+                if (!suppress) blank_rows += 1;
+            }
 
             // If the row doesn't continue a wrap then we need to reset
             // our blank cell count.

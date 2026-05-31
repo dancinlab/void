@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **`clipboard-rejoin-wrapped-rows` (기본 ON · box-drawing 예외) — 풀스크린 TUI 앱의
+  자체 word-wrap 줄을 복사 시 한 줄로 재결합.** terminal 자동-wrap("줄내림",
+  `row.wrap = true`)은 이미 정상적으로 재결합되지만(1.4.2 진단 참고), codex 등
+  ratatui 기반 풀스크린 TUI 앱은 **자체 word-aware wrapping** 으로 각 시각적
+  줄을 개별 행으로 그리며 wrap 플래그를 세우지 않는다(`row.wrap = false`).
+  증거: 제보된 깨짐이 단어 경계("…link to" → "authenticate:")에서 끊겼는데,
+  이는 셀 기반 자동-wrap 으로는 불가능하고 앱의 word-wrap 만 만들 수 있는
+  형태다. 이 행들의 개행은 터미널 입장에서 "진짜"이므로 기존 소프트랩 경로로는
+  재결합할 수 없다. 새 옵션을 켜면(opt-in heuristic) 선택된 행 중 **우측 마진까지
+  꽉 찬 행**(마지막 셀에 텍스트가 있는 행, spacer_tail 은 wide head 로 환원)의
+  개행을 억제해 다음 행과 이어 붙인다. URL 처럼 폭을 꽉 채운 줄은 한 줄로
+  재결합되고, 마진 전에 끝나는(뒤에 공백이 남는) 짧은 word-wrap 산문 줄은 그대로
+  개행을 유지한다. ASCII 표·박스 테두리(box-drawing/block-element U+2500..U+259F가 마지막 글자인 행)는 재결합에서 제외. 기본값은 `true`(켜짐) · `false` 로 두면 기존 복사 동작과 100% 동일하므로 회귀
+  없음. 구현은 출력 문자열 후처리(행 폭 기하 정보 손실)가 아니라
+  `formatter.zig` 의 unwrap 지점에 **가산(additive)** 조건으로 더해, 진짜
+  소프트랩 재결합 경로는 손대지 않았다. (void/clipboard-rejoin-wrapped-rows)
+
 ## [1.4.3] — 2026-05-31
 
 ### Fixed
