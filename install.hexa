@@ -40,6 +40,11 @@ fn main() {
     let pkg_dir_raw = env("HX_PKG_DIR")
     let pkg_dir = if pkg_dir_raw != "" { pkg_dir_raw } else { to_string(exec("pwd")).trim() }
 
+    // 기본 브랜치를 동적으로 감지 (하드코딩 금지) — origin/HEAD가 가리키는 브랜치.
+    // start-block(self-update)과 end-block(restore) 양쪽에서 읽도록 outer-scope.
+    let defbranch = to_string(exec("cd '" + pkg_dir + "' && git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@'")).trim()
+    let defb = if defbranch != "" { defbranch } else { "main" }
+
     let uname = to_string(exec("uname -s")).trim()
     if uname != "Darwin" {
         eprintln("void install.hexa currently supports macOS only (Zig + Xcode).")
@@ -50,6 +55,31 @@ fn main() {
     if !have("xcodebuild") {
         eprintln("xcodebuild not found. Install Xcode + macOS SDK.")
         exit(1)
+    }
+
+    // ── SELF-UPDATE (tag-pinned, bootstrap-safe) ──
+    // 모두가 동일한 "최신 릴리스 태그" 빌드로 수렴하도록 클론을 self-update.
+    // bootstrap-safe: 먼저 기본 브랜치로 self-heal(가장 신선한 install.hexa 로직 로드)
+    // → 그 다음 최신 v* 태그를 detach-checkout 하여 그 정확한 릴리스를 빌드.
+    // VOID_NO_SELF_UPDATE=1 로 통째로 비활성화 가능(오프라인/dev 탈출구).
+    if env("VOID_NO_SELF_UPDATE") != "1" && have("git") && dir_exists(pkg_dir + "/.git") {
+        run_or_die("cd '" + pkg_dir + "' && git fetch --tags --force origin 2>&1 | tail -2")
+        run_or_die("cd '" + pkg_dir + "' && git fetch origin 2>&1 | tail -2")
+        // dirty tree → WIP 보호용 stash 먼저.
+        if to_string(exec("cd '" + pkg_dir + "' && git status --porcelain")).trim() != "" {
+            println("⬡ void: 작업 트리에 변경사항 있음 — self-update 전 git stash (void-selfupdate-autostash)")
+            exec("cd '" + pkg_dir + "' && git stash push -u -m void-selfupdate-autostash 2>&1 | tail -1")
+        }
+        run_or_die("cd '" + pkg_dir + "' && git checkout " + defb + " 2>&1 | tail -1")
+        run_or_die("cd '" + pkg_dir + "' && git reset --hard origin/" + defb + " 2>&1 | tail -1")
+        // 최신 v* 태그 선택 (semver 내림차순 → head -1).
+        let tag = to_string(exec("cd '" + pkg_dir + "' && git tag --list 'v*' --sort=-v:refname | head -1")).trim()
+        if tag != "" {
+            println("⬡ void: building release tag " + tag)
+            run_or_die("cd '" + pkg_dir + "' && git checkout --detach " + tag + " 2>&1 | tail -1")
+        } else {
+            println("⬡ void: 태그 없음 — " + defb + " head 빌드 (no release tag yet)")
+        }
     }
 
     // Ensure the pinned zig 0.15.2 toolchain is available. build.zig:16
@@ -74,6 +104,14 @@ fn main() {
         run_or_die("mkdir -p " + vendor_dir)
         run_or_die("ln -sf " + brew_zig + " " + vendor_zig)
         println("⬡ void: vendored zig 0.15.2 → " + vendor_zig)
+    }
+
+    // Metal 툴체인 가드 — Xcode 26은 Metal 툴체인을 기본 동봉하지 않아
+    // zig build의 `metal Void (Void.ir)` 단계가 hard-fail 한다. metal이 동작하지
+    // 않으면 다운로드. zig@0.15 / brew 가드 패턴과 동일.
+    if exec_with_status("xcrun -sdk macosx metal --version >/dev/null 2>&1")[1] != 0 {
+        println("⬡ void: Metal toolchain 없음 — xcodebuild -downloadComponent MetalToolchain (수 분 소요 가능)")
+        run_or_die("xcodebuild -downloadComponent MetalToolchain 2>&1 | tail -3")
     }
 
     println("⬡ void: zig build -Demit-macos-app -Doptimize=ReleaseFast (first build ~10-15 min; incremental ~1-3 min)")
@@ -172,6 +210,15 @@ fn main() {
     // running and the new cert chain isn't picked up until next reboot.
     exec("osascript -e 'tell application \"Void\" to quit' 2>/dev/null")
     exec("pkill -x void 2>/dev/null")
+
+    // ── RESTORE (self-update 종료 복원) ──
+    // detach 상태(빌드한 태그)에서 기본 브랜치로 되돌려, 다음 실행에서 다시
+    // 브랜치의 self-update 로직이 돌도록 한다. 주의: 이 복원은 디스크의 install.hexa가
+    // detach된 태그본이어도 "메모리에 로드된 브랜치본" install.hexa에서 실행된다 —
+    // 이는 의도된 동작이며, self-update가 실행 간에 살아있게 유지하는 핵심이다.
+    if env("VOID_NO_SELF_UPDATE") != "1" && have("git") && dir_exists(pkg_dir + "/.git") {
+        exec("cd '" + pkg_dir + "' && git checkout " + defb + " 2>&1 | tail -1")
+    }
 
     // First-time-only: clear any old TCC entries (which were keyed to ad-hoc
     // hashes from previous unsigned builds) and open Privacy & Security →
