@@ -258,6 +258,12 @@ const Mouse = struct {
     /// True if the mouse position is currently over a link.
     over_link: bool = false,
 
+    /// True when a left-button PRESS was swallowed under mouse reporting
+    /// because it completed a double-click that opened a scheme URL. The
+    /// matching left-button RELEASE is then also swallowed (not reported to
+    /// the app) to avoid a dangling release, after which this is cleared.
+    report_url_double_click_swallow: bool = false,
+
     /// The last x/y in the cursor position for links. We use this to
     /// only process link hover events when the mouse actually moves cells.
     link_point: ?terminal.point.Coordinate = null,
@@ -3619,6 +3625,36 @@ fn isMouseReporting(self: *const Surface) bool {
         self.io.terminal.flags.mouse_event != .none;
 }
 
+/// Returns true if the current left-button PRESS would register as a
+/// double-click (click count 2), using the same timing/position criteria as
+/// the non-reporting multi-click path (see `mouseButtonCallback`). This is a
+/// read-only predicate: it does NOT mutate `left_click_count` or any other
+/// click state, so the non-reporting multi-click behavior is unaffected. Used
+/// by the mouse-reporting double-click-to-open-URL carve-out, which must judge
+/// the double-click before the count is reset to 0.
+fn isReportDoubleClick(self: *const Surface) bool {
+    // A double-click requires exactly one prior left click recorded.
+    if (self.mouse.left_click_count != 1) return false;
+
+    const pos = self.rt_surface.getCursorPos() catch return false;
+
+    // If the cursor moved too far from the previous click, the non-reporting
+    // path resets the count to 0, so this would be a fresh single click.
+    const max_distance: f64 = @floatFromInt(self.size.cell.width);
+    const distance = @sqrt(
+        std.math.pow(f64, pos.x - self.mouse.left_click_xpos, 2) +
+            std.math.pow(f64, pos.y - self.mouse.left_click_ypos, 2),
+    );
+    if (distance > max_distance) return false;
+
+    // The press must fall within the multi-click interval.
+    const now = std.time.Instant.now() catch return false;
+    const since = now.since(self.mouse.left_click_time);
+    if (since > self.config.mouse_interval) return false;
+
+    return true;
+}
+
 fn mouseReport(
     self: *Surface,
     button: ?input.MouseButton,
@@ -3851,6 +3887,65 @@ pub fn mouseButtonCallback(
             // If we have shift-pressed and we aren't allowed to capture it,
             // then we do not do a mouse report.
             if (mods.shift and !shift_capture) break :report;
+
+            // If we previously swallowed a left PRESS because it opened a
+            // scheme URL via double-click, we also swallow its matching
+            // RELEASE so the app never sees a dangling release. Clear the
+            // flag and consume the event without reporting.
+            if (button == .left and action == .release and
+                self.mouse.report_url_double_click_swallow)
+            {
+                self.mouse.report_url_double_click_swallow = false;
+                return true;
+            }
+
+            // Double-click-to-open-URL carve-out under mouse reporting: if a
+            // left PRESS would complete a double-click on a *scheme* URL, open
+            // the URL once and swallow the event instead of reporting it to the
+            // app. We judge the double-click using the same timing/position
+            // criteria as the non-reporting path below, but WITHOUT mutating
+            // `left_click_count` (so the non-reporting behavior is unchanged),
+            // and BEFORE the count is reset to 0 just below. Only scheme URLs
+            // are intercepted (per `config.url.hasKnownScheme`); bare paths /
+            // words fall through and are reported to the app normally so the
+            // TUI app's own double-click keeps working.
+            if (button == .left and
+                action == .press and
+                self.config.mouse_double_click_open_url and
+                self.isReportDoubleClick())
+            url_open: {
+                const pos = try self.rt_surface.getCursorPos();
+                const screen: *terminal.Screen =
+                    self.renderer_state.terminal.screens.active;
+                const pt_viewport = self.posToViewport(pos.x, pos.y);
+                const pin = screen.pages.pin(.{ .viewport = .{
+                    .x = pt_viewport.x,
+                    .y = pt_viewport.y,
+                } }) orelse break :url_open;
+
+                // Detect a link without requiring modifier keys (matches the
+                // non-reporting double-click path). The mutex is held here.
+                const link = (self.linkAtPin(pin, null) catch null) orelse
+                    break :url_open;
+
+                // Only intercept scheme URLs. Extract the matched string and
+                // check it against the SSOT scheme predicate.
+                const str = self.io.terminal.screens.active.selectionString(
+                    self.alloc,
+                    .{ .sel = link.selection, .trim = false },
+                ) catch break :url_open;
+                defer self.alloc.free(str);
+                if (!configpkg.url.hasKnownScheme(str)) break :url_open;
+
+                // It's a scheme URL double-click: open it once and swallow
+                // the press, then arrange to swallow the matching release.
+                _ = self.processLinks(pos) catch |err| {
+                    log.warn("error opening link on double-click under mouse reporting err={}", .{err});
+                    break :url_open;
+                };
+                self.mouse.report_url_double_click_swallow = true;
+                return true;
+            }
 
             // In any other mouse button scenario without shift pressed we
             // clear the selection since the underlying application can handle
