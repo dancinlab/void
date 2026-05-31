@@ -85,6 +85,24 @@ fn lastCellHasText(cells: []const Cell) bool {
     };
 }
 
+/// Returns true if the last cell of a full row renders a box-drawing or
+/// block-element glyph (Unicode U+2500..U+259F). TUI frameworks draw table
+/// borders and box frames with these and pad them to the right margin, so a
+/// margin-filling row whose final glyph is one of them is a frame/table line,
+/// NOT a wrapped continuation -- the `rejoin_full_rows` heuristic must NOT
+/// join across it. Mirrors `lastCellHasText` spacer resolution. `cells` must
+/// be a full-width row slice.
+fn lastCellIsBoxDrawing(cells: []const Cell) bool {
+    if (cells.len == 0) return false;
+    const last = cells[cells.len - 1];
+    const cp: u21 = switch (last.wide) {
+        .spacer_tail => if (cells.len >= 2) cells[cells.len - 2].codepoint() else return false,
+        .spacer_head => return false,
+        .narrow, .wide => last.codepoint(),
+    };
+    return cp >= 0x2500 and cp <= 0x259F;
+}
+
 pub const CodepointMap = struct {
     /// Unicode codepoint range to replace.
     /// Asserts: range[0] <= range[1]
@@ -1159,7 +1177,8 @@ pub const PageFormatter = struct {
             if (!row.wrap or !self.opts.unwrap) {
                 const suppress = self.opts.rejoin_full_rows and
                     y != end_y and
-                    lastCellHasText(cells);
+                    lastCellHasText(cells) and
+                    !lastCellIsBoxDrawing(cells);
                 if (!suppress) blank_rows += 1;
             }
 

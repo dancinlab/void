@@ -8352,11 +8352,10 @@ test "Screen: selectWord" {
 
     // Default boundary codepoints for word selection
     const boundary_codepoints = &[_]u21{
-        0,   ' ', '\t', '\'', '"',
-        '│',
-        '`', '|', ':',  ';',  ',',
-        '(', ')', '[',  ']',  '{',
-        '}', '<', '>',  '$',
+        0,     ' ', '\t', '\'', '"',
+        '│', '`', '|',  ':',  ';',
+        ',',   '(', ')',  '[',  ']',
+        '{',   '}', '<',  '>',  '$',
     };
 
     // Outside of active area
@@ -8476,11 +8475,10 @@ test "Screen: selectWord across soft-wrap" {
 
     // Default boundary codepoints for word selection
     const boundary_codepoints = &[_]u21{
-        0,   ' ', '\t', '\'', '"',
-        '│',
-        '`', '|', ':',  ';',  ',',
-        '(', ')', '[',  ']',  '{',
-        '}', '<', '>',  '$',
+        0,     ' ', '\t', '\'', '"',
+        '│', '`', '|',  ':',  ';',
+        ',',   '(', ')',  '[',  ']',
+        '{',   '}', '<',  '>',  '$',
     };
 
     {
@@ -8551,11 +8549,10 @@ test "Screen: selectWord whitespace across soft-wrap" {
 
     // Default boundary codepoints for word selection
     const boundary_codepoints = &[_]u21{
-        0,   ' ', '\t', '\'', '"',
-        '│',
-        '`', '|', ':',  ';',  ',',
-        '(', ')', '[',  ']',  '{',
-        '}', '<', '>',  '$',
+        0,     ' ', '\t', '\'', '"',
+        '│', '`', '|',  ':',  ';',
+        ',',   '(', ')',  '[',  ']',
+        '{',   '}', '<',  '>',  '$',
     };
 
     // Going forward
@@ -8616,11 +8613,10 @@ test "Screen: selectWord with character boundary" {
 
     // Default boundary codepoints for word selection
     const boundary_codepoints = &[_]u21{
-        0,   ' ', '\t', '\'', '"',
-        '│',
-        '`', '|', ':',  ';',  ',',
-        '(', ')', '[',  ']',  '{',
-        '}', '<', '>',  '$',
+        0,     ' ', '\t', '\'', '"',
+        '│', '`', '|',  ':',  ';',
+        ',',   '(', ')',  '[',  ']',
+        '{',   '}', '<',  '>',  '$',
     };
 
     const cases = [_][]const u8{
@@ -9152,6 +9148,34 @@ test "Screen: selectionString rejoin_full_rows ON keeps short rows separate" {
         defer alloc.free(contents);
         // Short rows are NOT full-width -> newline preserved.
         const expected = "ABC\nDEF";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+// rejoin_full_rows BOX-DRAWING EXCEPTION. A row that fills to the right margin
+// but whose final glyph is a box-drawing / block-element char (U+2500..U+259F)
+// is a TUI table/frame border, NOT a wrapped line. Even with the heuristic ON
+// it must keep its newline so ASCII tables and box frames are not collapsed.
+test "Screen: selectionString rejoin_full_rows ON keeps box-drawing border separate" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var s = try init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+    // First row fills all 5 cols and ends in a box-drawing vertical bar.
+    try s.testWriteString("ABC─│\nFGHIJ");
+    {
+        const sel = Selection.init(
+            s.pages.pin(.{ .screen = .{ .x = 0, .y = 0 } }).?,
+            s.pages.pin(.{ .screen = .{ .x = 4, .y = 1 } }).?,
+            false,
+        );
+        const contents = try s.selectionString(alloc, .{
+            .sel = sel,
+            .trim = true,
+            .rejoin_full_rows = true,
+        });
+        defer alloc.free(contents);
+        // Box-drawing border row keeps its newline despite filling the width.
+        const expected = "ABC─│\nFGHIJ";
         try testing.expectEqualStrings(expected, contents);
     }
 }

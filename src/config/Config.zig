@@ -2396,9 +2396,13 @@ keybind: Keybinds = .{},
 /// fills the width rejoins into one line, while short word-wrapped prose lines
 /// stay on separate lines.
 ///
-/// This is a heuristic and is therefore opt-in. The default is `false`, which
-/// preserves the previous copy behavior exactly.
-@"clipboard-rejoin-wrapped-rows": bool = false,
+/// Box-drawing and block-element glyphs (U+2500..U+259F) at the right margin
+/// are treated as table/frame borders and are NOT rejoined, so ASCII tables
+/// and TUI box frames keep their line breaks.
+///
+/// This is a heuristic. The default is `true`. Set to `false` to restore the
+/// previous copy behavior exactly.
+@"clipboard-rejoin-wrapped-rows": bool = true,
 
 /// Require confirmation before pasting text that appears unsafe. This helps
 /// prevent a "copy/paste attack" where a user may accidentally execute unsafe
