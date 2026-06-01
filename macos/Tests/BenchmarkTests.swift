@@ -5,6 +5,7 @@
 //  Created by Mitchell Hashimoto on 7/9/25.
 //
 
+import Foundation
 import Testing
 import VoidKit
 
@@ -27,6 +28,6 @@ struct BenchmarkTests {
     @Test func example() async throws {
         void_benchmark_cli(
             "terminal-stream",
-            "--data=/Users/mitchellh/Documents/void/bug.osc.txt")
+            "--data=\(NSHomeDirectory())/Documents/void/bug.osc.txt")
     }
 }
