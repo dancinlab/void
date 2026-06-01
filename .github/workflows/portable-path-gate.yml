@@ -1,0 +1,29 @@
+name: portable-path-gate
+on:
+  pull_request: { branches: ['**'] }
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  no-foreign-path:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - shell: bash
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.base_ref }}"
+          git fetch --quiet origin "${{ github.base_ref }}"
+          hits="$(git diff -U0 "$base...HEAD" -- '*.zig' '*.c' '*.h' '*.swift' '*.sh' '*.py' \
+            ':(exclude)vendor/**' ':(exclude)deps/**' ':(exclude)pkg/**' \
+            | grep -E '^\+[^+]' | sed -E 's/^\+//' \
+            | grep -E '/(Users|home)/[A-Za-z][A-Za-z0-9._-]+/' \
+            | grep -vE '^[[:space:]]*(//|#|\*)' || true)"
+          if [ -n "$hits" ]; then
+            echo "🚫 FAIL — added source line(s) introduce a machine-absolute author path:"
+            echo "$hits"
+            echo "Use \$HOME / NSHomeDirectory() / env-derived paths, or a generic placeholder."
+            exit 1
+          fi
+          echo "✅ PASS — no foreign machine-absolute paths in added source lines."
