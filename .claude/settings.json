@@ -1,5 +1,89 @@
 {
-  "hooks": {},
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x .harness-engine/bin/harness ] && CLAUDE_TOOL_INPUT=\"$CLAUDE_TOOL_INPUT\" bash .harness-engine/bin/harness pre bash || true"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x .harness-engine/bin/harness ] && CLAUDE_TOOL_INPUT=\"$CLAUDE_TOOL_INPUT\" bash .harness-engine/bin/harness pre write || true"
+          }
+        ],
+        "matcher": "Write|Edit"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x .harness-engine/bin/harness ] && bash .harness-engine/bin/harness post edit \"$CLAUDE_FILE_PATH\" || true"
+          }
+        ],
+        "matcher": "Write|Edit"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x .harness-engine/bin/harness ] && bash .harness-engine/bin/harness prompt \"$CLAUDE_USER_PROMPT\" || true"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x .harness-engine/bin/harness ] && bash .harness-engine/bin/harness prefs inject || true"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x .harness-engine/bin/harness ] && bash .harness-engine/bin/harness easy inject || true"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x .harness-engine/bin/harness ] && bash .harness-engine/bin/harness recommend inject || true"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x .harness-engine/bin/harness ] && bash .harness-engine/bin/harness easy inject || true"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x .harness-engine/bin/harness ] && bash .harness-engine/bin/harness recommend inject || true"
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Bash",
