@@ -1,5 +1,7 @@
 # void 인수인계 프롬프트 (2026-04-11)
 
+> 📍 SSOT: [ARCHITECTURE.md](ARCHITECTURE.md) · governance [CLAUDE.md](CLAUDE.md)
+
 아래를 새 세션 첫 메시지로 붙여넣기:
 
 ---

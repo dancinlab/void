@@ -1,11 +1,18 @@
 {
   "project": "void",
   "profile": "hardcore",
-  "stack": [],
+  "stack": [
+    "hexa"
+  ],
   "lockdown": {
-    "files": [],
+    "files": [
+      "core/sys/pty.hexa",
+      "core/terminal/vt_parser.hexa",
+      "core/terminal/grid.hexa",
+      "core/render/ansi.hexa"
+    ],
     "fromMarkdown": "CLAUDE.md",
-    "onEditReminder": "L0 file edited — update CHANGELOG + issue tracker in the same change."
+    "onEditReminder": "L0 CORE file edited — update CHANGELOG + issue tracker in the same change."
   },
   "enforcementFile": ".harness/enforcement.json",
   "keywordsFile": ".harness/keywords.json",
@@ -17,10 +24,10 @@
     "freshnessFiles": [],
     "changelog": {
       "file": "CHANGELOG.md",
-      "triggerPattern": "\\.(ts|tsx|js|jsx|py|rb|go|rs|java|kt|c|h|cpp|cc|hpp|m|mm|swift|hexa)$",
+      "triggerPattern": "\\.hexa$",
       "ignore": [
         "(^|/)(tests?|__tests__|spec)/",
-        "\\.(test|spec)\\.[a-z]+$",
+        "(^|/)smoke_[^/]*\\.hexa$",
         "(^|/)\\.harness(-engine)?/"
       ]
     },
@@ -34,6 +41,25 @@
     "AGENTS.md",
     "README.md"
   ],
+  "docs": {
+    "architecture": "ARCHITECTURE.md",
+    "log": "CHANGELOG.md",
+    "scratchDir": "scripts/scratch",
+    "scopeDirs": [
+      ""
+    ],
+    "allow": [
+      "README.md",
+      "CHANGELOG.md",
+      "ARCHITECTURE.md",
+      "CLAUDE.md",
+      "AGENTS.md",
+      "LICENSE",
+      "CONTRIBUTING.md",
+      "SECURITY.md",
+      "RELEASE.md"
+    ]
+  },
   "ledger": {
     "staleSec": 1800
   }
