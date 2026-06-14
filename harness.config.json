@@ -1,0 +1,40 @@
+{
+  "project": "void",
+  "profile": "hardcore",
+  "stack": [],
+  "lockdown": {
+    "files": [],
+    "fromMarkdown": "CLAUDE.md",
+    "onEditReminder": "L0 file edited — update CHANGELOG + issue tracker in the same change."
+  },
+  "enforcementFile": ".harness/enforcement.json",
+  "keywordsFile": ".harness/keywords.json",
+  "severityMapFile": ".harness/severity-map.json",
+  "verify": {
+    "checks": []
+  },
+  "lint": {
+    "freshnessFiles": [],
+    "changelog": {
+      "file": "CHANGELOG.md",
+      "triggerPattern": "\\.(ts|tsx|js|jsx|py|rb|go|rs|java|kt|c|h|cpp|cc|hpp|m|mm|swift|hexa)$",
+      "ignore": [
+        "(^|/)(tests?|__tests__|spec)/",
+        "\\.(test|spec)\\.[a-z]+$",
+        "(^|/)\\.harness(-engine)?/"
+      ]
+    },
+    "protectedBranches": [
+      "main",
+      "master"
+    ]
+  },
+  "guides": [
+    "CLAUDE.md",
+    "AGENTS.md",
+    "README.md"
+  ],
+  "ledger": {
+    "staleSec": 1800
+  }
+}
