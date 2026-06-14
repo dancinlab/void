@@ -1,5 +1,7 @@
 # VOID 빌드 속도 개선 로드맵
 
+> 📍 SSOT: [ARCHITECTURE.md](ARCHITECTURE.md) · governance [CLAUDE.md](CLAUDE.md)
+
 **목표:** edit→binary 반복 시간 45분 → **<30초** (전형적 편집 기준)
 **블로커:** VB1 — hexa self-compile 2997 LOC 모놀리식 트랜스파일
 **참조:** 기존 `$NEXUS/shared/roadmaps/void.json` 3-트랙(SYS/TERM/APP) 구조 계승
