@@ -12,3 +12,5 @@
 /tmp/*.c
 src/void_gen.c
 build/
+.harness/logs/
+.harness/handoff/
