@@ -3,6 +3,7 @@
 Grid-first terminal (Ghostty hard fork · N×M tiling as a core rendering surface · 🕳️). Beta: grid mode only. P1 grid-mode, dancinlab hexagon icon.
 
 > 📍 **거버넌스 SSOT** — 이 문서는 `project.tape` 를 마크다운으로 재설계·단일화한 것이다 (`.tape` 은퇴).
+> **설계 SSOT** = [`ARCHITECTURE.json`](ARCHITECTURE.json) (tree · update-in-place · human viewer `ARCHITECTURE.html` via `python3 serve.py`) · **이력** = [`CHANGELOG.md`](CHANGELOG.md). 이 문서 = 거버넌스 + 프로젝트 맵.
 > parent: `dancinlab` · ssot: `github.com/dancinlab/void` (`hx install void`) · siblings: `hexa-lang`
 
 ## 거버넌스 (governance)
@@ -36,7 +37,8 @@ void/
 ├─ build.zig · build.zig.zon — zig build manifest + dependency lockset
 ├─ CMakeLists.txt · Makefile · Doxyfile — auxiliary build / docs-gen
 ├─ flake.nix · default.nix · shell.nix — nix dev/build environment
-├─ VOID.md          — current state snapshot (@goal + milestones; + VOID.log.md history)
+├─ ARCHITECTURE.json — 설계 tree SSOT (folded VOID.md/VOID.log.md 도메인 쌍, hexa-codex #161)
+├─ ARCHITECTURE.html · serve.py — 사람용 트리 뷰어 (`python3 serve.py`, http)
 ├─ VOID_FORK.md · LATTICE_POLICY.md · LIMIT_BREAKTHROUGH.md · TAPE-AUDIT.md — fork/policy/audit docs
 ├─ AI_POLICY.md     — AI contribution policy
 ├─ HACKING.md · CONTRIBUTING.md · PACKAGING.md — contributor guides

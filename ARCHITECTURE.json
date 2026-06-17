@@ -1,0 +1,134 @@
+{
+  "name": "void",
+  "summary": "Grid-first terminal — a hard fork of Ghostty where an N×M pane grid is a first-class rendering surface (not a window-manager bolt-on, not a tmux-style multiplexer). On cell-count change the layout auto-rebalances (cols = ⌈√N⌉, rows = ⌈N/cols⌉, cols ≥ rows); each cell carries its own cwd/env; input can broadcast to all cells. Inherits Ghostty's engine (SIMD parser, Metal/OpenGL, per-terminal threads) unchanged. Zig shared core, native Swift on macOS, GTK on Linux. Beta: grid mode only.",
+  "note": "This JSON tree is the architecture SSOT (update-in-place, NOT append-only). Human viewer = ARCHITECTURE.html via `python3 serve.py`. History/decisions → CHANGELOG.md; governance → CLAUDE.md (→ project.tape) + the policy tape/md pairs (AI_POLICY · HACKING · PACKAGING · VOID_FORK · LATTICE_POLICY · LIMIT_BREAKTHROUGH · TAPE-AUDIT). This doc points only, never duplicates rule thresholds.",
+  "meta": {
+    "ssot": "github.com/dancinlab/void (`hx install void`)",
+    "parent": "dancinlab",
+    "siblings": [
+      "hexa-lang",
+      "anima",
+      "nexus",
+      "n6 (canon)"
+    ],
+    "based_on": "ghostty-org/ghostty (hard fork @ 964c9e32e — 4698 files renamed Ghostty → Void; upstream history + contributor credit preserved, cherry-pick-only syncs)",
+    "guard_baseline": "VoidTests target — SessionManifestReclaimTests 7/7 · SessionManifestTriageTests 10/10 PASS (Xcode 26.5, `** TEST SUCCEEDED **`, #19); `zig build` VoidKit → `xcodebuild` Release Void.app build verified in release-fork CI (dispatch run, all steps success, 59M artifact, #23).",
+    "migrated_from": "VOID.md + VOID.log.md (domain doc pair) retired 2026-06-18 → ARCHITECTURE.json tree SSOT + ARCHITECTURE.html viewer (hexa-codex #161 / anima pattern; c4 standard). VOID.log.md folded into CHANGELOG.md."
+  },
+  "children": [
+    {
+      "name": "GOVERNANCE — the one rule that defines void",
+      "summary": "SSOT mirror of the @D directive in CLAUDE.md (→ project.tape). The grid topology contract is the load-bearing invariant; thresholds live in project.tape, this doc only points.",
+      "children": [
+        {
+          "name": "@D grid_auto_layout — N×M grid topology auto-rebalance",
+          "summary": "DO: grid auto-layout preserves cols = ⌈√N⌉, rows = ⌈N/cols⌉, cols ≥ rows; per-cell cwd isolation. DONT: break grid topology on cell-count change · add manual resize handles / splits (auto-only).",
+          "path": "project.tape",
+          "status": "required"
+        }
+      ]
+    },
+    {
+      "name": "Grid mode — first-class N×M tiling surface (macOS Swift app)",
+      "summary": "The headline divergence from Ghostty: an N×M pane grid as a new renderer path, not a patch on the single-surface renderer and not a multiplexer process. Per-cell cwd/env, shared input routing, broadcast. cmd+g toggles grid <-> tab mode; cmd+ctrl+1..9 spawns into a slot (auto-rebalance); cmd+ctrl+0 broadcasts to all cells. Implemented in the native Swift macOS app.",
+      "path": "macos/Sources/",
+      "children": [
+        {
+          "name": "Splits / grid layout engine",
+          "summary": "Split-tree + view that realize the N×M tiling and auto-rebalance geometry.",
+          "path": "macos/Sources/Features/Splits/ (SplitTree.swift · SplitView.swift · TerminalSplitTreeView.swift)"
+        },
+        {
+          "name": "Terminal controllers",
+          "summary": "Per-window / per-surface controllers driving the grid + tab modes.",
+          "path": "macos/Sources/Features/Terminal/ (TerminalController.swift · BaseTerminalController.swift · TerminalWindow.swift)"
+        },
+        {
+          "name": "Surface views (per-cell)",
+          "summary": "Each grid cell's SwiftUI/AppKit surface view, cwd/env-isolated.",
+          "path": "macos/Sources/Void/Surface View/ (SurfaceView.swift + AppKit/UIKit variants)"
+        },
+        {
+          "name": "Grid self-test",
+          "summary": "Built-in grid topology / visual-order self-test harness.",
+          "path": "macos/Sources/App/macOS/GridSelfTest.swift · macos/standalone-tests/GridVisualOrderTests.swift"
+        }
+      ]
+    },
+    {
+      "name": "Session persistence & restore",
+      "summary": "mmap persist-ring-backed session continuity: on a normal restart it operates with no false alarm (topology-lost notification gated behind didRestoreAnyWindow — a normal no-restore is no longer mis-reported, #16), and a closed cell's ring is reclaimed immediately (ringsToReclaim — orphan-ring leak blocked, session-scoped, quit/restart preserved, #17). VoidTests target restored on Xcode 26.5 (#19): SessionManifestReclaimTests 7/7 + SessionManifestTriageTests 10/10 PASS.",
+      "path": "macos/Sources/App/macOS/ · macos/standalone-tests/",
+      "note": "session-restore: 정상 재시작 topology-lost 오경보 제거 + closed-surface ring 누수 차단 (#16·#17·#18); VoidTests 타깃 Xcode 26.5 빌드 복구 — unit test 7개 실행 (#19). Both VOID.md milestones complete.",
+      "status": "done (#16 · #17 · #18 · #19)"
+    },
+    {
+      "name": "Inherited Ghostty engine (Zig shared core)",
+      "summary": "Performance inherited, not rebuilt. The SIMD VT parser, Metal (macOS) / OpenGL (Linux) renderers, and per-terminal render/read/write threads come straight from Ghostty unchanged. Zig is the shared core; the apprt layer adapts it to each platform front-end.",
+      "path": "src/",
+      "children": [
+        {
+          "name": "Terminal / VT core",
+          "summary": "Terminal emulation, screen model, SIMD parser, unicode.",
+          "path": "src/terminal/ · src/simd/ · src/unicode/"
+        },
+        {
+          "name": "Renderer (Metal · OpenGL)",
+          "summary": "GPU rendering backends; per-terminal render thread.",
+          "path": "src/renderer/ (Metal.zig · opengl/ · backend.zig · cell.zig)"
+        },
+        {
+          "name": "App runtime (apprt)",
+          "summary": "Platform adapter: embedded (macOS C-ABI), GTK (Linux), none/browser/wasm.",
+          "path": "src/apprt/ (embedded.zig · gtk · none.zig) · src/apprt.zig"
+        },
+        {
+          "name": "termio · pty · font · input · config · os",
+          "summary": "Terminal I/O, pty, font shaping/atlas, input/keymap, config parsing, OS shims.",
+          "path": "src/termio/ · src/pty.zig · src/font/ · src/input/ · src/config/ · src/os/"
+        },
+        {
+          "name": "libvoid C-ABI surface",
+          "summary": "libghostty → libvoid C-ABI; old symbol names preserved where required for ABI stability.",
+          "path": "src/lib/ · src/lib_vt.zig · src/main_c.zig"
+        }
+      ]
+    },
+    {
+      "name": "Roadmap — planned, NOT yet implemented",
+      "summary": "Two further directions sit on top of grid mode but are described as roadmap, not shipped features. Captured in the .roadmap.* files at repo root.",
+      "children": [
+        {
+          "name": "P3 — AI-native structured I/O channel alongside PTY",
+          "summary": "A structured agent tool-call-stream channel beside the traditional byte stream. Planned only.",
+          "path": ".roadmap.ai_native_io · .roadmap.ai_native_structure",
+          "status": "planned"
+        },
+        {
+          "name": "P4 — per-PR perf budget vs Ghostty baseline",
+          "summary": "Δ-vs-ghostty perf gate on each PR. Planned only.",
+          "path": ".roadmap.perf_baseline · .roadmap.upstream_diverge · .roadmap.grid",
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "name": "Build · packaging · CI",
+      "summary": "zig build (VoidKit) → xcodebuild Release Void.app on macOS; GTK/flatpak/snap/nix/deb packaging; release-fork.yml CI builds + signs (ad-hoc) + ships DMG/zip to GitHub Releases with zero ghostty-org infra dependency (#23).",
+      "path": "build.zig · CMakeLists.txt · macos/Void.xcodeproj · flatpak/ · snap/ · nix/ · pkg/ · .github/",
+      "children": [
+        {
+          "name": "Zig build + macOS Xcode",
+          "summary": "build.zig + build.zig.zon shared core; macos/Void.xcodeproj wraps VoidKit into Void.app.",
+          "path": "build.zig · build.zig.zon · macos/Void.xcodeproj"
+        },
+        {
+          "name": "Fork release CI",
+          "summary": "release-fork.yml — vX.Y.Z tag → GitHub-hosted macos-26 (Xcode 26.x + zig 0.15.2) → zig build → xcodebuild Release → ad-hoc sign → DMG + universal zip → GitHub Release. release-tag.yml (unmodified Ghostty pipeline) demoted to workflow_dispatch-only.",
+          "path": ".github/workflows/",
+          "status": "done (#23)"
+        }
+      ]
+    }
+  ]
+}
