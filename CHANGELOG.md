@@ -4,6 +4,25 @@
 
 ### Changed
 
+- **Restructured `ARCHITECTURE.json` into a real hierarchical `children` tree
+  per harness governance rule c4 (lossless re-shape).** The two over-long
+  multi-item "dump" `summary` cells — `Grid mode` (366 chars) and
+  `Session persistence & restore` (472 chars) — were DECOMPOSED: a short role
+  line stays on the parent and each item becomes its own child node
+  (`Per-cell behavior + broadcast` · `Keybindings` · `Implementation surface`
+  for Grid mode; `#16` · `#17` · `#19` for Session persistence). Node count
+  21 → 27. Verbatim-preserving: every original character of both summaries
+  reconstructs char-for-char (separators kept by prepending the leading space
+  to each child fragment); the only added text is the 6 new child-name
+  navigation labels (verified by non-whitespace char-multiset diff = 0 content
+  chars lost). Remaining >250-char cells are intentionally left as-is: root
+  `summary`/`note` and `meta.guard_baseline` are document-overview / viewer-
+  pinned meta fields (the HTML viewer renders `data.note` + `meta.guard_baseline`
+  in its header meta block, not as tree children — decomposing them would break
+  that render), and `Inherited Ghostty engine` summary (256 chars) is a single
+  coherent sentence (0 ` · ` separators), not a dump. JSON validates;
+  `ARCHITECTURE.html` viewer stays renderable (same schema keys).
+
 - **Retired the `VOID.md` / `VOID.log.md` domain doc pair into a single
   `ARCHITECTURE.json` tree SSOT** (hexa-codex #161 / anima pattern). The
   architecture is now an update-in-place JSON tree (`ARCHITECTURE.json`) read
