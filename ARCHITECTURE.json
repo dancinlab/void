@@ -30,9 +30,21 @@
     },
     {
       "name": "Grid mode — first-class N×M tiling surface (macOS Swift app)",
-      "summary": "The headline divergence from Ghostty: an N×M pane grid as a new renderer path, not a patch on the single-surface renderer and not a multiplexer process. Per-cell cwd/env, shared input routing, broadcast. cmd+g toggles grid <-> tab mode; cmd+ctrl+1..9 spawns into a slot (auto-rebalance); cmd+ctrl+0 broadcasts to all cells. Implemented in the native Swift macOS app.",
+      "summary": "The headline divergence from Ghostty: an N×M pane grid as a new renderer path, not a patch on the single-surface renderer and not a multiplexer process.",
       "path": "macos/Sources/",
       "children": [
+        {
+          "name": "Per-cell behavior + broadcast",
+          "summary": " Per-cell cwd/env, shared input routing, broadcast."
+        },
+        {
+          "name": "Keybindings",
+          "summary": " cmd+g toggles grid <-> tab mode; cmd+ctrl+1..9 spawns into a slot (auto-rebalance); cmd+ctrl+0 broadcasts to all cells."
+        },
+        {
+          "name": "Implementation surface",
+          "summary": " Implemented in the native Swift macOS app."
+        },
         {
           "name": "Splits / grid layout engine",
           "summary": "Split-tree + view that realize the N×M tiling and auto-rebalance geometry.",
@@ -57,10 +69,24 @@
     },
     {
       "name": "Session persistence & restore",
-      "summary": "mmap persist-ring-backed session continuity: on a normal restart it operates with no false alarm (topology-lost notification gated behind didRestoreAnyWindow — a normal no-restore is no longer mis-reported, #16), and a closed cell's ring is reclaimed immediately (ringsToReclaim — orphan-ring leak blocked, session-scoped, quit/restart preserved, #17). VoidTests target restored on Xcode 26.5 (#19): SessionManifestReclaimTests 7/7 + SessionManifestTriageTests 10/10 PASS.",
+      "summary": "mmap persist-ring-backed session continuity:",
       "path": "macos/Sources/App/macOS/ · macos/standalone-tests/",
       "note": "session-restore: 정상 재시작 topology-lost 오경보 제거 + closed-surface ring 누수 차단 (#16·#17·#18); VoidTests 타깃 Xcode 26.5 빌드 복구 — unit test 7개 실행 (#19). Both VOID.md milestones complete.",
-      "status": "done (#16 · #17 · #18 · #19)"
+      "status": "done (#16 · #17 · #18 · #19)",
+      "children": [
+        {
+          "name": "No false topology-lost alarm on normal restart (#16)",
+          "summary": " on a normal restart it operates with no false alarm (topology-lost notification gated behind didRestoreAnyWindow — a normal no-restore is no longer mis-reported, #16),"
+        },
+        {
+          "name": "Closed-cell ring reclaimed immediately (#17)",
+          "summary": " and a closed cell's ring is reclaimed immediately (ringsToReclaim — orphan-ring leak blocked, session-scoped, quit/restart preserved, #17)."
+        },
+        {
+          "name": "VoidTests target restored on Xcode 26.5 (#19)",
+          "summary": " VoidTests target restored on Xcode 26.5 (#19): SessionManifestReclaimTests 7/7 + SessionManifestTriageTests 10/10 PASS."
+        }
+      ]
     },
     {
       "name": "Inherited Ghostty engine (Zig shared core)",
